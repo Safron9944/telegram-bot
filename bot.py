@@ -1,36 +1,3 @@
-"""
-Telegram бот для навчального тестування / екзамену (MVP в одному файлі) на aiogram 3.
-
-Додано (за останнім запитом):
-- Вибір "ОК" і "Рівня" (scope) для кожного користувача (у всіх різні).
-- Вибір "Блоку" = теми (topic) всередині обраного ОК/Рівня для навчання/екзамену.
-
-Функції:
-- Реєстрація через "Поділитись номером" (контакт), щоб вести статистику.
-- 3 дні безкоштовного тестування (trial) з моменту реєстрації.
-- Навчання (training): показує правильну відповідь після відповіді, є кнопка "Пропустити".
-- Екзамен (exam): 100 питань (або EXAM_QUESTIONS), без показу правильних, без пропуску, з таймером.
-- Адмін: контроль підписок, перегляд користувачів, окремо проблемні питання (вимкнення/вмикання).
-
-Файли з питаннями (покласти поруч з bot.py):
-- questions_flat.json  (список питань)
-- problem_questions.json (список проблемних питань)
-
-ENV змінні (Railway/GitHub):
-- BOT_TOKEN=...                      (обовʼязково)
-- DATABASE_URL=postgresql://...      (обовʼязково, Railway Postgres)
-- ADMIN_IDS=123,456                  (опційно, TG id адмінів через кому)
-- TRAIN_QUESTIONS=20                 (опційно)
-- EXAM_QUESTIONS=100                 (опційно)
-- EXAM_DURATION_MINUTES=90           (опційно)
-
-requirements.txt мінімально:
-aiogram>=3.4.1
-asyncpg>=0.29.0
-
-Запуск:
-python bot.py
-"""
 
 import asyncio
 import json
@@ -83,6 +50,7 @@ PROBLEMS_FILE = os.getenv("PROBLEMS_FILE", "problem_questions.json")
 
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 OK_CODE_LAW = "LAW"  # внутрішній код для "законодавства"
+LEVEL_ALL = -1  # спеціальне значення: всі рівні для обраного ОК
 
 
 # -------------------------
@@ -142,6 +110,9 @@ def is_question_valid(q: Dict[str, Any]) -> bool:
 def scope_title(ok_code: str, level: int) -> str:
     if ok_code == OK_CODE_LAW:
         return "📜 Законодавство"
+    # LEVEL_ALL означає "всі рівні" — рівень не показуємо
+    if level == LEVEL_ALL:
+        return f"{ok_code}"
     return f"{ok_code} • Рівень {level}"
 
 def truncate_button(text: str, max_len: int = 44) -> str:
@@ -167,13 +138,47 @@ def effective_qids(base: List[int]) -> List[int]:
         return base
     return [qid for qid in base if qid not in DISABLED_IDS_DB]
 
+
+def levels_for_ok(ok_code: str) -> List[int]:
+    """Повертає доступні рівні для ОК. Для LAW — [0]."""
+    if ok_code == OK_CODE_LAW:
+        return [0]
+    return LEVELS_BY_OK.get(ok_code, [])
+
+def topics_for_scope(ok_code: str, level: int) -> List[str]:
+    """Список тем для scope. Якщо level==LEVEL_ALL — об'єднує теми по всіх рівнях."""
+    if level == LEVEL_ALL:
+        s: Set[str] = set()
+        for lvl in levels_for_ok(ok_code):
+            s.update(TOPICS_BY_SCOPE.get((ok_code, lvl), []))
+        return sorted(s)
+    return TOPICS_BY_SCOPE.get((ok_code, level), [])
+
+def base_qids_for_scope(ok_code: str, level: int) -> List[int]:
+    """Базові qids для scope без фільтра disabled. Якщо level==LEVEL_ALL — об'єднує по всіх рівнях."""
+    if level == LEVEL_ALL:
+        out: List[int] = []
+        for lvl in levels_for_ok(ok_code):
+            out.extend(QIDS_BY_SCOPE.get((ok_code, lvl), []))
+        return out
+    return QIDS_BY_SCOPE.get((ok_code, level), [])
+
+def base_qids_for_topic(ok_code: str, level: int, topic: str) -> List[int]:
+    """Базові qids для теми без фільтра disabled. Якщо level==LEVEL_ALL — об'єднує по всіх рівнях."""
+    if level == LEVEL_ALL:
+        out: List[int] = []
+        for lvl in levels_for_ok(ok_code):
+            out.extend(QIDS_BY_SCOPE_TOPIC.get((ok_code, lvl, topic), []))
+        return out
+    return QIDS_BY_SCOPE_TOPIC.get((ok_code, level, topic), [])
+
 def effective_topics(ok_code: str, level: int) -> List[str]:
-    base = TOPICS_BY_SCOPE.get((ok_code, level), [])
+    base = topics_for_scope(ok_code, level)
     if not base:
         return []
-    out = []
+    out: List[str] = []
     for t in base:
-        qids = QIDS_BY_SCOPE_TOPIC.get((ok_code, level, t), [])
+        qids = base_qids_for_topic(ok_code, level, t)
         if any((qid not in DISABLED_IDS_DB) for qid in qids):
             out.append(t)
     return out
@@ -223,6 +228,31 @@ class TopicPickCb(CallbackData, prefix="tk"):
     ok_code: str
     level: int
     topic_idx: int
+
+# multi-select topics
+class TopicToggleCb(CallbackData, prefix="tt"):
+    mode: str
+    ok_code: str
+    level: int
+    topic_idx: int
+    page: int
+
+class TopicDoneCb(CallbackData, prefix="td"):
+    mode: str
+    ok_code: str
+    level: int
+
+class TopicClearCb(CallbackData, prefix="tc"):
+    mode: str
+    ok_code: str
+    level: int
+    page: int
+
+class TopicAllCb(CallbackData, prefix="ta"):
+    mode: str
+    ok_code: str
+    level: int
+
 
 
 # -------------------------
@@ -306,7 +336,7 @@ def kb_train_pick(ok_code: str, level: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=f"🎲 Випадково ({TRAIN_QUESTIONS})", callback_data=StartScopeCb(mode="train", ok_code=ok_code, level=level))
     b.button(text="📚 Обрати блок", callback_data=TopicPageCb(mode="train", ok_code=ok_code, level=level, page=0))
-    b.button(text="🔁 Змінити ОК/рівень", callback_data="pickok")
+    b.button(text="🏠 Меню", callback_data="menu")
     b.adjust(1)
     return b.as_markup()
 
@@ -314,30 +344,65 @@ def kb_exam_pick(ok_code: str, level: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=f"✅ Почати екзамен ({EXAM_QUESTIONS})", callback_data=StartScopeCb(mode="exam", ok_code=ok_code, level=level))
     b.button(text="📚 Екзамен по блоку", callback_data=TopicPageCb(mode="exam", ok_code=ok_code, level=level, page=0))
-    b.button(text="🔁 Змінити ОК/рівень", callback_data="pickok")
+    b.button(text="🏠 Меню", callback_data="menu")
     b.adjust(1)
     return b.as_markup()
 
-def kb_topics(mode: str, ok_code: str, level: int, page: int = 0, per_page: int = 8) -> InlineKeyboardMarkup:
+def kb_topics(
+    mode: str,
+    ok_code: str,
+    level: int,
+    page: int = 0,
+    selected: Optional[Set[str]] = None,
+    per_page: int = 8,
+) -> InlineKeyboardMarkup:
+    """
+    Multi-select тем (блоків).
+    - Клік по темі: вмикає/вимикає.
+    - "✅ Почати": стартує навчання/екзамен по обраних темах.
+    - "🎯 Всі блоки": стартує без фільтра по темах.
+    """
+    selected_set: Set[str] = set(selected or [])
     topics = effective_topics(ok_code, level)
+
     pages: List[List[str]] = [topics[i:i+per_page] for i in range(0, len(topics), per_page)]
     if not pages:
         pages = [[]]
     page = max(0, min(page, len(pages) - 1))
     current = pages[page]
+    start_idx = page * per_page
 
     b = InlineKeyboardBuilder()
-    # кнопка "всі блоки" (для навчання/екзамену)
-    b.button(text="🎯 Всі блоки", callback_data=StartScopeCb(mode=mode, ok_code=ok_code, level=level))
 
-    # список блоків
-    # індекси беремо від ефективного topics (важливо: порядок стабільний)
-    start_idx = page * per_page
+    start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
+    b.row(
+        InlineKeyboardButton(
+            text=start_label,
+            callback_data=TopicDoneCb(mode=mode, ok_code=ok_code, level=level).pack(),
+        ),
+        InlineKeyboardButton(
+            text="🧹 Очистити",
+            callback_data=TopicClearCb(mode=mode, ok_code=ok_code, level=level, page=page).pack(),
+        ),
+    )
+
+    b.row(
+        InlineKeyboardButton(
+            text="🎯 Всі блоки",
+            callback_data=TopicAllCb(mode=mode, ok_code=ok_code, level=level).pack(),
+        )
+    )
+
     for i, t in enumerate(current):
         idx = start_idx + i
-        b.button(text=truncate_button(t), callback_data=TopicPickCb(mode=mode, ok_code=ok_code, level=level, topic_idx=idx))
-
-    b.adjust(1)
+        checked = "☑️" if t in selected_set else "⬜️"
+        label = f"{checked} {truncate_button(t, max_len=40)}"
+        b.row(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=TopicToggleCb(mode=mode, ok_code=ok_code, level=level, topic_idx=idx, page=page).pack(),
+            )
+        )
 
     nav = []
     if page > 0:
@@ -347,8 +412,13 @@ def kb_topics(mode: str, ok_code: str, level: int, page: int = 0, per_page: int 
     if nav:
         b.row(*nav)
 
-    b.row(InlineKeyboardButton(text="🔁 Змінити ОК/рівень", callback_data="pickok"))
+    # навігація вниз
+    b.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back:{mode}"),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
     return b.as_markup()
+
 
 
 # -------------------------
@@ -398,6 +468,17 @@ CREATE TABLE IF NOT EXISTS question_flags (
   note TEXT,
   updated_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS topic_prefs (
+  tg_id BIGINT NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
+  mode TEXT NOT NULL, -- train/exam
+  ok_code TEXT NOT NULL,
+  ok_level INT NOT NULL,
+  topics JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (tg_id, mode, ok_code, ok_level)
+);
+
 
 -- Міграції (на випадок якщо таблиця вже існувала у попередній версії)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_code TEXT;
@@ -540,6 +621,24 @@ async def db_update_session_progress(
                 session_id, current_index, correct_delta, wrong_delta, skipped_delta, completed
             )
 
+
+
+async def db_set_session_question_ids(
+    pool: asyncpg.Pool,
+    session_id: uuid.UUID,
+    question_ids: List[int],
+) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE sessions
+            SET question_ids=$2
+            WHERE session_id=$1
+            """,
+            session_id,
+            json.dumps(question_ids),
+        )
+
 async def db_finish_session(pool: asyncpg.Pool, session_id: uuid.UUID) -> Optional[asyncpg.Record]:
     async with pool.acquire() as conn:
         await conn.execute("UPDATE sessions SET completed=TRUE WHERE session_id=$1", session_id)
@@ -612,6 +711,49 @@ async def db_toggle_question(pool: asyncpg.Pool, qid: int, enable: bool, note: s
             """,
             qid, (not enable), note, now
         )
+
+# -------------------------
+# Збереження вибору тем (multi-select)
+# -------------------------
+
+async def db_get_topic_prefs(pool: asyncpg.Pool, tg_id: int, mode: str, ok_code: str, ok_level: int) -> Set[str]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT topics FROM topic_prefs WHERE tg_id=$1 AND mode=$2 AND ok_code=$3 AND ok_level=$4",
+            tg_id, mode, ok_code, ok_level
+        )
+    if not row or row["topics"] is None:
+        return set()
+    topics = row["topics"]
+    # asyncpg може віддати list напряму або str
+    if isinstance(topics, str):
+        try:
+            topics = json.loads(topics)
+        except Exception:
+            topics = []
+    if not isinstance(topics, list):
+        topics = []
+    return {str(t) for t in topics}
+
+async def db_set_topic_prefs(pool: asyncpg.Pool, tg_id: int, mode: str, ok_code: str, ok_level: int, topics: Set[str]) -> None:
+    now = utcnow()
+    payload = json.dumps(sorted(list(topics)))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO topic_prefs(tg_id, mode, ok_code, ok_level, topics, updated_at) "
+            "VALUES($1,$2,$3,$4,$5,$6) "
+            "ON CONFLICT (tg_id, mode, ok_code, ok_level) "
+            "DO UPDATE SET topics=EXCLUDED.topics, updated_at=EXCLUDED.updated_at",
+            tg_id, mode, ok_code, ok_level, payload, now
+        )
+
+async def db_clear_topic_prefs(pool: asyncpg.Pool, tg_id: int, mode: str, ok_code: str, ok_level: int) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM topic_prefs WHERE tg_id=$1 AND mode=$2 AND ok_code=$3 AND ok_level=$4",
+            tg_id, mode, ok_code, ok_level
+        )
+
 
 
 # -------------------------
@@ -698,14 +840,7 @@ async def ensure_profile(message: Message, user: asyncpg.Record) -> bool:
 # -------------------------
 
 def build_question_text(q: Dict[str, Any], idx: int, total: int, mode: str, remaining_seconds: Optional[int]) -> str:
-    header = f"<b>{'📚 Навчання' if mode=='train' else '📝 Екзамен'}</b>\n"
-    header += f"Питання <b>{idx}/{total}</b>\n"
-    topic = q.get("topic")
-    if topic:
-        header += f"Блок: <i>{html_escape(str(topic))}</i>\n"
-    if mode == "exam" and remaining_seconds is not None:
-        header += f"⏳ Залишилось: <b>{as_minutes_seconds(remaining_seconds)}</b>\n"
-    header += "\n"
+    # Показуємо тільки питання + варіанти відповідей (без "Навчання/Питання/Блок")
     qtext = html_escape(str(q.get("question") or ""))
     body = f"<b>{qtext}</b>\n\n"
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -713,9 +848,11 @@ def build_question_text(q: Dict[str, Any], idx: int, total: int, mode: str, rema
     for i, ch in enumerate(choices):
         label = letters[i] if i < len(letters) else str(i+1)
         body += f"{label}) {html_escape(str(ch))}\n"
-    return header + body
+    if mode == "exam" and remaining_seconds is not None:
+        body += f"\n⏳ {as_minutes_seconds(remaining_seconds)}"
+    return body
 
-async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_id: int, mode: str) -> None:
+async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_id: int, mode: str, edit_message: Optional[Message] = None) -> None:
     sess = await db_get_active_session(pool, tg_id, mode)
     if not sess:
         await bot.send_message(chat_id, "Немає активної сесії. Оберіть режим у меню.")
@@ -737,7 +874,7 @@ async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_i
     if not q:
         await db_update_session_progress(pool, sess["session_id"], idx0 + 1, skipped_delta=1)
         await db_stats_add(pool, tg_id, mode, skipped=1)
-        await send_current_question(bot, pool, chat_id, tg_id, mode)
+        await send_current_question(bot, pool, chat_id, tg_id, mode, edit_message=edit_message)
         return
 
     remaining = None
@@ -747,22 +884,39 @@ async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_i
     text = build_question_text(q, idx0 + 1, total, mode, remaining)
     allow_skip = (mode == "train")
     markup = kb_question(mode=mode, qid=qid, choices=q.get("choices") or [], allow_skip=allow_skip)
+    if edit_message is not None:
+        try:
+            await edit_message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            return
+        except Exception:
+            # Якщо не можна редагувати (старе/видалене повідомлення) — шлемо нове
+            pass
     await bot.send_message(chat_id, text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
-async def complete_session_and_show_summary(bot: Bot, pool: asyncpg.Pool, tg_id: int, chat_id: int, sess: asyncpg.Record, auto: bool = False) -> None:
+async def complete_session_and_show_summary(
+    bot: Bot,
+    pool: asyncpg.Pool,
+    tg_id: int,
+    chat_id: int,
+    sess: asyncpg.Record,
+    auto: bool = False,
+) -> None:
     finished = await db_finish_session(pool, sess["session_id"])
     if not finished:
         return
+
     total = len(json.loads(finished["question_ids"]))
     correct = int(finished["correct_count"])
     wrong = int(finished["wrong_count"])
     skipped = int(finished["skipped_count"])
+    percent = (correct / total * 100.0) if total else 0.0
     mode = finished["mode"]
 
     title = "📚 Навчання завершено" if mode == "train" else "📝 Екзамен завершено"
     text = (
         f"<b>{title}</b>\n"
         f"Питань: <b>{total}</b>\n"
+        f"🎯 Правильних: <b>{percent:.1f}%</b>\n"
         f"✅ Правильно: <b>{correct}</b>\n"
         f"❌ Невірно: <b>{wrong}</b>\n"
     )
@@ -838,7 +992,7 @@ async def on_contact(message: Message) -> None:
     await message.answer(
         "Дякую! Реєстрацію завершено ✅\n\n"
         f"Безкоштовний доступ до: <b>{user['trial_until'].astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n\n"
-        "Тепер оберіть <b>ОК</b> і <b>рівень</b>:",
+        "Тепер оберіть <b>ОК</b> (рівні підтягнуться автоматично):",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardRemove(),
     )
@@ -869,7 +1023,7 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb) -> None:
             parse_mode=ParseMode.HTML,
             reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
         )
-        await call.answer("Збережено")
+        await call.answer()
         return
 
     # показати вибір рівня
@@ -931,7 +1085,7 @@ async def menu_actions(message: Message) -> None:
                 reply_markup=ReplyKeyboardRemove(),
             )
         else:
-            await message.answer("⚙️ Потрібно налаштувати ОК/рівень:", reply_markup=ReplyKeyboardRemove())
+            await message.answer("⚙️ Потрібно налаштувати ОК:", reply_markup=ReplyKeyboardRemove())
         await message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
         return
 
@@ -953,9 +1107,8 @@ async def menu_actions(message: Message) -> None:
         await message.answer(
             f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
             parse_mode=ParseMode.HTML,
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=kb_train_pick(ok_code, lvl),
         )
-        await message.answer("Старт:", reply_markup=kb_train_pick(ok_code, lvl))
         return
 
     if text == "📝 Екзамен":
@@ -965,9 +1118,8 @@ async def menu_actions(message: Message) -> None:
             f"Питань: <b>{EXAM_QUESTIONS}</b>, час: <b>{EXAM_DURATION_MINUTES} хв</b>\n"
             "Правильні відповіді не показуються.",
             parse_mode=ParseMode.HTML,
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=kb_exam_pick(ok_code, lvl),
         )
-        await message.answer("Як стартувати:", reply_markup=kb_exam_pick(ok_code, lvl))
         return
 
     if text == "📊 Статистика":
@@ -1050,16 +1202,219 @@ async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: async
 
 @router.callback_query(TopicPageCb.filter())
 async def topic_page(call: CallbackQuery, callback_data: TopicPageCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+
     ok_code = str(callback_data.ok_code)
     lvl = int(callback_data.level)
     mode = str(callback_data.mode)
     page = int(callback_data.page)
 
-    title = f"Оберіть блок для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
-    title += f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>"
-    await call.message.edit_text(title, parse_mode=ParseMode.HTML, reply_markup=kb_topics(mode, ok_code, lvl, page=page))
+    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
+
+    title = (
+        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
+        f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+        f"Обрано блоків: <b>{len(selected)}</b>\n\n"
+        "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
+    )
+
+    await call.message.edit_text(
+        title,
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_topics(mode, ok_code, lvl, page=page, selected=selected),
+    )
     await call.answer()
 
+@router.callback_query(TopicToggleCb.filter())
+async def topic_toggle(call: CallbackQuery, callback_data: TopicToggleCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+    if not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+    mode = str(callback_data.mode)
+    idx = int(callback_data.topic_idx)
+    page = int(callback_data.page)
+
+    topics = effective_topics(ok_code, lvl)
+    if idx < 0 or idx >= len(topics):
+        await call.answer("Невірний блок", show_alert=True)
+        return
+
+    topic = topics[idx]
+    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
+
+    if topic in selected:
+        selected.remove(topic)
+    else:
+        selected.add(topic)
+
+    await db_set_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl, selected)
+
+    title = (
+        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
+        f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+        f"Обрано блоків: <b>{len(selected)}</b>\n\n"
+        "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
+    )
+
+    await call.message.edit_text(
+        title,
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_topics(mode, ok_code, lvl, page=page, selected=selected),
+    )
+    await call.answer()
+
+@router.callback_query(TopicClearCb.filter())
+async def topic_clear(call: CallbackQuery, callback_data: TopicClearCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+    mode = str(callback_data.mode)
+    page = int(callback_data.page)
+
+    await db_clear_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
+
+    title = (
+        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
+        f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+        "Обрано блоків: <b>0</b>\n\n"
+        "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
+    )
+
+    await call.message.edit_text(
+        title,
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_topics(mode, ok_code, lvl, page=page, selected=set()),
+    )
+    await call.answer("Очищено")
+
+@router.callback_query(TopicDoneCb.filter())
+async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+    if not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+    mode = str(callback_data.mode)
+
+    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
+    if not selected:
+        await call.answer("Оберіть хоча б 1 блок або натисніть «Всі блоки».", show_alert=True)
+        return
+
+    pool_set: Set[int] = set()
+    for t in selected:
+        base = base_qids_for_topic(ok_code, lvl, t)
+        pool_set.update(base)
+
+    pool_qids = effective_qids(list(pool_set))
+
+    await call.answer()
+    try:
+        await call.message.edit_text(
+            f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо...",
+            parse_mode=ParseMode.HTML,
+            reply_markup=None,
+        )
+    except Exception:
+        # якщо не вийшло редагувати — ігноруємо
+        pass
+
+    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+
+@router.callback_query(TopicAllCb.filter())
+async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+    if not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+    mode = str(callback_data.mode)
+
+    base = base_qids_for_scope(ok_code, lvl)
+    pool_qids = effective_qids(base)
+
+    await call.answer()
+    try:
+        await call.message.edit_text("🎯 Всі блоки. Стартуємо...", reply_markup=None)
+    except Exception:
+        pass
+
+    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+
+# Назад до екрану старту (Навчання/Екзамен) з inline-вибору тем
+@router.callback_query(F.data.startswith("back:"))
+async def back_to_mode_pick(call: CallbackQuery) -> None:
+    if not DB_POOL:
+        return
+    mode = (call.data or "").split(":", 1)[-1]
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not user_has_scope(user):
+        await call.answer("Спочатку налаштуйте ОК", show_alert=True)
+        return
+    ok_code, lvl = get_user_scope(user)
+
+    if mode == "train":
+        await call.message.edit_text(
+            f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick(ok_code, lvl),
+        )
+    else:
+        await call.message.edit_text(
+            f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+            f"Питань: <b>{EXAM_QUESTIONS}</b>, час: <b>{EXAM_DURATION_MINUTES} хв</b>\n"
+            "Правильні відповіді не показуються.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_exam_pick(ok_code, lvl),
+        )
+
+    await call.answer()
+
+# В меню з inline-клавіатур
+@router.callback_query(F.data == "menu")
+async def menu_from_inline(call: CallbackQuery) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    await call.message.answer(
+        "Меню:",
+        reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"])),
+    )
+    await call.answer()
+
+# Сумісність: якщо залишились старі кнопки (одиночний вибір блоку)
 @router.callback_query(TopicPickCb.filter())
 async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
     if not DB_POOL:
@@ -1084,7 +1439,10 @@ async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
         return
     topic = topics[idx]
 
-    base = QIDS_BY_SCOPE_TOPIC.get((ok_code, lvl, topic), [])
+    # збережемо як "вибрано один блок"
+    await db_set_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl, {topic})
+
+    base = base_qids_for_topic(ok_code, lvl, topic)
     pool_qids = effective_qids(base)
 
     await call.answer()
@@ -1111,7 +1469,7 @@ async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
     lvl = int(callback_data.level)
     mode = str(callback_data.mode)
 
-    base = QIDS_BY_SCOPE.get((ok_code, lvl), [])
+    base = base_qids_for_scope(ok_code, lvl)
     pool_qids = effective_qids(base)
 
     await call.answer()
@@ -1126,25 +1484,53 @@ async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
 async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     sess = await db_get_active_session(DB_POOL, tg_id, "train")
     if not sess:
         await call.answer("Немає активного навчання.", show_alert=True)
         return
+
+    # current queue
     qids = json.loads(sess["question_ids"])
+    # на всяк випадок нормалізуємо в int
+    qids = [int(x) for x in qids]
+
     idx0 = int(sess["current_index"])
     if idx0 >= len(qids):
         await call.answer()
         return
+
     expected_qid = int(qids[idx0])
     if int(callback_data.qid) != expected_qid:
         await call.answer("Це старе питання.", show_alert=False)
         return
 
-    await db_update_session_progress(DB_POOL, sess["session_id"], idx0 + 1, skipped_delta=1)
+    # Пропуск = НЕ "здати питання", а відкласти його на потім:
+    # переносимо поточне питання в кінець черги, але current_index НЕ збільшуємо
+    try:
+        cur_qid = qids.pop(idx0)
+        qids.append(cur_qid)
+    except Exception:
+        await call.answer()
+        return
+
+    # зберігаємо новий порядок питань
+    await db_set_session_question_ids(DB_POOL, sess["session_id"], qids)
+
+    # можна рахувати кількість натискань "пропустити" (не впливає на завершення)
+    await db_update_session_progress(DB_POOL, sess["session_id"], idx0, skipped_delta=1)
     await db_stats_add(DB_POOL, tg_id, "train", skipped=1)
-    await call.answer("Пропущено.")
-    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, "train")
+
+    await call.answer()
+    await send_current_question(
+        call.bot,
+        DB_POOL,
+        call.message.chat.id,
+        tg_id,
+        "train",
+        edit_message=call.message,
+    )
 
 @router.callback_query(AnswerCb.filter())
 async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
@@ -1182,7 +1568,7 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
         await call.answer("Питання не знайдено.", show_alert=True)
         await db_update_session_progress(DB_POOL, sess["session_id"], idx0 + 1, skipped_delta=1)
         await db_stats_add(DB_POOL, tg_id, mode, skipped=1)
-        await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode)
+        await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode, edit_message=call.message)
         return
 
     chosen = int(callback_data.ci)
@@ -1198,21 +1584,9 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
     )
     await db_stats_add(DB_POOL, tg_id, mode, answered=1, correct=(1 if is_correct else 0), wrong=(0 if is_correct else 1))
 
-    if mode == "train":
-        if correct_idx is None:
-            feedback = "⚠️ Це питання має некоректні дані (немає 1 правильної відповіді)."
-        else:
-            if is_correct:
-                feedback = "✅ <b>Правильно</b>!"
-            else:
-                correct_text = (q.get("choices") or [])[correct_idx] if (q.get("choices") and 0 <= correct_idx < len(q.get("choices"))) else "—"
-                feedback = f"❌ <b>Невірно</b>.\nПравильна відповідь: <b>{html_escape(str(correct_text))}</b>"
-        await call.answer("Готово")
-        await call.message.answer(feedback, parse_mode=ParseMode.HTML)
-    else:
-        await call.answer("Відповідь прийнята")
+    await call.answer()
 
-    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode)
+    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode, edit_message=call.message)
 
 
 # -------------------------
@@ -1273,7 +1647,7 @@ async def admin_users(message: Message) -> None:
     out += "<code>/grant TG_ID DAYS</code> — додати підписку (днів)\n"
     out += "<code>/revoke TG_ID</code> — забрати підписку\n"
     out += "<code>/user TG_ID</code> — деталі по користувачу\n"
-    out += "<code>/setscope TG_ID OK LEVEL</code> — встановити ОК/рівень (OK=ОК-1.., або LAW; LEVEL=0 для LAW)\n"
+    out += "<code>/setscope TG_ID OK LEVEL   (LEVEL=-1 означає «всі рівні»)</code> — встановити ОК/рівень (OK=ОК-1.., або LAW; LEVEL=0 для LAW)\n"
     await message.answer(out, parse_mode=ParseMode.HTML)
 
 @router.message(F.text == "⚠️ Проблемні питання")
@@ -1412,9 +1786,9 @@ async def cmd_user(message: Message) -> None:
 @router.message(Command("setscope"))
 async def cmd_setscope(message: Message) -> None:
     """
-    /setscope TG_ID OK LEVEL
+    /setscope TG_ID OK LEVEL   (LEVEL=-1 означає «всі рівні»)
     OK: ОК-1..ОК-17 або LAW
-    LEVEL: 1..3 (або 0 для LAW)
+    LEVEL: 1..3 (або -1 для всіх рівнів; 0 для LAW)
     """
     if not DB_POOL:
         return
@@ -1425,7 +1799,7 @@ async def cmd_setscope(message: Message) -> None:
 
     parts = (message.text or "").split()
     if len(parts) != 4:
-        await message.answer("Формат: /setscope TG_ID OK LEVEL  (OK=ОК-1.. або LAW)")
+        await message.answer("Формат: /setscope TG_ID OK LEVEL   (LEVEL=-1 означає «всі рівні»)  (OK=ОК-1.. або LAW)")
         return
     try:
         uid = int(parts[1]); ok_code = parts[2].strip(); lvl = int(parts[3])
@@ -1442,7 +1816,7 @@ async def cmd_setscope(message: Message) -> None:
     if ok_code == OK_CODE_LAW:
         lvl = 0
     else:
-        if lvl not in LEVELS_BY_OK.get(ok_code, [1, 2, 3]):
+        if lvl != LEVEL_ALL and lvl not in LEVELS_BY_OK.get(ok_code, [1, 2, 3]):
             await message.answer("Невірний рівень для цього ОК.")
             return
 
