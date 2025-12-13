@@ -196,6 +196,11 @@ class AnswerCb(CallbackData, prefix="ans"):
 class SkipCb(CallbackData, prefix="sk"):
     qid: int
 
+# продовжити після фідбеку (коли показали правильну відповідь)
+class NextCb(CallbackData, prefix="nx"):
+    mode: str   # "train" | "exam"
+    expected_index: int  # який current_index очікуємо у сесії
+
 class AdminToggleQCb(CallbackData, prefix="qt"):
     qid: int
     enable: int  # 1 enable, 0 disable
@@ -295,6 +300,13 @@ def kb_question(mode: str, qid: int, choices: List[str], allow_skip: bool) -> In
     b.adjust(2)
     if allow_skip:
         b.row(InlineKeyboardButton(text="⏭ Пропустити", callback_data=SkipCb(qid=qid).pack()))
+    return b.as_markup()
+
+def kb_after_feedback(mode: str, expected_index: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="✅ Зрозуміло / Далі", callback_data=NextCb(mode=mode, expected_index=expected_index))
+    b.button(text="🏠 Меню", callback_data="menu")
+    b.adjust(1)
     return b.as_markup()
 
 def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
@@ -840,16 +852,21 @@ async def ensure_profile(message: Message, user: asyncpg.Record) -> bool:
 # -------------------------
 
 def build_question_text(q: Dict[str, Any], idx: int, total: int, mode: str, remaining_seconds: Optional[int]) -> str:
-    # Показуємо тільки питання + варіанти відповідей (без "Навчання/Питання/Блок")
+    """Текст питання з прогресом (X/Y) і залишком."""
     qtext = html_escape(str(q.get("question") or ""))
-    body = f"<b>{qtext}</b>\n\n"
+
+    remaining_q = max(0, int(total) - int(idx))
+    prefix = "📚 <b>Навчання</b>" if mode == "train" else "📝 <b>Екзамен</b>"
+    head = f"{prefix} • Питання <b>{idx}/{total}</b> • Залишилось <b>{remaining_q}</b>"
+    if mode == "exam" and remaining_seconds is not None:
+        head += f" • ⏳ {as_minutes_seconds(remaining_seconds)}"
+
+    body = head + "\n\n" + f"<b>{qtext}</b>\n\n"
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     choices = q.get("choices") or []
     for i, ch in enumerate(choices):
-        label = letters[i] if i < len(letters) else str(i+1)
+        label = letters[i] if i < len(letters) else str(i + 1)
         body += f"{label}) {html_escape(str(ch))}\n"
-    if mode == "exam" and remaining_seconds is not None:
-        body += f"\n⏳ {as_minutes_seconds(remaining_seconds)}"
     return body
 
 async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_id: int, mode: str, edit_message: Optional[Message] = None) -> None:
@@ -963,14 +980,17 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
-    # якщо телефон є, але scope не вибрано — просимо вибрати
-    if not user_has_scope(user):
-        await ensure_profile(message, user)
-        return
+    if user_has_scope(user):
+        ok_code, lvl = get_user_scope(user)
+        scope_line = f"Ваш набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+    else:
+        scope_line = (
+            "Ваш набір: <i>не вибрано</i>\n"
+            "Оберіть його в <b>⚙️ Налаштуваннях</b> або бот запропонує вибір, коли натиснете <b>Навчання/Екзамен</b>.\n"
+        )
 
-    ok_code, lvl = get_user_scope(user)
     await message.answer(
-        f"Готово ✅\nВаш набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть режим:",
+        "Готово ✅\n" + scope_line + "\nОберіть режим:",
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
@@ -988,15 +1008,15 @@ async def on_contact(message: Message) -> None:
     is_admin = tg_id in ADMIN_IDS
     user = await db_upsert_user(DB_POOL, tg_id, phone, is_admin)
 
-    # після реєстрації — одразу вибір ОК/рівня
+    # після реєстрації — показуємо меню (вибір ОК/рівня — в «Навчання» або «Налаштування»)
     await message.answer(
         "Дякую! Реєстрацію завершено ✅\n\n"
         f"Безкоштовний доступ до: <b>{user['trial_until'].astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n\n"
-        "Тепер оберіть <b>ОК</b> (рівні підтягнуться автоматично):",
+        "Натисніть <b>📚 Навчання</b> або <b>📝 Екзамен</b>.\n"
+        "Якщо набір (ОК/рівень) ще не вибрано — бот запропонує вибір під час старту або в <b>⚙️ Налаштуваннях</b>.",
         parse_mode=ParseMode.HTML,
-        reply_markup=ReplyKeyboardRemove(),
+        reply_markup=kb_main_menu(is_admin=bool(user['is_admin'])),
     )
-    await message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
 
 @router.callback_query(OkPageCb.filter())
 async def ok_page(call: CallbackQuery, callback_data: OkPageCb) -> None:
@@ -1480,6 +1500,28 @@ async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
 # Навчання/екзамен: відповіді
 # -------------------------
 
+@router.callback_query(NextCb.filter())
+async def on_next_after_feedback(call: CallbackQuery, callback_data: NextCb) -> None:
+    """Переходимо до наступного питання після того, як показали правильну відповідь."""
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+
+    sess = await db_get_active_session(DB_POOL, tg_id, mode)
+    if not sess:
+        await call.answer("Немає активної сесії.", show_alert=True)
+        return
+
+    # Захист від старих кнопок
+    expected = int(callback_data.expected_index)
+    if int(sess["current_index"]) != expected:
+        await call.answer("Вже відкрито інше питання.", show_alert=False)
+    else:
+        await call.answer()
+
+    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode, edit_message=call.message)
+
 @router.callback_query(SkipCb.filter())
 async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
     if not DB_POOL:
@@ -1491,9 +1533,7 @@ async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
         await call.answer("Немає активного навчання.", show_alert=True)
         return
 
-    # current queue
     qids = json.loads(sess["question_ids"])
-    # на всяк випадок нормалізуємо в int
     qids = [int(x) for x in qids]
 
     idx0 = int(sess["current_index"])
@@ -1506,23 +1546,11 @@ async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
         await call.answer("Це старе питання.", show_alert=False)
         return
 
-    # Пропуск = НЕ "здати питання", а відкласти його на потім:
-    # переносимо поточне питання в кінець черги, але current_index НЕ збільшуємо
-    try:
-        cur_qid = qids.pop(idx0)
-        qids.append(cur_qid)
-    except Exception:
-        await call.answer()
-        return
-
-    # зберігаємо новий порядок питань
-    await db_set_session_question_ids(DB_POOL, sess["session_id"], qids)
-
-    # можна рахувати кількість натискань "пропустити" (не впливає на завершення)
-    await db_update_session_progress(DB_POOL, sess["session_id"], idx0, skipped_delta=1)
+    # Пропуск = крок у прогресі (не повертаємось до питання в цій сесії)
+    await db_update_session_progress(DB_POOL, sess["session_id"], idx0 + 1, skipped_delta=1)
     await db_stats_add(DB_POOL, tg_id, "train", skipped=1)
 
-    await call.answer()
+    await call.answer("⏭ Пропущено")
     await send_current_question(
         call.bot,
         DB_POOL,
@@ -1537,7 +1565,7 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
     if not DB_POOL:
         return
     tg_id = call.from_user.id
-    mode = callback_data.mode
+    mode = str(callback_data.mode)
     if mode not in ("train", "exam"):
         await call.answer()
         return
@@ -1553,6 +1581,7 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
         return
 
     qids = json.loads(sess["question_ids"])
+    qids = [int(x) for x in qids]
     idx0 = int(sess["current_index"])
     if idx0 >= len(qids):
         await call.answer()
@@ -1575,6 +1604,7 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
     correct_idx = int((q.get("correct") or [None])[0]) if is_question_valid(q) else None
     is_correct = (correct_idx is not None and chosen == correct_idx)
 
+    # оновлюємо прогрес (відповідь завжди рахується як крок)
     await db_update_session_progress(
         DB_POOL,
         sess["session_id"],
@@ -1584,40 +1614,48 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
     )
     await db_stats_add(DB_POOL, tg_id, mode, answered=1, correct=(1 if is_correct else 0), wrong=(0 if is_correct else 1))
 
-    await call.answer()
+    # Екзамен: без фідбеку, одразу наступне питання
+    if mode == "exam":
+        await call.answer("✅ Відповідь зараховано", show_alert=False)
+        await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, "exam", edit_message=call.message)
+        return
 
-    # Показуємо результат (правильно/ні) + правильну відповідь, потім надсилаємо наступне питання
+    # Навчання: якщо правильно — одразу наступне питання (без накопичення повідомлень)
+    if is_correct:
+        await call.answer("✅ Правильно", show_alert=False)
+        await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, "train", edit_message=call.message)
+        return
+
+    # Невірно: показуємо правильну відповідь + кнопка «Зрозуміло / Далі»
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    chosen_label = letters[chosen] if chosen < len(letters) else str(chosen + 1)
+
+    corr_label = (
+        letters[correct_idx] if (correct_idx is not None and correct_idx < len(letters)) else str((correct_idx or 0) + 1)
+    )
+    choices = q.get("choices") or []
+    corr_text = ""
+    if correct_idx is not None and 0 <= correct_idx < len(choices):
+        corr_text = html_escape(str(choices[correct_idx]))
+
+    result_line = (
+        f"❌ <b>Неправильно.</b> Ваш вибір: {chosen_label}\n"
+        f"<b>Правильна відповідь:</b> {corr_label} — {corr_text}"
+    )
+
     try:
-        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        chosen_label = letters[chosen] if chosen < len(letters) else str(chosen + 1)
-
-        if is_correct:
-            result_line = f"✅ <b>Правильно!</b> (Ваш вибір: {chosen_label})"
-        else:
-            corr_label = (
-                letters[correct_idx] if (correct_idx is not None and correct_idx < len(letters)) else str((correct_idx or 0) + 1)
-            )
-            choices = q.get("choices") or []
-            corr_text = ""
-            if correct_idx is not None and 0 <= correct_idx < len(choices):
-                corr_text = html_escape(str(choices[correct_idx]))
-            result_line = (
-                f"❌ <b>Неправильно.</b> Ваш вибір: {chosen_label}\n"
-                f"<b>Правильна відповідь:</b> {corr_label} — {corr_text}"
-            )
-
-        remaining = None
-        if mode == "exam" and sess["expires_at"]:
-            remaining = int((sess["expires_at"] - utcnow()).total_seconds())
-
-        shown = build_question_text(q, idx0 + 1, len(qids), mode, remaining) + "\n\n" + result_line
-        await call.message.edit_text(shown, reply_markup=None, parse_mode=ParseMode.HTML)
+        shown = build_question_text(q, idx0 + 1, len(qids), "train", None) + "\n\n" + result_line
+        await call.message.edit_text(
+            shown,
+            reply_markup=kb_after_feedback(mode="train", expected_index=idx0 + 1),
+            parse_mode=ParseMode.HTML,
+        )
     except Exception:
-        # Якщо не вдалося редагувати (старе/видалене) — ігноруємо, просто йдемо далі
-        pass
+        # fallback: якщо редагування неможливе
+        await call.message.answer(result_line, parse_mode=ParseMode.HTML)
 
-    # Наступне питання — окремим повідомленням (щоб результат залишився в чаті)
-    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode, edit_message=None)
+    await call.answer("❌ Неправильно", show_alert=False)
+
 
 
 # -------------------------
