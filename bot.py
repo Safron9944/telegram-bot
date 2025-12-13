@@ -1345,6 +1345,36 @@ async def position_pick(call: CallbackQuery):
 
     await call.answer()
 
+def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+
+    for pos in POSITION_OK_MAP.keys():
+        b.button(
+            text=f"👔 {pos}",
+            callback_data=f"pos:{mode}:{pos}"
+        )
+
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=f"backmode:{mode}"
+        )
+    )
+
+    b.adjust(1)
+    return b.as_markup()
+
+@router.callback_query(F.data.startswith("backmode:"))
+async def backmode(call: CallbackQuery):
+    mode = call.data.split(":", 1)[1]
+
+    text = "Як ви хочете навчатись?" if mode == "train" else "Як ви хочете складати екзамен?"
+
+    await call.message.edit_text(
+        text,
+        reply_markup=kb_train_mode(mode)
+    )
+    await call.answer()
 
 
 @router.message(F.text.in_({"📚 Навчання", "📝 Екзамен", "📊 Статистика", "ℹ️ Доступ", "⚙️ Налаштування"}))
