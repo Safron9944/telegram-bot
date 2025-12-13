@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 
-from app.keyboards import kb_request_phone, kb_main, ik_subscribe
+from app.keyboards import kb_request_phone, ik_main_menu, ik_subscribe
 from app.db.repo import get_or_create_user, ensure_trial_subscription, set_phone
 from app.services.subscriptions import format_status
 from app.state import get_session
@@ -25,7 +25,13 @@ async def cmd_start(message: Message):
             )
             return
 
-        await message.answer("Готово ✅ Обери дію в меню.", reply_markup=kb_main())
+    # меню “на екрані”
+    await message.answer("Головне меню", reply_markup=ik_main_menu())
+
+
+@router.message(Command("menu"))
+async def cmd_menu(message: Message):
+    await message.answer("Головне меню", reply_markup=ik_main_menu())
 
 
 @router.message(F.contact)
@@ -40,19 +46,30 @@ async def on_contact(message: Message):
         await ensure_trial_subscription(session, user)
         await set_phone(session, user, message.contact.phone_number)
 
-    await message.answer("Дякую! Реєстрація завершена ✅", reply_markup=kb_main())
+    # ховаємо reply-клавіатуру після реєстрації
+    await message.answer("Дякую! Реєстрація завершена ✅", reply_markup=ReplyKeyboardRemove())
+    await message.answer("Головне меню", reply_markup=ik_main_menu())
 
 
-@router.message(F.text == "👤 Кабінет")
-async def cabinet(message: Message):
+# ---------- INLINE МЕНЮ (кнопки "на екрані") ----------
+
+@router.callback_query(F.data == "menu:home")
+async def menu_home(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.edit_text("Головне меню", reply_markup=ik_main_menu())
+
+
+@router.callback_query(F.data == "menu:cabinet")
+async def menu_cabinet(cb: CallbackQuery):
     async with get_session() as session:
-        user = await get_or_create_user(session, message.from_user.id, message.from_user.full_name)
+        user = await get_or_create_user(session, cb.from_user.id, cb.from_user.full_name)
         sub = await ensure_trial_subscription(session, user)
 
         phone = user.phone or "не вказано"
         status = format_status(sub)
 
-    await message.answer(
+    await cb.answer()
+    await cb.message.edit_text(
         "👤 *Кабінет*\n"
         f"Телефон: `{phone}`\n"
         f"Статус: {status}\n",
@@ -61,7 +78,41 @@ async def cabinet(message: Message):
     )
 
 
+@router.callback_query(F.data == "menu:tests")
+async def menu_tests(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.edit_text(
+        "🧩 Тести\n(далі зробимо: Навчання / Екзамен / вибір блоків)",
+        reply_markup=InlineKeyboardRemoveIfNeeded()  # нижче поясню
+    )
+
+
+@router.callback_query(F.data == "menu:mistakes")
+async def menu_mistakes(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.edit_text("❗ Помилки (поки демо)", reply_markup=ik_main_menu())
+
+
+@router.callback_query(F.data == "menu:help")
+async def menu_help(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.edit_text(
+        "ℹ️ Допомога\n\n"
+        "• /start — реєстрація/старт\n"
+        "• /menu — головне меню\n",
+        reply_markup=ik_main_menu(),
+    )
+
+
 @router.callback_query(F.data == "pay_demo")
 async def pay_demo(cb: CallbackQuery):
     await cb.answer()
-    await cb.message.answer("Оплата поки в демо. Адмін може видати підписку командою /grant.")
+    await cb.message.edit_text(
+        "💳 Оплата поки в демо.\n"
+        "Адмін може видати підписку командою:\n"
+        "`/grant <tg_id> <days>` або `/grantlife <tg_id>`",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Головне меню", callback_data="menu:home")]
+        ]),
+    )
