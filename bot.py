@@ -52,6 +52,32 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 OK_CODE_LAW = "LAW"  # внутрішній код для "законодавства"
 LEVEL_ALL = -1  # спеціальне значення: всі рівні для обраного ОК
 
+POSITION_OK_MAP: Dict[str, Dict[str, int]] = {
+    "Начальник відділу": {
+        "ОК-4": 2,
+        "ОК-10": 3,
+        "ОК-14": 2,
+        "ОК-15": 2,
+    },
+    "Головний державний інспектор": {
+        "ОК-4": 2,
+        "ОК-10": 3,
+        "ОК-14": 2,
+        "ОК-15": 2,
+    },
+    "Старший державний інспектор": {
+        "ОК-4": 1,
+        "ОК-10": 2,
+        "ОК-14": 1,
+        "ОК-15": 1,
+    },
+    "Державний інспектор": {
+        "ОК-4": 1,
+        "ОК-10": 2,
+        "ОК-14": 1,
+        "ОК-15": 1,
+    },
+}
 
 # -------------------------
 # Глобальні кеші (заповнюються на старті)
@@ -829,6 +855,43 @@ def load_question_bank() -> None:
     LEVELS_BY_OK = {k: sorted(list(v)) for k, v in LEVELS_BY_OK.items()}
     TOPICS_BY_SCOPE = {k: sorted(list(v)) for k, v in TOPICS_BY_SCOPE.items()}
 
+
+def qids_for_position(position_name: str, include_all_levels: bool = False) -> List[int]:
+    """
+    Повертає список ID питань для заданої посади.
+
+    Використовує POSITION_OK_MAP та вже заповнені структури QIDS_BY_SCOPE.
+    Якщо include_all_levels=True — бере всі рівні <= заданого для кожного ОК.
+    """
+    ok_levels = POSITION_OK_MAP.get(position_name)
+    if not ok_levels:
+        return []
+
+    pool: Set[int] = set()
+
+    for ok_code, max_level in ok_levels.items():
+        if include_all_levels:
+            # Беремо всі рівні для цього ОК, які <= max_level
+            for lvl in levels_for_ok(ok_code):
+                if lvl <= max_level:
+                    pool.update(base_qids_for_scope(ok_code, lvl))
+        else:
+            # Беремо тільки конкретний рівень для цього ОК
+            pool.update(base_qids_for_scope(ok_code, max_level))
+
+    # застосовуємо фільтр вимкнених питань (DISABLED_IDS_DB)
+    return effective_qids(sorted(pool))
+
+
+def get_tasks_for_position(position_name: str, include_all_levels: bool = False) -> List[Dict[str, Any]]:
+    """
+    Повертає повні записи питань (як у questions_flat.json) для заданої посади.
+    Зручно, якщо треба список питань для перегляду/експорту.
+
+    include_all_levels=True — брати всі рівні <= заданого для кожного ОК.
+    """
+    qids = qids_for_position(position_name, include_all_levels=include_all_levels)
+    return [QUESTIONS_BY_ID[qid] for qid in qids if qid in QUESTIONS_BY_ID]
 
 # -------------------------
 # Логіка доступу/профілю
