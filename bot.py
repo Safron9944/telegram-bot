@@ -26,6 +26,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+
 # -------------------------
 # Конфіг
 # -------------------------
@@ -484,7 +485,7 @@ def kb_topics(
 # База даних
 # -------------------------
 
-DDL = """
+DDL_CREATE = """
 CREATE TABLE IF NOT EXISTS users (
   tg_id BIGINT PRIMARY KEY,
   phone TEXT,
@@ -494,7 +495,8 @@ CREATE TABLE IF NOT EXISTS users (
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   last_seen TIMESTAMPTZ NOT NULL,
   ok_code TEXT,
-  ok_level INT
+  ok_level INT,
+  train_mode TEXT
 );
 
 CREATE TABLE IF NOT EXISTS stats (
@@ -510,7 +512,7 @@ CREATE TABLE IF NOT EXISTS stats (
 CREATE TABLE IF NOT EXISTS sessions (
   session_id UUID PRIMARY KEY,
   tg_id BIGINT NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
-  mode TEXT NOT NULL, -- train/exam
+  mode TEXT NOT NULL,
   question_ids JSONB NOT NULL,
   current_index INT NOT NULL DEFAULT 0,
   correct_count INT NOT NULL DEFAULT 0,
@@ -530,24 +532,27 @@ CREATE TABLE IF NOT EXISTS question_flags (
 
 CREATE TABLE IF NOT EXISTS topic_prefs (
   tg_id BIGINT NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
-  mode TEXT NOT NULL, -- train/exam
+  mode TEXT NOT NULL,
   ok_code TEXT NOT NULL,
   ok_level INT NOT NULL,
   topics JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (tg_id, mode, ok_code, ok_level)
 );
-
-
--- Міграції (на випадок якщо таблиця вже існувала у попередній версії)
-ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_code TEXT;
-ADD COLUMN IF NOT EXISTS train_mode TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_level INT;
 """
+
+DDL_MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_code TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_level INT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS train_mode TEXT",
+]
+
 
 async def db_init(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
-        await conn.execute(DDL)
+        await conn.execute(DDL_CREATE)
+        for stmt in DDL_MIGRATIONS:
+            await conn.execute(stmt)
 
 async def db_get_user(pool: asyncpg.Pool, tg_id: int) -> Optional[asyncpg.Record]:
     async with pool.acquire() as conn:
