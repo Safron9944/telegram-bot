@@ -284,6 +284,9 @@ class TopicAllCb(CallbackData, prefix="ta"):
     ok_code: str
     level: int
 
+class TrainModeCb(CallbackData, prefix="tm"):
+    mode: str   # train / exam
+    kind: str   # position / manual
 
 
 # -------------------------
@@ -376,6 +379,21 @@ def kb_pick_level(ok_code: str) -> InlineKeyboardMarkup:
     b.adjust(1)
     b.row(InlineKeyboardButton(text="🔁 Змінити ОК", callback_data=OkPageCb(page=0).pack()))
     return b.as_markup()
+
+def kb_train_mode(mode: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(
+        text="👔 За посадою",
+        callback_data=TrainModeCb(mode=mode, kind="position").pack()
+    )
+    b.button(
+        text="📚 Обрати теми вручну",
+        callback_data=TrainModeCb(mode=mode, kind="manual").pack()
+    )
+    b.button(text="🏠 Меню", callback_data="menu")
+    b.adjust(1)
+    return b.as_markup()
+
 
 def kb_train_pick(ok_code: str, level: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -1205,23 +1223,17 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             return
 
     if action == "train":
-        ok_code, lvl = get_user_scope(user)
         await call.message.answer(
-            f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_train_pick(ok_code, lvl),
+            "Як ви хочете навчатись?",
+            reply_markup=kb_train_mode("train")
         )
         await call.answer()
         return
 
     if action == "exam":
-        ok_code, lvl = get_user_scope(user)
         await call.message.answer(
-            f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
-            f"Питань: <b>{EXAM_QUESTIONS}</b>, час: <b>{EXAM_DURATION_MINUTES} хв</b>\n"
-            "Правильні відповіді не показуються.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_exam_pick(ok_code, lvl),
+            "Як ви хочете складати екзамен?",
+            reply_markup=kb_train_mode("exam")
         )
         await call.answer()
         return
@@ -1277,6 +1289,63 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         return
 
     await call.answer()
+
+@router.callback_query(TrainModeCb.filter())
+async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
+    mode = callback_data.mode
+    kind = callback_data.kind
+
+    if kind == "manual":
+        # стара логіка — вибір ОК
+        await call.message.answer(
+            "Оберіть ОК:",
+            reply_markup=kb_pick_ok(page=0)
+        )
+        await call.answer()
+        return
+
+    if kind == "position":
+        await call.message.answer(
+            "Оберіть посаду:",
+            reply_markup=kb_pick_position(mode)
+        )
+        await call.answer()
+        return
+
+@router.callback_query(F.data.startswith("pos:"))
+async def position_pick(call: CallbackQuery):
+    _, mode, position = call.data.split(":", 2)
+
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+
+    pool_qids = qids_for_position(
+        position_name=position,
+        include_all_levels=True
+    )
+
+    if not pool_qids:
+        await call.answer("Для цієї посади немає питань", show_alert=True)
+        return
+
+    await call.message.edit_text(
+        f"👔 Посада: <b>{html_escape(position)}</b>\n"
+        "Стартуємо...",
+        parse_mode=ParseMode.HTML
+    )
+
+    await start_session_for_pool(
+        call.bot,
+        tg_id,
+        call.message.chat.id,
+        user,
+        mode,
+        pool_qids
+    )
+
+    await call.answer()
+
+
 
 @router.message(F.text.in_({"📚 Навчання", "📝 Екзамен", "📊 Статистика", "ℹ️ Доступ", "⚙️ Налаштування"}))
 async def menu_actions(message: Message) -> None:
