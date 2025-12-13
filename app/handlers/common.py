@@ -82,8 +82,8 @@ async def menu_cabinet(cb: CallbackQuery):
 async def menu_tests(cb: CallbackQuery):
     await cb.answer()
     await cb.message.edit_text(
-        "🧩 Тести\n(далі зробимо: Навчання / Екзамен / вибір блоків)",
-        reply_markup=InlineKeyboardRemoveIfNeeded()  # нижче поясню
+        "🧪 Тести\n(далі зробимо: Навчання / Екзамен / вибір блоків)",
+        reply_markup=None,  # прибирає inline-кнопки
     )
 
 
@@ -104,15 +104,4 @@ async def menu_help(cb: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "pay_demo")
-async def pay_demo(cb: CallbackQuery):
-    await cb.answer()
-    await cb.message.edit_text(
-        "💳 Оплата поки в демо.\n"
-        "Адмін може видати підписку командою:\n"
-        "`/grant <tg_id> <days>` або `/grantlife <tg_id>`",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Головне меню", callback_data="menu:home")]
-        ]),
-    )
+
