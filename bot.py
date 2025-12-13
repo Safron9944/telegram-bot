@@ -1586,7 +1586,38 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
 
     await call.answer()
 
-    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode, edit_message=call.message)
+    # Показуємо результат (правильно/ні) + правильну відповідь, потім надсилаємо наступне питання
+    try:
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        chosen_label = letters[chosen] if chosen < len(letters) else str(chosen + 1)
+
+        if is_correct:
+            result_line = f"✅ <b>Правильно!</b> (Ваш вибір: {chosen_label})"
+        else:
+            corr_label = (
+                letters[correct_idx] if (correct_idx is not None and correct_idx < len(letters)) else str((correct_idx or 0) + 1)
+            )
+            choices = q.get("choices") or []
+            corr_text = ""
+            if correct_idx is not None and 0 <= correct_idx < len(choices):
+                corr_text = html_escape(str(choices[correct_idx]))
+            result_line = (
+                f"❌ <b>Неправильно.</b> Ваш вибір: {chosen_label}\n"
+                f"<b>Правильна відповідь:</b> {corr_label} — {corr_text}"
+            )
+
+        remaining = None
+        if mode == "exam" and sess["expires_at"]:
+            remaining = int((sess["expires_at"] - utcnow()).total_seconds())
+
+        shown = build_question_text(q, idx0 + 1, len(qids), mode, remaining) + "\n\n" + result_line
+        await call.message.edit_text(shown, reply_markup=None, parse_mode=ParseMode.HTML)
+    except Exception:
+        # Якщо не вдалося редагувати (старе/видалене) — ігноруємо, просто йдемо далі
+        pass
+
+    # Наступне питання — окремим повідомленням (щоб результат залишився в чаті)
+    await send_current_question(call.bot, DB_POOL, call.message.chat.id, tg_id, mode, edit_message=None)
 
 
 # -------------------------
