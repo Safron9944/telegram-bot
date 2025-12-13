@@ -1529,7 +1529,7 @@ async def main() -> None:
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, dp=dp)
 
 if __name__ == "__main__":
     asyncio.run(main())
