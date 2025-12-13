@@ -264,7 +264,7 @@ def kb_question(mode: str, qid: int, choices: List[str], allow_skip: bool) -> In
         b.button(text=label, callback_data=AnswerCb(mode=mode, qid=qid, ci=i))
     b.adjust(2)
     if allow_skip:
-        b.row(InlineKeyboardButton(text="⏭ Пропустити", callback_data=SkipCb(qid=qid)))
+        b.row(InlineKeyboardButton(text="⏭ Пропустити", callback_data=SkipCb(qid=qid).pack()))
     return b.as_markup()
 
 def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
