@@ -542,6 +542,7 @@ CREATE TABLE IF NOT EXISTS topic_prefs (
 
 -- Міграції (на випадок якщо таблиця вже існувала у попередній версії)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_code TEXT;
+ADD COLUMN IF NOT EXISTS train_mode TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_level INT;
 """
 
@@ -1187,6 +1188,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     """Обробка натискань у головному меню (inline)."""
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
@@ -1215,10 +1217,10 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
     if action in ("train", "exam"):
         if not user_has_scope(user):
-            # ensure_profile сам показує вибір ОК/рівня
             await ensure_profile(call.message, user)
             await call.answer()
             return
+
         if not await db_has_access(user):
             await call.message.answer(
                 "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу.",
@@ -1228,10 +1230,27 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             return
 
     if action == "train":
-        await call.message.answer(
-            "Як ви хочете навчатись?",
-            reply_markup=kb_train_mode("train")
-        )
+        train_mode = user.get("train_mode")
+
+        if train_mode == "position":
+            await call.message.answer(
+                "Навчання за посадою:",
+                reply_markup=kb_pick_position("train")
+            )
+        elif train_mode == "manual":
+            ok_code, lvl = get_user_scope(user)
+            await call.message.answer(
+                f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_train_pick(ok_code, lvl),
+            )
+        else:
+            # перший раз — запропонувати вибір
+            await call.message.answer(
+                "Як ви хочете навчатись?",
+                reply_markup=kb_train_mode("train")
+            )
+
         await call.answer()
         return
 
@@ -1249,6 +1268,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.message.answer("Поки що статистики немає.", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
             await call.answer()
             return
+
         out = "<b>📊 Ваша статистика</b>\n\n"
         for r in rows:
             out += (
@@ -1260,6 +1280,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             if r["mode"] == "train":
                 out += f"⏭ Пропущено: {r['skipped']}\n"
             out += "\n"
+
         await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         await call.answer()
         return
@@ -1269,6 +1290,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         tu = user["trial_until"]
         su = user["sub_until"]
         has = await db_has_access(user)
+
         out = "<b>ℹ️ Доступ</b>\n\n"
         out += f"Статус: {'✅ активний' if has else '⛔️ неактивний'}\n"
         if tu:
@@ -1281,6 +1303,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         else:
             out += "Набір: <i>не вибрано</i>\n"
         out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
+
         await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         await call.answer()
         return
@@ -1289,19 +1312,31 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         if not user.get("is_admin"):
             await call.answer("⛔️ Немає доступу.", show_alert=True)
             return
+
         await call.message.answer("Адмін-панель:", reply_markup=kb_admin_panel())
         await call.answer()
         return
 
     await call.answer()
 
+
 @router.callback_query(TrainModeCb.filter())
 async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
     mode = callback_data.mode
     kind = callback_data.kind
 
+    # Оновлюємо режим тренування в базі даних
+    result = await DB_POOL.fetchrow(
+        "UPDATE users SET train_mode=$2 WHERE tg_id=$1 RETURNING tg_id",
+        call.from_user.id,
+        kind
+    )
+
+    if result is None:
+        await call.answer("Помилка при збереженні режиму. Спробуйте ще раз.", show_alert=True)
+        return
+
     if kind == "manual":
-        # стара логіка — вибір ОК
         await call.message.answer(
             "Оберіть ОК:",
             reply_markup=kb_pick_ok(page=0)
@@ -1316,6 +1351,7 @@ async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
         )
         await call.answer()
         return
+
 
 @router.callback_query(F.data.startswith("pos:"))
 async def position_pick(call: CallbackQuery):
@@ -1626,11 +1662,14 @@ async def topic_clear(call: CallbackQuery, callback_data: TopicClearCb) -> None:
 async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
+
     if not user:
         await call.answer("Немає профілю", show_alert=True)
         return
+
     if not await db_has_access(user):
         await call.answer("Доступ завершився", show_alert=True)
         return
@@ -1651,6 +1690,11 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
 
     pool_qids = effective_qids(list(pool_set))
 
+    # ⛔️ Додано: якщо замало питань — зупиняємо
+    if len(pool_qids) < TRAIN_QUESTIONS and mode == "train":
+        await call.answer("У вибраних блоках замало питань", show_alert=True)
+        return
+
     await call.answer()
     try:
         await call.message.edit_text(
@@ -1662,7 +1706,14 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
         # якщо не вийшло редагувати — ігноруємо
         pass
 
-    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    await start_session_for_pool(
+        call.bot,
+        tg_id,
+        call.message.chat.id,
+        user,
+        mode,
+        pool_qids
+    )
 
 @router.callback_query(TopicAllCb.filter())
 async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
