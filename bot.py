@@ -354,7 +354,7 @@ def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for c in current:
         label = "📜 Законодавство" if c == OK_CODE_LAW else c
-        b.button(text=label, callback_data=OkPickCb(ok_code=c))
+        b.button(text=label, callback_data=OkPickCb(ok_code=c).pack())
     b.adjust(1)
 
     nav = []
@@ -372,7 +372,7 @@ def kb_pick_level(ok_code: str) -> InlineKeyboardMarkup:
         if ok_code == OK_CODE_LAW:
             # для законодавства рівня нема
             continue
-        b.button(text=f"Рівень {lvl}", callback_data=LevelPickCb(ok_code=ok_code, level=lvl))
+        b.button(text=f"Рівень {lvl}", callback_data=LevelPickCb(ok_code=ok_code, level=lvl).pack())
     b.adjust(1)
     b.row(InlineKeyboardButton(text="🔁 Змінити ОК", callback_data=OkPageCb(page=0).pack()))
     return b.as_markup()
@@ -394,7 +394,8 @@ def kb_train_mode(mode: str) -> InlineKeyboardMarkup:
 
 def kb_train_pick(ok_code: str, level: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=f"🎲 Випадково ({TRAIN_QUESTIONS})", callback_data=StartScopeCb(mode="train", ok_code=ok_code, level=level))
+    b.button(text=f"🎲 Випадково ({TRAIN_QUESTIONS})",
+             callback_data=StartScopeCb(mode="train", ok_code=ok_code, level=level).pack())
     b.button(text="📚 Обрати блок", callback_data=TopicPageCb(mode="train", ok_code=ok_code, level=level, page=0))
     b.button(text="🏠 Меню", callback_data="menu")
     b.adjust(1)
