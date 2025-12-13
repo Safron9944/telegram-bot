@@ -133,13 +133,10 @@ def is_question_valid(q: Dict[str, Any]) -> bool:
     except Exception:
         return False
 
-def scope_title(ok_code: str, level: int) -> str:
+def scope_title(ok_code: str) -> str:
     if ok_code == OK_CODE_LAW:
         return "📜 Законодавство"
-    # LEVEL_ALL означає "всі рівні" — рівень не показуємо
-    if level == LEVEL_ALL:
-        return f"{ok_code}"
-    return f"{ok_code} • Рівень {level}"
+    return ok_code
 
 def truncate_button(text: str, max_len: int = 44) -> str:
     t = (text or "").strip()
@@ -586,10 +583,21 @@ async def db_upsert_user(pool: asyncpg.Pool, tg_id: int, phone: Optional[str], i
             )
         return await conn.fetchrow("SELECT * FROM users WHERE tg_id=$1", tg_id)
 
-async def db_set_scope(pool: asyncpg.Pool, tg_id: int, ok_code: str, ok_level: int) -> asyncpg.Record:
+async def db_set_scope(
+    pool: asyncpg.Pool,
+    tg_id: int,
+    ok_code: str,
+    ok_level: Optional[int] = None
+) -> asyncpg.Record:
     async with pool.acquire() as conn:
-        await conn.execute("UPDATE users SET ok_code=$2, ok_level=$3 WHERE tg_id=$1", tg_id, ok_code, ok_level)
-        return await conn.fetchrow("SELECT * FROM users WHERE tg_id=$1", tg_id)
+        await conn.execute(
+            "UPDATE users SET ok_code=$2, ok_level=$3 WHERE tg_id=$1",
+            tg_id, ok_code, ok_level
+        )
+        return await conn.fetchrow(
+            "SELECT * FROM users WHERE tg_id=$1",
+            tg_id
+        )
 
 async def db_has_access(user: asyncpg.Record) -> bool:
     now = utcnow()
@@ -916,17 +924,17 @@ def get_tasks_for_position(position_name: str, include_all_levels: bool = False)
 # -------------------------
 
 def user_has_scope(user: asyncpg.Record) -> bool:
-    return bool(user["ok_code"]) and (user["ok_level"] is not None)
+    return bool(user["ok_code"])
 
-def get_user_scope(user: asyncpg.Record) -> Tuple[str, int]:
-    return str(user["ok_code"]), int(user["ok_level"])
+def get_user_scope(user: asyncpg.Record) -> str:
+    return str(user["ok_code"])
 
 async def ensure_profile(message: Message, user: asyncpg.Record) -> bool:
-    """Повертає True якщо профіль (ОК/рівень) встановлено, інакше показує вибір і повертає False."""
     if user_has_scope(user):
         return True
+
     await message.answer(
-        "⚙️ Потрібно обрати <b>ОК</b> і <b>рівень</b>, бо для всіх набір питань різний.\n\n"
+        "⚙️ Потрібно обрати <b>ОК</b>, бо для кожного набір питань різний.\n\n"
         "Оберіть ОК:",
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardRemove(),
@@ -1120,35 +1128,32 @@ async def ok_page(call: CallbackQuery, callback_data: OkPageCb) -> None:
     await call.answer()
 
 @router.callback_query(OkPickCb.filter())
-async def ok_pick(call: CallbackQuery, callback_data: OkPickCb) -> None:
+async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
     if not user or not user["phone"]:
-        await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
+        await call.message.answer(
+            "Спочатку зареєструйтесь.",
+            reply_markup=kb_request_contact()
+        )
         await call.answer()
         return
 
     ok_code = str(callback_data.ok_code)
 
-    if ok_code == OK_CODE_LAW:
-        user = await db_set_scope(DB_POOL, tg_id, OK_CODE_LAW, 0)
-        await call.message.answer(
-            f"✅ Встановлено: <b>{html_escape(scope_title(OK_CODE_LAW, 0))}</b>",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
-        )
-        await call.answer()
-        return
+    # ⬇️ рівень більше не має значення
+    user = await db_set_scope(DB_POOL, tg_id, ok_code, None)
 
-    # показати вибір рівня
-    await call.message.edit_text(
-        f"ОК: <b>{html_escape(ok_code)}</b>\nОберіть рівень:",
+    await call.message.answer(
+        f"✅ Встановлено: <b>{html_escape(scope_title(ok_code))}</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=kb_pick_level(ok_code),
+        reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
     await call.answer()
+
 
 @router.callback_query(LevelPickCb.filter())
 async def level_pick(call: CallbackQuery, callback_data: LevelPickCb) -> None:
