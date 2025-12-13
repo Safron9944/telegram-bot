@@ -272,24 +272,30 @@ def kb_request_contact() -> ReplyKeyboardMarkup:
         input_field_placeholder="Натисніть кнопку нижче, щоб поділитись номером",
     )
 
-def kb_main_menu(is_admin: bool = False) -> ReplyKeyboardMarkup:
-    rows = [
-        [KeyboardButton(text="📚 Навчання"), KeyboardButton(text="📝 Екзамен")],
-        [KeyboardButton(text="📊 Статистика"), KeyboardButton(text="ℹ️ Доступ")],
-        [KeyboardButton(text="⚙️ Налаштування")],
-    ]
-    if is_admin:
-        rows.append([KeyboardButton(text="🛠 Адмін")])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
-
-def kb_admin_panel() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="👥 Користувачі"), KeyboardButton(text="⚠️ Проблемні питання")],
-            [KeyboardButton(text="⬅️ Назад")],
-        ],
-        resize_keyboard=True,
+def kb_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
+    """Головне меню як inline-клавіатура (щоб НЕ показувалась нижня reply-клавіатура)."""
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"),
+        InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"),
     )
+    b.row(
+        InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"),
+        InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"),
+    )
+    b.row(InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"))
+    if is_admin:
+        b.row(InlineKeyboardButton(text="🛠 Адмін", callback_data="mm:admin"))
+    return b.as_markup()
+
+def kb_admin_panel() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="👥 Користувачі", callback_data="ad:users"),
+        InlineKeyboardButton(text="⚠️ Проблемні питання", callback_data="ad:problems"),
+    )
+    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu"))
+    return b.as_markup()
 
 def kb_question(mode: str, qid: int, choices: List[str], allow_skip: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -300,6 +306,7 @@ def kb_question(mode: str, qid: int, choices: List[str], allow_skip: bool) -> In
     b.adjust(2)
     if allow_skip:
         b.row(InlineKeyboardButton(text="⏭ Пропустити", callback_data=SkipCb(qid=qid).pack()))
+    b.row(InlineKeyboardButton(text="🏠 Меню", callback_data="menu"))
     return b.as_markup()
 
 def kb_after_feedback(mode: str, expected_index: int) -> InlineKeyboardMarkup:
@@ -992,8 +999,13 @@ async def cmd_start(message: Message) -> None:
     await message.answer(
         "Готово ✅\n" + scope_line + "\nОберіть режим:",
         parse_mode=ParseMode.HTML,
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await message.answer(
+        "Меню:",
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
+
 
 @router.message(F.contact)
 async def on_contact(message: Message) -> None:
@@ -1009,14 +1021,17 @@ async def on_contact(message: Message) -> None:
     user = await db_upsert_user(DB_POOL, tg_id, phone, is_admin)
 
     # після реєстрації — показуємо меню (вибір ОК/рівня — в «Навчання» або «Налаштування»)
+    # після реєстрації — ховаємо reply-клавіатуру і показуємо меню (inline)
     await message.answer(
         "Дякую! Реєстрацію завершено ✅\n\n"
         f"Безкоштовний доступ до: <b>{user['trial_until'].astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n\n"
         "Натисніть <b>📚 Навчання</b> або <b>📝 Екзамен</b>.\n"
         "Якщо набір (ОК/рівень) ще не вибрано — бот запропонує вибір під час старту або в <b>⚙️ Налаштуваннях</b>.",
         parse_mode=ParseMode.HTML,
-        reply_markup=kb_main_menu(is_admin=bool(user['is_admin'])),
+        reply_markup=ReplyKeyboardRemove(),
     )
+    await message.answer("Меню:", reply_markup=kb_main_menu(is_admin=bool(user['is_admin'])))
+
 
 @router.callback_query(OkPageCb.filter())
 async def ok_page(call: CallbackQuery, callback_data: OkPageCb) -> None:
@@ -1079,6 +1094,125 @@ async def level_pick(call: CallbackQuery, callback_data: LevelPickCb) -> None:
 @router.callback_query(F.data == "pickok")
 async def pick_ok_from_anywhere(call: CallbackQuery) -> None:
     await call.message.answer("Оберіть ОК:", reply_markup=kb_pick_ok(page=0))
+    await call.answer()
+
+@router.callback_query(F.data.startswith("mm:"))
+async def menu_actions_inline(call: CallbackQuery) -> None:
+    """Обробка натискань у головному меню (inline)."""
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    await db_touch_user(DB_POOL, tg_id)
+    user = await db_get_user(DB_POOL, tg_id)
+
+    if not user or not user["phone"]:
+        await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
+        await call.answer()
+        return
+
+    action = (call.data or "").split(":", 1)[1] if ":" in (call.data or "") else ""
+
+    if action == "settings":
+        if user_has_scope(user):
+            ok_code, lvl = get_user_scope(user)
+            await call.message.answer(
+                f"⚙️ Ваш поточний набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+                "Натисніть нижче, щоб змінити:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=ReplyKeyboardRemove(),
+            )
+        else:
+            await call.message.answer("⚙️ Потрібно налаштувати ОК:", reply_markup=ReplyKeyboardRemove())
+        await call.message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
+        await call.answer()
+        return
+
+    if action in ("train", "exam"):
+        if not user_has_scope(user):
+            # ensure_profile сам показує вибір ОК/рівня
+            await ensure_profile(call.message, user)
+            await call.answer()
+            return
+        if not await db_has_access(user):
+            await call.message.answer(
+                "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
+            await call.answer()
+            return
+
+    if action == "train":
+        ok_code, lvl = get_user_scope(user)
+        await call.message.answer(
+            f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick(ok_code, lvl),
+        )
+        await call.answer()
+        return
+
+    if action == "exam":
+        ok_code, lvl = get_user_scope(user)
+        await call.message.answer(
+            f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+            f"Питань: <b>{EXAM_QUESTIONS}</b>, час: <b>{EXAM_DURATION_MINUTES} хв</b>\n"
+            "Правильні відповіді не показуються.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_exam_pick(ok_code, lvl),
+        )
+        await call.answer()
+        return
+
+    if action == "stats":
+        rows = await db_stats_get(DB_POOL, tg_id)
+        if not rows:
+            await call.message.answer("Поки що статистики немає.", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+            await call.answer()
+            return
+        out = "<b>📊 Ваша статистика</b>\n\n"
+        for r in rows:
+            out += (
+                f"<b>{'Навчання' if r['mode']=='train' else 'Екзамен'}</b>\n"
+                f"Відповіли: {r['answered']}\n"
+                f"✅ Правильно: {r['correct']}\n"
+                f"❌ Невірно: {r['wrong']}\n"
+            )
+            if r["mode"] == "train":
+                out += f"⏭ Пропущено: {r['skipped']}\n"
+            out += "\n"
+        await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await call.answer()
+        return
+
+    if action == "access":
+        now = utcnow()
+        tu = user["trial_until"]
+        su = user["sub_until"]
+        has = await db_has_access(user)
+        out = "<b>ℹ️ Доступ</b>\n\n"
+        out += f"Статус: {'✅ активний' if has else '⛔️ неактивний'}\n"
+        if tu:
+            out += f"Trial до: <b>{tu.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n"
+        if su:
+            out += f"Підписка до: <b>{su.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n"
+        if user_has_scope(user):
+            ok_code, lvl = get_user_scope(user)
+            out += f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+        else:
+            out += "Набір: <i>не вибрано</i>\n"
+        out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
+        await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await call.answer()
+        return
+
+    if action == "admin":
+        if not user.get("is_admin"):
+            await call.answer("⛔️ Немає доступу.", show_alert=True)
+            return
+        await call.message.answer("Адмін-панель:", reply_markup=kb_admin_panel())
+        await call.answer()
+        return
+
     await call.answer()
 
 @router.message(F.text.in_({"📚 Навчання", "📝 Екзамен", "📊 Статистика", "ℹ️ Доступ", "⚙️ Налаштування"}))
@@ -1663,6 +1797,71 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
 # -------------------------
 
 @router.message(F.text == "🛠 Адмін")
+@router.callback_query(F.data.startswith("ad:"))
+async def admin_actions_inline(call: CallbackQuery) -> None:
+    """Натискання в адмін-панелі (inline)."""
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not user["is_admin"]:
+        await call.answer("Немає доступу", show_alert=True)
+        return
+
+    action = (call.data or "").split(":", 1)[1] if ":" in (call.data or "") else ""
+
+    if action == "users":
+        rows = await db_list_users(DB_POOL, limit=30)
+        out = "<b>👥 Останні користувачі</b>\n\n"
+        for r in rows:
+            out += f"<code>{r['tg_id']}</code>  "
+            if r["phone"]:
+                out += f"{html_escape(r['phone'])}  "
+            if r["ok_code"]:
+                oc = r["ok_code"]
+                ol = r["ok_level"] if r["ok_level"] is not None else "-"
+                out += f"[{html_escape(str(oc))}:{ol}]  "
+            if r["is_admin"]:
+                out += "🛠 "
+            active = False
+            now = utcnow()
+            if r["is_admin"]:
+                active = True
+            elif r["sub_until"] and r["sub_until"] > now:
+                active = True
+            elif r["trial_until"] and r["trial_until"] > now:
+                active = True
+            out += "✅" if active else "⛔️"
+            out += "\n"
+        out += "\nКоманди:\n"
+        out += "<code>/grant TG_ID DAYS</code> — додати підписку (днів)\n"
+        out += "<code>/revoke TG_ID</code> — забрати підписку\n"
+        out += "<code>/user TG_ID</code> — деталі по користувачу\n"
+        out += "<code>/setscope TG_ID OK LEVEL   (LEVEL=-1 озна... — встановити ОК/рівень (OK=ОК-1.., або LAW; LEVEL=0 для LAW)\n"
+        await call.message.answer(out, parse_mode=ParseMode.HTML)
+        await call.answer()
+        return
+
+    if action == "problems":
+        problem_ids = sorted(PROBLEM_IDS_FILE)
+        out = "<b>⚠️ Проблемні питання</b>\n\n"
+        out += f"З файлу: <b>{len(problem_ids)}</b>\n"
+        out += f"Вимкнено в БД: <b>{len(DISABLED_IDS_DB)}</b>\n\n"
+        out += "Натисніть ID, щоб увімкнути/вимкнути (показуємо перші 15):"
+        b = InlineKeyboardBuilder()
+        for qid in problem_ids[:15]:
+            enabled = (qid not in DISABLED_IDS_DB)
+            b.button(
+                text=f"{qid} {'✅' if enabled else '⛔️'}",
+                callback_data=AdminToggleQCb(qid=qid, enable=(0 if enabled else 1)),
+            )
+        b.adjust(3)
+        await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=b.as_markup())
+        await call.answer()
+        return
+
+    await call.answer()
+
 async def admin_entry(message: Message) -> None:
     if not DB_POOL:
         return
