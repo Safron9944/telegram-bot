@@ -26,7 +26,6 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-
 # -------------------------
 # Конфіг
 # -------------------------
