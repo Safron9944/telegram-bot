@@ -15,26 +15,10 @@ def kb_request_phone() -> ReplyKeyboardMarkup:
         one_time_keyboard=True,
     )
 
-def kb_main() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="👤 Кабінет"), KeyboardButton(text="🧩 Тести")],
-            [KeyboardButton(text="❗ Помилки"), KeyboardButton(text="ℹ️ Допомога")],
-        ],
-        resize_keyboard=True,
-    )
-
-def kb_admin() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🛠 Адмін: користувач"), KeyboardButton(text="🧾 Адмін: підписка")],
-        ],
-        resize_keyboard=True,
-    )
-
-def ik_subscribe() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Оплатити (поки демо)", callback_data="pay_demo")],
-        ]
-    )
+def ik_main_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧩 Тести", callback_data="menu:tests")],
+        [InlineKeyboardButton(text="👤 Кабінет", callback_data="menu:cabinet")],
+        [InlineKeyboardButton(text="❗ Помилки", callback_data="menu:mistakes")],
+        [InlineKeyboardButton(text="ℹ️ Допомога", callback_data="menu:help")],
+    ])
