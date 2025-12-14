@@ -423,25 +423,39 @@ def kb_train_mode(mode: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def kb_train_pick(ok_code: str, level: int) -> InlineKeyboardMarkup:
+def kb_train_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
+    level = 0 if level is None else int(level)
+
     b = InlineKeyboardBuilder()
-    b.button(text=f"🎲 Випадково ({TRAIN_QUESTIONS})",
-             callback_data=StartScopeCb(mode="train", ok_code=ok_code, level=level).pack())
-    b.button(text="📚 Обрати блок",
-             callback_data=TopicPageCb(mode="train", ok_code=ok_code, level=level, page=0).pack())
+    b.button(
+        text="✅ Почати тренування",
+        callback_data=StartScopeCb(mode="train", ok_code=ok_code, level=level).pack(),
+    )
+    b.button(
+        text="📚 Тренування по блоку",
+        callback_data=TopicPageCb(mode="train", ok_code=ok_code, level=level, page=0).pack(),
+    )
     b.button(text="🏠 Меню", callback_data="menu")
     b.adjust(1)
     return b.as_markup()
 
-def kb_exam_pick(ok_code: str, level: int) -> InlineKeyboardMarkup:
+
+def kb_exam_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
+    level = 0 if level is None else int(level)
+
     b = InlineKeyboardBuilder()
-    b.button(text=f"✅ Почати екзамен ({EXAM_QUESTIONS})",
-             callback_data=StartScopeCb(mode="exam", ok_code=ok_code, level=level).pack())
-    b.button(text="📚 Екзамен по блоку",
-             callback_data=TopicPageCb(mode="exam", ok_code=ok_code, level=level, page=0).pack())
+    b.button(
+        text=f"✅ Почати екзамен ({EXAM_QUESTIONS})",
+        callback_data=StartScopeCb(mode="exam", ok_code=ok_code, level=level).pack(),
+    )
+    b.button(
+        text="📚 Екзамен по блоку",
+        callback_data=TopicPageCb(mode="exam", ok_code=ok_code, level=level, page=0).pack(),
+    )
     b.button(text="🏠 Меню", callback_data="menu")
     b.adjust(1)
     return b.as_markup()
+
 
 def kb_topics(
     mode: str,
@@ -1055,8 +1069,13 @@ def kb_pos_topics(
 def user_has_scope(user: asyncpg.Record) -> bool:
     return bool(user["ok_code"])
 
-def get_user_scope(user: asyncpg.Record) -> tuple[str, int | None]:
-    return str(user["ok_code"]), user["ok_level"]
+def get_user_scope(user: asyncpg.Record) -> tuple[str, int]:
+    ok_code = str(user["ok_code"])
+    lvl = user["ok_level"]
+    # якщо рівень більше “не має значення”, тримаємо 0 як дефолт
+    if lvl is None:
+        lvl = 0
+    return ok_code, int(lvl)
 
 async def ensure_profile(message: Message, user: asyncpg.Record, next_mode: str | None = None) -> bool:
     if user_has_scope(user):
@@ -1525,7 +1544,6 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         return
 
     await call.answer()
-
 
 
 @router.callback_query(TrainModeCb.filter())
