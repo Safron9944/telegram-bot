@@ -26,6 +26,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+router = Router()
 
 # -------------------------
 # Конфіг
@@ -1532,8 +1533,6 @@ async def finish_exam_due_to_timeout(bot: Bot, pool: asyncpg.Pool, tg_id: int, c
 # -------------------------
 # Router та хендлери
 # -------------------------
-
-router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
