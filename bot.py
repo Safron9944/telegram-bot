@@ -26,6 +26,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+
 router = Router()
 
 # -------------------------
@@ -353,6 +354,35 @@ async def show_main_menu(message: Message, *, is_admin: bool) -> None:
         parse_mode="HTML",
     )
 
+from aiogram.enums import ParseMode
+
+async def safe_edit(
+    call,
+    text: str,
+    *,
+    reply_markup=None,
+    parse_mode: str | None = None,
+) -> None:
+    """
+    1) пробуємо edit_text
+    2) якщо не можна (старе повідомлення/той самий текст) — пробуємо edit_reply_markup
+    3) якщо зовсім ніяк — fallback на answer (рідко)
+    """
+    try:
+        await call.message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        return
+    except Exception:
+        pass
+
+    if reply_markup is not None:
+        try:
+            await call.message.edit_reply_markup(reply_markup=reply_markup)
+            return
+        except Exception:
+            pass
+
+    # останній шанс (небажано, але краще ніж “зависнути”)
+    await call.message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 
 def kb_request_contact() -> ReplyKeyboardMarkup:
@@ -1609,7 +1639,9 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
 
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
+
     if not user or not user["phone"]:
+        # reply keyboard (контакт) не редагується через edit_text — тут OK робити answer
         await call.message.answer("Спочатку зареєструйтесь.", reply_markup=kb_request_contact())
         await call.answer()
         return
@@ -1619,13 +1651,12 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     # рівень більше не має значення
     user = await db_set_scope(DB_POOL, tg_id, ok_code, None)
 
-    # ✅ авто-продовження
     next_mode = PENDING_AFTER_OK.pop(tg_id, None)
 
     if next_mode == "train":
-
-        await call.message.answer(
-            f"Навчання для: <b>{html_escape(scope_title(ok_code))}</b>",
+        await safe_edit(
+            call,
+            f"Навчання для: <b>{html_escape(scope_title(ok_code))}</b>\nОберіть варіант:",
             parse_mode=ParseMode.HTML,
             reply_markup=kb_train_pick(ok_code, 0),
         )
@@ -1633,16 +1664,18 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
         return
 
     if next_mode == "exam":
-        await call.message.answer(
-            f"Екзамен для: <b>{html_escape(scope_title(ok_code))}</b>",
+        await safe_edit(
+            call,
+            f"Екзамен для: <b>{html_escape(scope_title(ok_code))}</b>\nОберіть варіант:",
             parse_mode=ParseMode.HTML,
             reply_markup=kb_exam_pick(ok_code, 0),
         )
         await call.answer()
         return
 
-    # дефолт: просто підтвердили і повернули меню
-    await call.message.answer(
+    # дефолт: підтвердження + меню (в тому ж повідомленні)
+    await safe_edit(
+        call,
         f"✅ Встановлено: <b>{html_escape(scope_title(ok_code))}</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
@@ -1655,8 +1688,10 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
 async def level_pick(call: CallbackQuery, callback_data: LevelPickCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
+
     if not user or not user["phone"]:
         await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
         await call.answer()
@@ -1666,21 +1701,23 @@ async def level_pick(call: CallbackQuery, callback_data: LevelPickCb) -> None:
     lvl = int(callback_data.level)
 
     user = await db_set_scope(DB_POOL, tg_id, ok_code, lvl)
-    await call.message.answer(
+
+    await safe_edit(
+        call,
         f"✅ Встановлено: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nТепер можете починати навчання/екзамен.",
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
-    await call.answer("Збережено")
+    await call.answer()
+
 
 @router.callback_query(F.data == "pickok")
 async def pick_ok_from_anywhere(call: CallbackQuery) -> None:
-    await call.message.answer("Оберіть ОК:", reply_markup=kb_pick_ok(page=0))
+    await safe_edit(call, "Оберіть ОК:", reply_markup=kb_pick_ok(page=0))
     await call.answer()
 
 @router.callback_query(F.data.startswith("mm:"))
 async def menu_actions_inline(call: CallbackQuery) -> None:
-    """Обробка натискань у головному меню (inline) без редагування меню-повідомлення."""
     if not DB_POOL:
         return
 
@@ -1688,7 +1725,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
 
-    # якщо ще не зареєстрований — потрібна reply-клавіатура з кнопкою "Поділитись контактом"
+    # Не зареєстрований → тільки тут залишаємо answer, бо потрібна reply-клавіатура контакту
     if not user or not user["phone"]:
         await call.message.answer(
             "Спочатку зареєструйтесь (поділіться номером).",
@@ -1699,9 +1736,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
     _, action = call.data.split(":", 1)
 
-    # -------------------------
     # SETTINGS
-    # -------------------------
     if action == "settings":
         if user_has_scope(user):
             ok_code, lvl = get_user_scope(user)
@@ -1712,21 +1747,15 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         else:
             text = "⚙️ Потрібно налаштувати ОК.\nОберіть ОК нижче:"
 
-        await call.message.answer(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_pick_ok(page=0),
-        )
+        await safe_edit(call, text, parse_mode=ParseMode.HTML, reply_markup=kb_pick_ok(page=0))
         await call.answer()
         return
 
-    # -------------------------
     # STATS
-    # -------------------------
     if action == "stats":
         rows = await db_stats_get(DB_POOL, tg_id)
         if not rows:
-            await call.message.answer("Поки що статистики немає.")
+            await safe_edit(call, "Поки що статистики немає.", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
             await call.answer()
             return
 
@@ -1742,13 +1771,11 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 out += f"⏭ Пропущено: {r['skipped']}\n"
             out += "\n"
 
-        await call.message.answer(out, parse_mode=ParseMode.HTML)
+        await safe_edit(call, out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         await call.answer()
         return
 
-    # -------------------------
     # ACCESS
-    # -------------------------
     if action == "access":
         now = utcnow()
         tu = user["trial_until"]
@@ -1768,53 +1795,56 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             out += "Набір: <i>не вибрано</i>\n"
         out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
 
-        await call.message.answer(out, parse_mode=ParseMode.HTML)
+        await safe_edit(call, out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         await call.answer()
         return
 
-    # -------------------------
     # ADMIN
-    # -------------------------
     if action == "admin":
         if not user.get("is_admin"):
             await call.answer("⛔️ Немає доступу.", show_alert=True)
             return
 
-        await call.message.answer("Адмін-панель:", reply_markup=kb_admin_panel())
+        await safe_edit(call, "Адмін-панель:", reply_markup=kb_admin_panel())
         await call.answer()
         return
 
-    # -------------------------
     # TRAIN / EXAM
-    # -------------------------
     if action in ("train", "exam"):
-        # для навчання/екзамену потрібен активний доступ
         if not await db_has_access(user):
-            await call.message.answer(
-                "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу."
+            await safe_edit(
+                call,
+                "⛔️ Доступ завершився.\nНапишіть адміну для доступу.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
             )
             await call.answer()
             return
 
-        # ========= ЕКЗАМЕН =========
+        # EXAM
         if action == "exam":
             position = user.get("position")
             if not position:
-                await call.message.edit_text("Оберіть посаду для екзамену:", reply_markup=kb_pick_position("exam")),
+                await safe_edit(call, "Оберіть посаду для екзамену:", reply_markup=kb_pick_position("exam"))
                 await call.answer()
                 return
+
+            # прибрати кнопки меню, щоб не натиснули двічі
+            try:
+                await call.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
 
             await call.answer()
             exam_qids = build_position_exam_qids(position)
             await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
             return
 
-        # ========= НАВЧАННЯ =========
+        # TRAIN
         mode = "train"
         train_mode = user.get("train_mode")  # "position" | "manual" | None
 
         if not train_mode:
-            await call.message.edit_text("Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
+            await safe_edit(call, "Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
             await call.answer()
             return
 
@@ -1823,7 +1853,8 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             if position:
                 pool_qids = qids_for_position(position_name=position, include_all_levels=True)
                 if not pool_qids:
-                    await call.message.answer(
+                    await safe_edit(
+                        call,
                         "Для вашої поточної посади немає питань.\nОберіть іншу посаду:",
                         reply_markup=kb_pick_position(mode),
                     )
@@ -1840,7 +1871,8 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                     "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b> або «🎯 Всі блоки»."
                 )
 
-                await call.message.answer(
+                await safe_edit(
+                    call,
                     title,
                     parse_mode=ParseMode.HTML,
                     reply_markup=kb_pos_topics(mode, position, page=0, selected=selected),
@@ -1848,18 +1880,15 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 await call.answer()
                 return
 
-            await call.message.answer("Оберіть посаду:", reply_markup=kb_pick_position(mode))
+            await safe_edit(call, "Оберіть посаду:", reply_markup=kb_pick_position(mode))
             await call.answer()
             return
 
         if train_mode == "manual":
             if not user_has_scope(user):
-                try:
-                    PENDING_AFTER_OK[tg_id] = mode
-                except NameError:
-                    pass
-
-                await call.message.answer(
+                PENDING_AFTER_OK[tg_id] = mode
+                await safe_edit(
+                    call,
                     "⚙️ Для режиму «вручну» потрібно обрати ОК.\nОберіть ОК:",
                     reply_markup=kb_pick_ok(page=0),
                 )
@@ -1867,19 +1896,21 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 return
 
             ok_code, lvl = get_user_scope(user)
-            await call.message.answer(
-                f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
+            await safe_edit(
+                call,
+                f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb_train_pick(ok_code, lvl),
             )
             await call.answer()
             return
 
-        await call.message.edit_text("Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
+        await safe_edit(call, "Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
         await call.answer()
         return
 
     await call.answer()
+
 
 
 
