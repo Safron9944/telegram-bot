@@ -1577,47 +1577,52 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
+        mode = action  # "train" або "exam"
         train_mode = user.get("train_mode")  # "position" | "manual" | None
 
         # 1) якщо ще не обрали стиль навчання — показуємо вибір
         if not train_mode:
-            text = "Як ви хочете навчатись?" if action == "train" else "Як ви хочете складати екзамен?"
-            await call.message.answer(text, reply_markup=kb_train_mode(action))
+            text = "Як ви хочете навчатись?" if mode == "train" else "Як ви хочете складати екзамен?"
+            await call.message.answer(text, reply_markup=kb_train_mode(mode))
             await call.answer()
             return
 
-        # 2) за посадою — ОК НЕ потрібен
+        # 2) РЕЖИМ "ЗА ПОСАДОЮ" — одразу показуємо всі блоки по цій посаді
         if train_mode == "position":
             position = user.get("position")
 
             if position:
-                # якщо посада вже збережена, пробуємо одразу запустити по ній
-                pool_qids = qids_for_position(
-                    position_name=position,
-                    include_all_levels=True,
-                )
-                if pool_qids:
-                    await call.message.answer(
-                        f"👔 Поточна посада: <b>{html_escape(position)}</b>\n"
-                        "Оберіть як почати:",
-                        parse_mode=ParseMode.HTML,
-                        reply_markup=kb_position_start(action, position),
-                    )
-                    await call.answer()
-                    return
-                else:
-                    # якщо раптом для цієї посади зараз немає питань — просимо обрати іншу
+                pool_qids = qids_for_position(position_name=position, include_all_levels=True)
+                if not pool_qids:
                     await call.message.answer(
                         "Для вашої поточної посади немає питань.\nОберіть іншу посаду:",
-                        reply_markup=kb_pick_position(action),
+                        reply_markup=kb_pick_position(mode),
                     )
                     await call.answer()
                     return
 
-            # якщо посада ще не збережена — як і раніше показуємо список посад
+                pref_ok = _pos_pref_ok_code(position)
+                selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
+
+                title = (
+                    f"👔 Поточна посада: <b>{html_escape(position)}</b>\n"
+                    f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode == 'train' else 'екзамену'}</b>\n"
+                    f"Обрано блоків: <b>{len(selected)}</b>\n\n"
+                    "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b> або «🎯 Всі блоки»."
+                )
+
+                await call.message.answer(
+                    title,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb_pos_topics(mode, position, page=0, selected=selected),
+                )
+                await call.answer()
+                return
+
+            # якщо посада ще не збережена — просимо обрати
             await call.message.answer(
                 "Оберіть посаду:",
-                reply_markup=kb_pick_position(action)
+                reply_markup=kb_pick_position(mode),
             )
             await call.answer()
             return
@@ -1625,10 +1630,9 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         # 3) manual — ОК потрібен
         if train_mode == "manual":
             if not user_has_scope(user):
-                # ✅ якщо хочеш автопродовження після вибору ОК — ставимо pending
-                # (потрібно мати PENDING_AFTER_OK і обробку в ok_pick)
+                # ✅ автопродовження після вибору ОК
                 try:
-                    PENDING_AFTER_OK[tg_id] = action  # "train" або "exam"
+                    PENDING_AFTER_OK[tg_id] = mode  # "train" або "exam"
                 except NameError:
                     pass
 
@@ -1641,7 +1645,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
             ok_code, lvl = get_user_scope(user)
 
-            if action == "train":
+            if mode == "train":
                 await call.message.answer(
                     f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
                     parse_mode=ParseMode.HTML,
@@ -1658,12 +1662,13 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             return
 
         # fallback якщо в БД щось несподіване
-        text = "Як ви хочете навчатись?" if action == "train" else "Як ви хочете складати екзамен?"
-        await call.message.answer(text, reply_markup=kb_train_mode(action))
+        text = "Як ви хочете навчатись?" if mode == "train" else "Як ви хочете складати екзамен?"
+        await call.message.answer(text, reply_markup=kb_train_mode(mode))
         await call.answer()
         return
 
     await call.answer()
+
 
 
 @router.callback_query(TrainModeCb.filter())
