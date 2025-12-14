@@ -1174,17 +1174,22 @@ async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.R
     await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
 
 
-def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
+def kb_position_start(mode: str, position: str, back_to: str = "auto") -> InlineKeyboardMarkup:
+    """
+    back_to:
+      - "menu"      -> в головне меню
+      - "mode"      -> у вибір режиму (backmode:{mode})
+      - "positions" -> у вибір посади (через TrainModeCb ... kind="position")
+      - "auto"      -> як було раніше
+    """
     b = InlineKeyboardBuilder()
 
     if mode == "train":
         count_label = TRAIN_QUESTIONS
     else:
-        # екзамен за посадою: 50 із законодавства + 20 з кожного блоку
         num_topics = len(topics_for_position(position))
         count_label = EXAM_LAW_QUESTIONS + num_topics * EXAM_PER_TOPIC_QUESTIONS
 
-    # action шифруємо коротко: r = random, b = blocks
     b.button(
         text=f"🎲 Випадково ({count_label})",
         callback_data=PosMenuCb(mode=mode, position=position, action="r").pack(),
@@ -1194,12 +1199,20 @@ def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
         callback_data=PosMenuCb(mode=mode, position=position, action="b").pack(),
     )
 
-    # для train — назад до вибору режиму, для exam — назад у головне меню
-    back_cb = f"backmode:{mode}" if mode == "train" else "menu"
+    if back_to == "menu":
+        back_cb = "menu"
+    elif back_to == "mode":
+        back_cb = f"backmode:{mode}"
+    elif back_to == "positions":
+        back_cb = TrainModeCb(mode=mode, kind="position").pack()
+    else:
+        back_cb = f"backmode:{mode}" if mode == "train" else "menu"
+
     b.button(text="⬅️ Назад", callback_data=back_cb)
 
     b.adjust(1)
     return b.as_markup()
+
 
 
 
@@ -1460,13 +1473,19 @@ async def cmd_start(message: Message) -> None:
             "Оберіть його в <b>⚙️ Налаштуваннях</b> або бот запропонує вибір, коли натиснете <b>Навчання/Екзамен</b>.\n"
         )
 
-    await message.answer(
-        "Готово ✅\n" + scope_line + "\nОберіть режим:",
+    text = "Готово ✅\n" + scope_line + "\nОберіть режим:"
+
+    # 1) Одне повідомлення + прибираємо reply-клавіатуру (якщо була)
+    msg = await message.answer(
+        text,
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer(
-        "Меню:",
+
+    # 2) На це ж повідомлення навішуємо inline-меню
+    await msg.edit_text(
+        text,
+        parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
 
@@ -1853,7 +1872,7 @@ async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
     if kind == "position":
         await call.message.edit_text(
             "Оберіть посаду:",
-            reply_markup=kb_pick_position(mode),
+            reply_markup=kb_pick_position(mode, back_to="mode"),
         )
         await call.answer()
         return
@@ -2178,10 +2197,15 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
 
         await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
-def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
+def kb_pick_position(mode: str, back_to: str = "auto") -> InlineKeyboardMarkup:
+    """
+    back_to:
+      - "menu"  -> в головне меню
+      - "mode"  -> у вибір режиму (backmode:{mode})
+      - "auto"  -> як було раніше
+    """
     b = InlineKeyboardBuilder()
 
-    # кожна кнопка буде в окремому рядку
     for pos in POSITION_OK_MAP.keys():
         b.row(
             InlineKeyboardButton(
@@ -2190,16 +2214,16 @@ def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
             )
         )
 
-    # кнопка Назад
-    back_cb = f"backmode:{mode}" if mode == "train" else "menu"
-    b.row(
-        InlineKeyboardButton(
-            text="⬅️ Назад",
-            callback_data=back_cb,
-        )
-    )
+    if back_to == "menu":
+        back_cb = "menu"
+    elif back_to == "mode":
+        back_cb = f"backmode:{mode}"
+    else:
+        back_cb = f"backmode:{mode}" if mode == "train" else "menu"
 
+    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
     return b.as_markup()
+
 
 
 @router.callback_query(F.data.startswith("backmode:"))
