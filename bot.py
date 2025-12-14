@@ -383,14 +383,23 @@ def kb_admin_panel() -> InlineKeyboardMarkup:
 def kb_question(mode: str, qid: int, choices: List[str], allow_skip: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
     for i, _ in enumerate(choices):
         label = letters[i] if i < len(letters) else str(i + 1)
         b.button(text=label, callback_data=AnswerCb(mode=mode, qid=qid, ci=i))
-    b.adjust(2)
+
+    # A B C D в один рядок
+    b.adjust(4)
+
+    # нижній ряд: Пропустити + Меню (в одному рядку)
+    bottom: List[InlineKeyboardButton] = []
     if allow_skip:
-        b.row(InlineKeyboardButton(text="⏭ Пропустити", callback_data=SkipCb(qid=qid).pack()))
-    b.row(InlineKeyboardButton(text="🏠 Меню", callback_data="menu"))
+        bottom.append(InlineKeyboardButton(text="⏭ Пропустити", callback_data=SkipCb(qid=qid).pack()))
+    bottom.append(InlineKeyboardButton(text="🏠 Меню", callback_data="menu"))
+
+    b.row(*bottom)
     return b.as_markup()
+
 
 def kb_after_feedback(mode: str, expected_index: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -1342,9 +1351,13 @@ async def ensure_profile(message: Message, user: asyncpg.Record, next_mode: str 
 # -------------------------
 # Відправка питань
 # -------------------------
-
-def build_question_text(q: Dict[str, Any], idx: int, total: int, mode: str, remaining_seconds: Optional[int]) -> str:
-    """Текст питання з прогресом (X/Y) і залишком."""
+def build_question_text(
+    q: Dict[str, Any],
+    idx: int,
+    total: int,
+    mode: str,
+    remaining_seconds: Optional[int],
+) -> str:
     qtext = html_escape(str(q.get("question") or ""))
 
     remaining_q = max(0, int(total) - int(idx))
@@ -1353,12 +1366,18 @@ def build_question_text(q: Dict[str, Any], idx: int, total: int, mode: str, rema
     if mode == "exam" and remaining_seconds is not None:
         head += f" • ⏳ {as_minutes_seconds(remaining_seconds)}"
 
-    body = head + "\n\n" + f"<b>{qtext}</b>\n\n"
+    body = (
+        f"{head}\n\n"
+        f"❓ <b>Питання:</b>\n<b>{qtext}</b>\n\n"
+        f"🧾 <b>Варіанти відповіді:</b>\n"
+    )
+
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     choices = q.get("choices") or []
     for i, ch in enumerate(choices):
         label = letters[i] if i < len(letters) else str(i + 1)
-        body += f"{label}) {html_escape(str(ch))}\n"
+        body += f"• <b>{label}</b> — {html_escape(str(ch))}\n"
+
     return body
 
 async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_id: int, mode: str, edit_message: Optional[Message] = None) -> None:
@@ -2698,10 +2717,11 @@ async def menu_from_inline(call: CallbackQuery) -> None:
     user = await db_get_user(DB_POOL, tg_id)
 
     await call.message.edit_text(
-        "Меню:",
+        MAIN_MENU_TEXT,
         reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"])),
     )
     await call.answer()
+
 
 
 # Сумісність: якщо залишились старі кнопки (одиночний вибір блоку)
