@@ -1174,14 +1174,7 @@ async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.R
     await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
 
 
-def kb_position_start(mode: str, position: str, back_to: str = "auto") -> InlineKeyboardMarkup:
-    """
-    back_to:
-      - "menu"      -> в головне меню
-      - "mode"      -> у вибір режиму (backmode:{mode})
-      - "positions" -> у вибір посади (через TrainModeCb ... kind="position")
-      - "auto"      -> як було раніше
-    """
+def kb_position_start(mode: str, position: str, back_to: str = "menu") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
     if mode == "train":
@@ -1206,14 +1199,12 @@ def kb_position_start(mode: str, position: str, back_to: str = "auto") -> Inline
     elif back_to == "positions":
         back_cb = TrainModeCb(mode=mode, kind="position").pack()
     else:
-        back_cb = f"backmode:{mode}" if mode == "train" else "menu"
+        back_cb = "menu"
 
     b.button(text="⬅️ Назад", callback_data=back_cb)
 
     b.adjust(1)
     return b.as_markup()
-
-
 
 
 def kb_pos_topics(
@@ -1233,69 +1224,56 @@ def kb_pos_topics(
     current = pages[page]
     start_idx = page * per_page
 
-    # скорочений режим для callback_data, щоб влізти в 64 байти
-    cb_mode = _short_mode(mode)
-
     b = InlineKeyboardBuilder()
 
-    # самі блоки (multi-select) — ПЕРШИМИ
+    # кнопки тем
     for i, t in enumerate(current):
         idx = start_idx + i
-        checked = "☑️" if t in selected_set else "⬜️"
-        label = f"{checked} {truncate_button(t, max_len=40)}"
-        b.row(
-            InlineKeyboardButton(
-                text=label,
-                callback_data=PosTopicToggleCb(
-                    mode=cb_mode,
-                    position=position,
-                    topic_idx=idx,
-                    page=page,
-                ).pack(),
-            )
+        checked = (t in selected_set)
+        icon = "☑️" if checked else "⬜️"
+        b.button(
+            text=f"{icon} {t}",
+            callback_data=PosTopicToggleCb(mode=mode, position=position, topic_idx=idx, page=page).pack(),
         )
 
-    # нижній ряд: Назад + (⬅️/➡️ якщо треба) + Всі блоки + Почати + Меню
+    b.adjust(1)
+
+    # нижній ряд: Назад (в меню) + (⬅️/➡️) + Всі блоки + Почати
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
     bottom: List[InlineKeyboardButton] = [
-        InlineKeyboardButton(
-            text="⬅️ Назад",
-            callback_data=PosMenuCb(mode=cb_mode, position=position, action="m").pack(),
-        )
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")  # ✅ було PosMenuCb(..., action="m")
     ]
 
-    # стрілки пагінації — ТЕЖ ВНИЗУ
     if page > 0:
         bottom.append(
             InlineKeyboardButton(
                 text="⬅️",
-                callback_data=PosTopicPageCb(mode=cb_mode, position=position, page=page - 1).pack(),
+                callback_data=PosTopicPageCb(mode=mode, position=position, page=page - 1).pack(),
             )
         )
     if page < len(pages) - 1:
         bottom.append(
             InlineKeyboardButton(
                 text="➡️",
-                callback_data=PosTopicPageCb(mode=cb_mode, position=position, page=page + 1).pack(),
+                callback_data=PosTopicPageCb(mode=mode, position=position, page=page + 1).pack(),
             )
         )
 
     bottom += [
         InlineKeyboardButton(
             text="🎯 Всі блоки",
-            callback_data=PosTopicAllCb(mode=cb_mode, position=position).pack(),
+            callback_data=PosTopicAllCb(mode=mode, position=position).pack(),
         ),
         InlineKeyboardButton(
             text=start_label,
-            callback_data=PosTopicDoneCb(mode=cb_mode, position=position).pack(),
+            callback_data=PosTopicDoneCb(mode=mode, position=position).pack(),
         ),
-        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     ]
 
     b.row(*bottom)
-
     return b.as_markup()
+
 
 
 # -------------------------
