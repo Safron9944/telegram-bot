@@ -356,18 +356,27 @@ def kb_request_contact() -> ReplyKeyboardMarkup:
     )
 
 def kb_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
+    rows = [
+        [
+            InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"),
+            InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"),
+            InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"),
+        ],
+        [
+            InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"),
+            InlineKeyboardButton(text="🛠 Адмін", callback_data="mm:admin") if is_admin
+            else InlineKeyboardButton(text=" ", callback_data="mm:none"),  # заглушка для рівної сітки
+        ],
+    ]
 
-    b.row(InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"))
-    b.row(InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"))
-    b.row(InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"))
-    b.row(InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"))
-    b.row(InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"))
+    # якщо не адмін — прибираємо заглушку (щоб не було "порожньої" кнопки)
+    if not is_admin:
+        rows[-1] = [InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings")]
 
-    if is_admin:
-        b.row(InlineKeyboardButton(text="🛠 Адмін", callback_data="mm:admin"))
-
-    return b.as_markup()
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def kb_admin_panel() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -1362,9 +1371,12 @@ def build_question_text(
     if mode == "exam" and remaining_seconds is not None:
         head += f" • ⏳ {as_minutes_seconds(remaining_seconds)}"
 
+    sep = "────────────\n"   # ← лінія-розділювач
+
     body = (
         f"{head}\n\n"
-        f"❓ <b>Питання:</b>\n<b>{qtext}</b>\n\n"
+        f"❓ <b>Питання:</b>\n<b>{qtext}</b>\n"
+        f"{sep}"
         f"🧾 <b>Варіанти відповіді:</b>\n"
     )
 
@@ -1375,6 +1387,7 @@ def build_question_text(
         body += f"• <b>{label}</b> — {html_escape(str(ch))}\n"
 
     return body
+
 
 async def send_current_question(bot: Bot, pool: asyncpg.Pool, chat_id: int, tg_id: int, mode: str, edit_message: Optional[Message] = None) -> None:
     sess = await db_get_active_session(pool, tg_id, mode)
