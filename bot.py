@@ -85,6 +85,17 @@ POSITION_OK_MAP: Dict[str, Dict[str, int]] = {
     },
 }
 
+POSITIONS: List[str] = list(POSITION_OK_MAP.keys())
+POS_ID_BY_NAME: Dict[str, int] = {name: i for i, name in enumerate(POSITIONS)}
+POS_NAME_BY_ID: Dict[int, str] = {i: name for name, i in POS_ID_BY_NAME.items()}
+
+def pos_id(name: str) -> int:
+    return POS_ID_BY_NAME.get(name, -1)
+
+def pos_name(pid: int) -> str:
+    return POS_NAME_BY_ID.get(pid, "")
+
+
 # -------------------------
 # Глобальні кеші (заповнюються на старті)
 # -------------------------
@@ -292,33 +303,34 @@ class TrainModeCb(CallbackData, prefix="tm"):
     kind: str   # position / manual
 
 class PosMenuCb(CallbackData, prefix="pm"):
-    mode: str       # train/exam
-    position: str   # назва посади
-    action: str     # "random" | "blocks"
+    mode: str      # 't' або 'e'
+    pid: int       # position id
+    action: str    # 'r' | 'b' | 'm'
 
 class PosTopicPageCb(CallbackData, prefix="ptp"):
     mode: str
-    position: str
+    pid: int
     page: int
 
 class PosTopicToggleCb(CallbackData, prefix="ptt"):
     mode: str
-    position: str
+    pid: int
     topic_idx: int
     page: int
 
 class PosTopicDoneCb(CallbackData, prefix="ptd"):
     mode: str
-    position: str
+    pid: int
 
 class PosTopicClearCb(CallbackData, prefix="ptc"):
     mode: str
-    position: str
+    pid: int
     page: int
 
 class PosTopicAllCb(CallbackData, prefix="pta"):
     mode: str
-    position: str
+    pid: int
+
 
 
 # -------------------------
@@ -1174,7 +1186,7 @@ async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.R
     await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
 
 
-def kb_position_start(mode: str, position: str, back_to: str = "menu") -> InlineKeyboardMarkup:
+def kb_position_start(mode: str, position: str, back_to: str = "auto") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
     if mode == "train":
@@ -1183,13 +1195,16 @@ def kb_position_start(mode: str, position: str, back_to: str = "menu") -> Inline
         num_topics = len(topics_for_position(position))
         count_label = EXAM_LAW_QUESTIONS + num_topics * EXAM_PER_TOPIC_QUESTIONS
 
+    cb_mode = _short_mode(mode)
+    pid = pos_id(position)
+
     b.button(
         text=f"🎲 Випадково ({count_label})",
-        callback_data=PosMenuCb(mode=mode, position=position, action="r").pack(),
+        callback_data=PosMenuCb(mode=cb_mode, pid=pid, action="r").pack(),
     )
     b.button(
         text="📚 Обрати блоки",
-        callback_data=PosMenuCb(mode=mode, position=position, action="b").pack(),
+        callback_data=PosMenuCb(mode=cb_mode, pid=pid, action="b").pack(),
     )
 
     if back_to == "menu":
@@ -1199,12 +1214,13 @@ def kb_position_start(mode: str, position: str, back_to: str = "menu") -> Inline
     elif back_to == "positions":
         back_cb = TrainModeCb(mode=mode, kind="position").pack()
     else:
-        back_cb = "menu"
+        back_cb = f"backmode:{mode}" if mode == "train" else "menu"
 
     b.button(text="⬅️ Назад", callback_data=back_cb)
 
     b.adjust(1)
     return b.as_markup()
+
 
 
 def kb_pos_topics(
@@ -1864,8 +1880,12 @@ async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
 
 @router.callback_query(F.data.startswith("pos:"))
 async def position_pick(call: CallbackQuery):
-    # callback має формат: "pos:{mode}:{position}"
-    _, mode_raw, position = call.data.split(":", 2)
+    _, mode_raw, pid_str = call.data.split(":", 2)
+    pid = int(pid_str)
+    position = pos_name(pid)
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
 
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
@@ -1874,19 +1894,15 @@ async def position_pick(call: CallbackQuery):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    # нормалізуємо режим
     mode = _normalize_mode(mode_raw)
 
-    # перевіряємо, що для посади є питання (тільки свої рівні)
     pool_qids = qids_for_position(position_name=position, include_all_levels=False)
     if not pool_qids:
         await call.answer("Для цієї посади немає питань", show_alert=True)
         return
 
-    # зберігаємо вибрану посаду
     await db_set_position(DB_POOL, tg_id, position)
 
-    # одразу показуємо екран з блоками
     pref_ok = _pos_pref_ok_code(position)
     selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
 
@@ -1908,6 +1924,7 @@ async def position_pick(call: CallbackQuery):
 
 
 
+
 @router.callback_query(PosMenuCb.filter())
 async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
     if not DB_POOL:
@@ -1922,22 +1939,19 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    mode = str(callback_data.mode)
-    position = str(callback_data.position)
+    mode = _normalize_mode(str(callback_data.mode))
+    position = pos_name(int(callback_data.pid))
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
 
-    # 🔹 гарантовано зберігаємо обрану посаду в профілі
     if user.get("position") != position:
         await db_set_position(DB_POOL, tg_id, position)
 
     raw_action = str(callback_data.action)
-    action_map = {
-        "r": "random",
-        "b": "blocks",
-        "m": "menu",
-    }
+    action_map = {"r": "random", "b": "blocks", "m": "menu"}
     action = action_map.get(raw_action, raw_action)
 
-    # питання тільки по рівнях, що задані для посади
     pool_qids = qids_for_position(position_name=position, include_all_levels=False)
     if not pool_qids:
         await call.answer("Для цієї посади немає питань", show_alert=True)
@@ -1988,12 +2002,15 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
 
 
 
+
 @router.callback_query(PosTopicPageCb.filter())
 async def pos_topic_page(call: CallbackQuery, callback_data: PosTopicPageCb):
     tg_id = call.from_user.id
-    raw_mode = str(callback_data.mode)
-    mode = _normalize_mode(raw_mode)
-    position = str(callback_data.position)
+    mode = _normalize_mode(str(callback_data.mode))
+    position = pos_name(int(callback_data.pid))
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
     page = int(callback_data.page)
 
     pref_ok = _pos_pref_ok_code(position)
@@ -2012,8 +2029,6 @@ async def pos_topic_page(call: CallbackQuery, callback_data: PosTopicPageCb):
     )
     await call.answer()
 
-
-
 @router.callback_query(PosTopicToggleCb.filter())
 async def pos_topic_toggle(call: CallbackQuery, callback_data: PosTopicToggleCb):
     tg_id = call.from_user.id
@@ -2022,11 +2037,15 @@ async def pos_topic_toggle(call: CallbackQuery, callback_data: PosTopicToggleCb)
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    raw_mode = str(callback_data.mode)
-    mode = _normalize_mode(raw_mode)
-    position = str(callback_data.position)
+    mode = _normalize_mode(str(callback_data.mode))
+    pid = int(callback_data.pid)
+    position = pos_name(pid)
     idx = int(callback_data.topic_idx)
     page = int(callback_data.page)
+
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
 
     topics = topics_for_position(position)
     if idx < 0 or idx >= len(topics):
@@ -2057,15 +2076,22 @@ async def pos_topic_toggle(call: CallbackQuery, callback_data: PosTopicToggleCb)
     )
     await call.answer()
 
-
-
 @router.callback_query(PosTopicClearCb.filter())
 async def pos_topic_clear(call: CallbackQuery, callback_data: PosTopicClearCb):
     tg_id = call.from_user.id
-    raw_mode = str(callback_data.mode)
-    mode = _normalize_mode(raw_mode)
-    position = str(callback_data.position)
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    mode = _normalize_mode(str(callback_data.mode))
+    pid = int(callback_data.pid)
+    position = pos_name(pid)
     page = int(callback_data.page)
+
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
 
     pref_ok = _pos_pref_ok_code(position)
     await db_clear_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
@@ -2083,8 +2109,6 @@ async def pos_topic_clear(call: CallbackQuery, callback_data: PosTopicClearCb):
     )
     await call.answer("Очищено")
 
-
-
 @router.callback_query(PosTopicAllCb.filter())
 async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
     tg_id = call.from_user.id
@@ -2093,11 +2117,14 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    raw_mode = str(callback_data.mode)
-    mode = _normalize_mode(raw_mode)
-    position = str(callback_data.position)
+    mode = _normalize_mode(str(callback_data.mode))
+    pid = int(callback_data.pid)
+    position = pos_name(pid)
 
-    # всі питання для посади (правильні рівні)
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
+
     pool_qids = qids_for_position(position_name=position, include_all_levels=False)
     if not pool_qids:
         await call.answer("Для цієї посади немає питань", show_alert=True)
@@ -2118,7 +2145,6 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
         exam_qids = build_position_exam_qids(position)
         await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
-
 @router.callback_query(PosTopicDoneCb.filter())
 async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
     tg_id = call.from_user.id
@@ -2127,9 +2153,13 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    raw_mode = str(callback_data.mode)
-    mode = _normalize_mode(raw_mode)
-    position = str(callback_data.position)
+    mode = _normalize_mode(str(callback_data.mode))
+    pid = int(callback_data.pid)
+    position = pos_name(pid)
+
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
 
     pref_ok = _pos_pref_ok_code(position)
     selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
@@ -2140,8 +2170,7 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
     pool_set: Set[int] = set()
     for t in selected:
         pool_set.update(qids_for_position_topic(position, t))
-
-    pool_qids = sorted(list(pool_set))
+    pool_qids = sorted(pool_set)
 
     if mode == "train":
         if not pool_qids:
@@ -2159,8 +2188,8 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
             pass
 
         await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+
     else:
-        # екзамен: 50 із законодавства + 20 з кожного обраного блоку
         exam_qids = build_position_exam_qids(position, topics=selected)
         if not exam_qids:
             await call.answer("Для обраних блоків немає достатньо питань для екзамену.", show_alert=True)
@@ -2179,19 +2208,15 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
         await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
 def kb_pick_position(mode: str, back_to: str = "auto") -> InlineKeyboardMarkup:
-    """
-    back_to:
-      - "menu"  -> в головне меню
-      - "mode"  -> у вибір режиму (backmode:{mode})
-      - "auto"  -> як було раніше
-    """
     b = InlineKeyboardBuilder()
+    m = _short_mode(mode)
 
-    for pos in POSITION_OK_MAP.keys():
+    for name in POSITIONS:
+        pid = pos_id(name)
         b.row(
             InlineKeyboardButton(
-                text=f"👔 {pos}",
-                callback_data=f"pos:{mode}:{pos}",
+                text=f"👔 {name}",
+                callback_data=f"pos:{m}:{pid}",
             )
         )
 
