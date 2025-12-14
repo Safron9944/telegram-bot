@@ -1221,8 +1221,6 @@ def kb_position_start(mode: str, position: str, back_to: str = "auto") -> Inline
     b.adjust(1)
     return b.as_markup()
 
-
-
 def kb_pos_topics(
     mode: str,
     position: str,
@@ -1232,6 +1230,9 @@ def kb_pos_topics(
 ) -> InlineKeyboardMarkup:
     selected_set: Set[str] = set(selected or [])
     topics = topics_for_position(position)
+
+    # PosTopic* CallbackData очікують pid (int), не назву посади
+    pid = pos_id(position)
 
     pages: List[List[str]] = [topics[i:i + per_page] for i in range(0, len(topics), per_page)]
     if not pages:
@@ -1249,7 +1250,7 @@ def kb_pos_topics(
         icon = "☑️" if checked else "⬜️"
         b.button(
             text=f"{icon} {t}",
-            callback_data=PosTopicToggleCb(mode=mode, position=position, topic_idx=idx, page=page).pack(),
+            callback_data=PosTopicToggleCb(mode=mode, pid=pid, topic_idx=idx, page=page).pack(),
         )
 
     b.adjust(1)
@@ -1258,37 +1259,40 @@ def kb_pos_topics(
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
     bottom: List[InlineKeyboardButton] = [
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")  # ✅ було PosMenuCb(..., action="m")
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")
+        # якщо хочеш назад саме в меню посади, заміни на:
+        # InlineKeyboardButton(text="⬅️ Назад", callback_data=PosMenuCb(mode=_short_mode(mode), pid=pid, action="m").pack())
     ]
 
     if page > 0:
         bottom.append(
             InlineKeyboardButton(
                 text="⬅️",
-                callback_data=PosTopicPageCb(mode=mode, position=position, page=page - 1).pack(),
+                callback_data=PosTopicPageCb(mode=mode, pid=pid, page=page - 1).pack(),
             )
         )
     if page < len(pages) - 1:
         bottom.append(
             InlineKeyboardButton(
                 text="➡️",
-                callback_data=PosTopicPageCb(mode=mode, position=position, page=page + 1).pack(),
+                callback_data=PosTopicPageCb(mode=mode, pid=pid, page=page + 1).pack(),
             )
         )
 
     bottom += [
         InlineKeyboardButton(
             text="🎯 Всі блоки",
-            callback_data=PosTopicAllCb(mode=mode, position=position).pack(),
+            callback_data=PosTopicAllCb(mode=mode, pid=pid).pack(),
         ),
         InlineKeyboardButton(
             text=start_label,
-            callback_data=PosTopicDoneCb(mode=mode, position=position).pack(),
+            callback_data=PosTopicDoneCb(mode=mode, pid=pid).pack(),
         ),
     ]
 
     b.row(*bottom)
     return b.as_markup()
+
 
 
 
