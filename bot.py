@@ -1477,19 +1477,20 @@ async def cmd_start(message: Message) -> None:
 
     text = "Готово ✅\n" + scope_line + "\nОберіть режим:"
 
-    # 1) прибираємо нижню reply-клавіатуру (кнопку "Меню"), але без зайвого сміття в чаті
-    tmp = await message.answer("⠀", reply_markup=ReplyKeyboardRemove())
+    # 1) прибираємо нижню reply-клавіатуру (потрібен НЕ порожній текст)
+    tmp = await message.answer("✅", reply_markup=ReplyKeyboardRemove())
     try:
         await tmp.delete()
     except Exception:
         pass
 
-    # 2) одразу показуємо головне меню (inline)
+    # 2) показуємо головне меню (inline)
     await message.answer(
         text,
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
+
 
 
 @router.message(F.contact)
