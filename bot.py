@@ -1454,6 +1454,7 @@ async def cmd_start(message: Message) -> None:
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
 
+    # якщо не зареєстрований — показуємо кнопку контакту (reply-клавіатура)
     if not user or not user["phone"]:
         await message.answer(
             "Привіт! Щоб почати, потрібна реєстрація.\n\n"
@@ -1464,6 +1465,7 @@ async def cmd_start(message: Message) -> None:
         )
         return
 
+    # формуємо текст
     if user_has_scope(user):
         ok_code, lvl = get_user_scope(user)
         scope_line = f"Ваш набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
@@ -1475,15 +1477,15 @@ async def cmd_start(message: Message) -> None:
 
     text = "Готово ✅\n" + scope_line + "\nОберіть режим:"
 
-    # 1) Одне повідомлення + прибираємо reply-клавіатуру (якщо була)
-    msg = await message.answer(
-        text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    # 1) прибираємо нижню reply-клавіатуру (кнопку "Меню"), але без зайвого сміття в чаті
+    tmp = await message.answer("⠀", reply_markup=ReplyKeyboardRemove())
+    try:
+        await tmp.delete()
+    except Exception:
+        pass
 
-    # 2) На це ж повідомлення навішуємо inline-меню
-    await msg.edit_text(
+    # 2) одразу показуємо головне меню (inline)
+    await message.answer(
         text,
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
