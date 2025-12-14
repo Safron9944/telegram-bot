@@ -2224,13 +2224,10 @@ async def menu_actions(message: Message) -> None:
     tg_id = message.from_user.id
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
-
     if not user or not user["phone"]:
         await message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
         return
-
     text = (message.text or "").strip()
-
     if text == "⚙️ Налаштування":
         if user_has_scope(user):
             ok_code, lvl = get_user_scope(user)
@@ -2244,7 +2241,6 @@ async def menu_actions(message: Message) -> None:
             await message.answer("⚙️ Потрібно налаштувати ОК:", reply_markup=ReplyKeyboardRemove())
         await message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
         return
-
     # для навчання/екзамену потрібен scope
     if text in ("📚 Навчання", "📝 Екзамен"):
         if not user_has_scope(user):
@@ -2257,7 +2253,6 @@ async def menu_actions(message: Message) -> None:
                 reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
             )
             return
-
     if text == "📚 Навчання":
         ok_code, lvl = get_user_scope(user)
         await message.answer(
@@ -2266,18 +2261,49 @@ async def menu_actions(message: Message) -> None:
             reply_markup=kb_train_pick(ok_code, lvl),
         )
         return
-
     if text == "📝 Екзамен":
         ok_code, lvl = get_user_scope(user)
+        # Автоматичний старт екзамену з структурою: 50 з законодавства + 20 з кожного блоку
+        law_pool = []
+        for law_lvl in levels_for_ok(OK_CODE_LAW):
+            law_pool.extend(base_qids_for_scope(OK_CODE_LAW, law_lvl))
+        law_pool = effective_qids(sorted(set(law_pool)))
+        random.shuffle(law_pool)
+        law_qids = law_pool[:EXAM_LAW_QUESTIONS]
+
+        # Блоки (теми) для поточного scope
+        topics = effective_topics(ok_code, lvl)
+        block_qids = []
+        used = set(law_qids)
+        for topic in sorted(topics):
+            topic_qids = base_qids_for_topic(ok_code, lvl, topic)
+            filtered = effective_qids(topic_qids)
+            filtered = [qid for qid in filtered if qid not in used]
+            if not filtered:
+                continue
+            random.shuffle(filtered)
+            take = filtered[:EXAM_PER_TOPIC_QUESTIONS]
+            block_qids.extend(take)
+            used.update(take)
+
+        exam_qids = law_qids + block_qids
+        random.shuffle(exam_qids)
+
+        if len(exam_qids) < EXAM_LAW_QUESTIONS:
+            await message.answer(
+                "Недостатньо питань для екзамену. Зверніться до адміністратора.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
+            return
+
         await message.answer(
             f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
-            f"Питань: <b>{EXAM_QUESTIONS}</b>, час: <b>{EXAM_DURATION_MINUTES} хв</b>\n"
+            f"Питань: <b>{len(exam_qids)}</b>, час: <b>{EXAM_DURATION_MINUTES} хв</b>\n"
             "Правильні відповіді не показуються.",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_exam_pick(ok_code, lvl),
         )
+        await start_exam_session(message.bot, tg_id, message.chat.id, user, exam_qids)
         return
-
     if text == "📊 Статистика":
         rows = await db_stats_get(DB_POOL, tg_id)
         if not rows:
@@ -2296,7 +2322,6 @@ async def menu_actions(message: Message) -> None:
             out += "\n"
         await message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         return
-
     if text == "ℹ️ Доступ":
         now = utcnow()
         tu = user["trial_until"]
@@ -2316,7 +2341,6 @@ async def menu_actions(message: Message) -> None:
         out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
         await message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         return
-
 
 # -------------------------
 # Старт навчання/екзамену + вибір блоку
