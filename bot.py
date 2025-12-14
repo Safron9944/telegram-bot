@@ -964,6 +964,7 @@ def qids_for_position(position_name: str, include_all_levels: bool = False) -> L
 
     pool: Set[int] = set()
 
+    # основні ОК для посади
     for ok_code, max_level in ok_levels.items():
         if include_all_levels:
             # Беремо всі рівні для цього ОК, які <= max_level
@@ -974,8 +975,14 @@ def qids_for_position(position_name: str, include_all_levels: bool = False) -> L
             # Беремо тільки конкретний рівень для цього ОК
             pool.update(base_qids_for_scope(ok_code, max_level))
 
-    # застосовуємо фільтр вимкнених питань (DISABLED_IDS_DB)
+    # 🔹 ДОДАТКОВО: завжди додаємо загальний блок "Законодавство"
+    # (ok=None у файлі -> ok_code == OK_CODE_LAW, рівень 0)
+    for lvl in levels_for_ok(OK_CODE_LAW):
+        pool.update(base_qids_for_scope(OK_CODE_LAW, lvl))
+
+    # застосовуємо фільтр вимкнених питань
     return effective_qids(sorted(pool))
+
 
 
 def get_tasks_for_position(position_name: str, include_all_levels: bool = False) -> List[Dict[str, Any]]:
@@ -1716,7 +1723,7 @@ async def position_pick(call: CallbackQuery):
         await call.answer("Для цієї посади немає питань", show_alert=True)
         return
 
-    # 🔹 зберігаємо вибрану посаду як поточну для користувача
+    # тут вже є збереження
     if user:
         await db_set_position(DB_POOL, tg_id, position)
 
@@ -1727,7 +1734,6 @@ async def position_pick(call: CallbackQuery):
         reply_markup=kb_position_start(mode, position),
     )
     await call.answer()
-
 
 
 @router.callback_query(PosMenuCb.filter())
@@ -1747,7 +1753,11 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
     mode = str(callback_data.mode)
     position = str(callback_data.position)
 
-    # розшифровуємо короткий action
+    # 🔹 гарантовано зберігаємо обрану посаду в профілі
+    if user.get("position") != position:
+        await db_set_position(DB_POOL, tg_id, position)
+
+    # далі як було:
     raw_action = str(callback_data.action)
     action_map = {
         "r": "random",
@@ -1949,8 +1959,8 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
 
     pool_qids = sorted(list(pool_set))
 
-    if mode == "train" and len(pool_qids) < TRAIN_QUESTIONS:
-        await call.answer("У вибраних блоках замало питань", show_alert=True)
+    if mode == "train" and not pool_qids:
+        await call.answer("У вибраних блоках немає питань", show_alert=True)
         return
 
     await call.answer()
@@ -2107,10 +2117,18 @@ async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: async
         if not pool_qids:
             await bot.send_message(chat_id, "Немає доступних питань для навчання.")
             return
-        n = min(TRAIN_QUESTIONS, len(pool_qids))
-        qids = random.sample(pool_qids, n)
+
+        # 🔹 Навчання: беремо ВСІ питання з пулу, тільки перемішуємо порядок
+        qids = list(dict.fromkeys(pool_qids))  # на всяк випадок прибираємо дублі
+        random.shuffle(qids)
+
         await db_create_session(DB_POOL, tg_id, "train", qids, expires_at=None)
-        await bot.send_message(chat_id, "Стартуємо навчання ✅", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await bot.send_message(
+            chat_id,
+            f"Стартуємо навчання ✅\nПитань у сесії: <b>{len(qids)}</b>",
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            parse_mode=ParseMode.HTML,
+        )
         await send_current_question(bot, DB_POOL, chat_id, tg_id, "train")
         return
 
@@ -2259,7 +2277,10 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
 
     selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
     if not selected:
-        await call.answer("Оберіть хоча б 1 блок або натисніть «Всі блоки».", show_alert=True)
+        await call.answer(
+            "Оберіть хоча б 1 блок або натисніть «Всі блоки».",
+            show_alert=True
+        )
         return
 
     pool_set: Set[int] = set()
@@ -2269,15 +2290,19 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
 
     pool_qids = effective_qids(list(pool_set))
 
-    # ⛔️ Додано: якщо замало питань — зупиняємо
-    if len(pool_qids) < TRAIN_QUESTIONS and mode == "train":
-        await call.answer("У вибраних блоках замало питань", show_alert=True)
+    # ✅ загальна перевірка – немає жодного питання
+    if not pool_qids:
+        await call.answer("У вибраних блоках немає питань.", show_alert=True)
         return
 
     await call.answer()
     try:
         await call.message.edit_text(
-            f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо...",
+            (
+                f"✅ Обрано блоків: <b>{len(selected)}</b>\n"
+                f"{'Навчання' if mode == 'train' else 'Екзамен'} "
+                f"по всіх питаннях з обраних блоків. Стартуємо..."
+            ),
             parse_mode=ParseMode.HTML,
             reply_markup=None,
         )
@@ -2291,18 +2316,21 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
         call.message.chat.id,
         user,
         mode,
-        pool_qids
+        pool_qids,
     )
+
 
 @router.callback_query(TopicAllCb.filter())
 async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
     if not user:
         await call.answer("Немає профілю", show_alert=True)
         return
+
     if not await db_has_access(user):
         await call.answer("Доступ завершився", show_alert=True)
         return
@@ -2314,13 +2342,41 @@ async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
     base = base_qids_for_scope(ok_code, lvl)
     pool_qids = effective_qids(base)
 
+    if not pool_qids:
+        await call.answer("Для цього ОК немає питань.", show_alert=True)
+        return
+
     await call.answer()
     try:
-        await call.message.edit_text("🎯 Всі блоки. Стартуємо...", reply_markup=None)
+        if mode == "train":
+            text = (
+                "🎯 Всі блоки.\n"
+                "Навчання по <b>всіх</b> питаннях з цього ОК. Стартуємо..."
+            )
+        else:
+            # якщо в екзамені лишаєш 20 рандомних – текст залишаємо таким
+            text = (
+                f"🎯 Всі блоки.\n"
+                f"Екзамен — {EXAM_QUESTIONS} випадкових питань з усіх блоків. "
+                "Стартуємо..."
+            )
+
+        await call.message.edit_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=None,
+        )
     except Exception:
         pass
 
-    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    await start_session_for_pool(
+        call.bot,
+        tg_id,
+        call.message.chat.id,
+        user,
+        mode,
+        pool_qids,
+    )
 
 # Назад до екрану старту (Навчання/Екзамен) з inline-вибору тем
 @router.callback_query(F.data.startswith("back:"))
