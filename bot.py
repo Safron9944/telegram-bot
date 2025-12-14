@@ -45,6 +45,10 @@ TRAIN_QUESTIONS = int(os.getenv("TRAIN_QUESTIONS", "20"))
 EXAM_QUESTIONS = int(os.getenv("EXAM_QUESTIONS", "100"))
 EXAM_DURATION_MINUTES = int(os.getenv("EXAM_DURATION_MINUTES", "90"))
 
+EXAM_LAW_QUESTIONS = int(os.getenv("EXAM_LAW_QUESTIONS", "50"))
+EXAM_PER_TOPIC_QUESTIONS = int(os.getenv("EXAM_PER_TOPIC_QUESTIONS", "20"))
+
+
 QUESTIONS_FILE = os.getenv("QUESTIONS_FILE", "questions_flat.json")
 PROBLEMS_FILE = os.getenv("PROBLEMS_FILE", "problem_questions.json")
 
@@ -1026,33 +1030,128 @@ def _normalize_mode(raw: str) -> str:
 
 
 def topics_for_position(position_name: str) -> List[str]:
-    qids = qids_for_position(position_name, include_all_levels=True)
+    """
+    Повертає список тем (topic) для посади, БЕЗ загального законодавства.
+    Беремо тільки рівні ОК, задані в POSITION_OK_MAP.
+    """
+    qids = qids_for_position(position_name, include_all_levels=False)
     s: Set[str] = set()
     for qid in qids:
         q = QUESTIONS_BY_ID.get(qid)
         if not q:
             continue
+        # пропускаємо питання із загального законодавства
+        ok_code = normalize_ok_code(q.get("ok"))
+        if ok_code == OK_CODE_LAW:
+            continue
         s.add(str(q.get("topic") or "Без блоку"))
     return sorted(s)
 
+
 def qids_for_position_topic(position_name: str, topic: str) -> List[int]:
-    qids = qids_for_position(position_name, include_all_levels=True)
+    """
+    Повертає всі питання по конкретному блоку (topic) для посади.
+    Загальне законодавство (LAW) не включається.
+    """
+    qids = qids_for_position(position_name, include_all_levels=False)
     out: List[int] = []
     for qid in qids:
         q = QUESTIONS_BY_ID.get(qid)
         if not q:
+            continue
+        ok_code = normalize_ok_code(q.get("ok"))
+        if ok_code == OK_CODE_LAW:
             continue
         t = str(q.get("topic") or "Без блоку")
         if t == topic:
             out.append(qid)
     return out
 
+def build_position_exam_qids(position_name: str, topics: Optional[Set[str]] = None) -> List[int]:
+    """
+    Екзамен за посадою:
+    - 50 питань із загального законодавства (LAW)
+    - по 20 питань з кожного блоку (topic) по посаді
+    """
+    # 1) Загальне законодавство
+    law_pool: List[int] = []
+    for lvl in levels_for_ok(OK_CODE_LAW):
+        law_pool.extend(base_qids_for_scope(OK_CODE_LAW, lvl))
+    law_pool = effective_qids(sorted(set(law_pool)))
+    random.shuffle(law_pool)
+    law_qids = law_pool[:EXAM_LAW_QUESTIONS]
+
+    # 2) Блоки (topics) по посаді
+    if topics is None:
+        topics = set(topics_for_position(position_name))
+    else:
+        topics = set(topics)
+
+    block_qids: List[int] = []
+    used: Set[int] = set(law_qids)
+
+    for topic in sorted(topics):
+        topic_qids = qids_for_position_topic(position_name, topic)
+
+        # на всяк випадок ще раз відсіюємо LAW та вимкнені питання
+        filtered: List[int] = []
+        for qid in topic_qids:
+            q = QUESTIONS_BY_ID.get(qid)
+            if not q:
+                continue
+            ok_code = normalize_ok_code(q.get("ok"))
+            if ok_code == OK_CODE_LAW:
+                continue
+            filtered.append(qid)
+        filtered = effective_qids(filtered)
+
+        # уникаємо дублів між блоками
+        filtered = [qid for qid in filtered if qid not in used]
+        if not filtered:
+            continue
+
+        random.shuffle(filtered)
+        take = filtered[:EXAM_PER_TOPIC_QUESTIONS]
+        block_qids.extend(take)
+        used.update(take)
+
+    exam_qids = law_qids + block_qids
+    random.shuffle(exam_qids)
+    return exam_qids
+
+
+async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.Record, qids: List[int]) -> None:
+    """
+    Старт екзамену з вже готовим списком питань (без додаткового random.sample).
+    """
+    qids = list(dict.fromkeys(qids))
+    if not qids:
+        await bot.send_message(chat_id, "Немає доступних питань для екзамену.")
+        return
+
+    expires = utcnow() + timedelta(minutes=EXAM_DURATION_MINUTES)
+    await db_create_session(DB_POOL, tg_id, "exam", qids, expires_at=expires)
+    await bot.send_message(
+        chat_id,
+        f"📝 Екзамен стартував ✅\nПитань у сесії: <b>{len(qids)}</b>",
+        reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        parse_mode=ParseMode.HTML,
+    )
+    await send_current_question(bot, tg_id, chat_id)
+
 def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
+    if mode == "train":
+        count_label = TRAIN_QUESTIONS
+    else:
+        # екзамен за посадою: 50 із законодавства + 20 з кожного блоку
+        num_topics = len(topics_for_position(position))
+        count_label = EXAM_LAW_QUESTIONS + num_topics * EXAM_PER_TOPIC_QUESTIONS
+
     # action шифруємо коротко: r = random, b = blocks
     b.button(
-        text=f"🎲 Випадково ({TRAIN_QUESTIONS if mode=='train' else EXAM_QUESTIONS})",
+        text=f"🎲 Випадково ({count_label})",
         callback_data=PosMenuCb(mode=mode, position=position, action="r").pack(),
     )
     b.button(
@@ -1063,6 +1162,7 @@ def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
     b.button(text="⬅️ Назад", callback_data=f"backmode:{mode}")
     b.adjust(1)
     return b.as_markup()
+
 
 
 
@@ -1713,27 +1813,48 @@ async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
 
 @router.callback_query(F.data.startswith("pos:"))
 async def position_pick(call: CallbackQuery):
-    _, mode, position = call.data.split(":", 2)
+    # callback має формат: "pos:{mode}:{position}"
+    _, mode_raw, position = call.data.split(":", 2)
 
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
 
-    pool_qids = qids_for_position(position_name=position, include_all_levels=True)
+    if not user or not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    # нормалізуємо режим
+    mode = _normalize_mode(mode_raw)
+
+    # перевіряємо, що для посади є питання (тільки свої рівні)
+    pool_qids = qids_for_position(position_name=position, include_all_levels=False)
     if not pool_qids:
         await call.answer("Для цієї посади немає питань", show_alert=True)
         return
 
-    # тут вже є збереження
-    if user:
-        await db_set_position(DB_POOL, tg_id, position)
+    # зберігаємо вибрану посаду
+    await db_set_position(DB_POOL, tg_id, position)
+
+    # одразу показуємо екран з блоками
+    pref_ok = _pos_pref_ok_code(position)
+    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
+
+    title = (
+        f"👔 Посада: <b>{html_escape(position)}</b>\n"
+        f"Оберіть <b>декілька</b> блоків для "
+        f"<b>{'навчання' if mode == 'train' else 'екзамену'}</b>\n"
+        f"Обрано блоків: <b>{len(selected)}</b>\n\n"
+        "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b> або «🎯 Всі блоки»."
+    )
 
     await call.message.edit_text(
-        f"👔 Посада: <b>{html_escape(position)}</b>\n"
-        "Оберіть як почати:",
+        title,
         parse_mode=ParseMode.HTML,
-        reply_markup=kb_position_start(mode, position),
+        reply_markup=kb_pos_topics(mode, position, page=0, selected=selected),
     )
     await call.answer()
+
+
 
 
 @router.callback_query(PosMenuCb.filter())
@@ -1757,7 +1878,6 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
     if user.get("position") != position:
         await db_set_position(DB_POOL, tg_id, position)
 
-    # далі як було:
     raw_action = str(callback_data.action)
     action_map = {
         "r": "random",
@@ -1766,7 +1886,8 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
     }
     action = action_map.get(raw_action, raw_action)
 
-    pool_qids = qids_for_position(position_name=position, include_all_levels=True)
+    # питання тільки по рівнях, що задані для посади
+    pool_qids = qids_for_position(position_name=position, include_all_levels=False)
     if not pool_qids:
         await call.answer("Для цієї посади немає питань", show_alert=True)
         return
@@ -1777,12 +1898,15 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
             parse_mode=ParseMode.HTML,
             reply_markup=None,
         )
-        await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+        if mode == "train":
+            await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+        else:
+            exam_qids = build_position_exam_qids(position)
+            await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
         await call.answer()
         return
 
     if action == "blocks":
-        # показуємо екран вибору блоків
         pref_ok = _pos_pref_ok_code(position)
         selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
 
@@ -1810,6 +1934,7 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         return
 
     await call.answer()
+
 
 
 @router.callback_query(PosTopicPageCb.filter())
@@ -1921,7 +2046,11 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
     mode = _normalize_mode(raw_mode)
     position = str(callback_data.position)
 
-    pool_qids = qids_for_position(position_name=position, include_all_levels=True)
+    # всі питання для посади (правильні рівні)
+    pool_qids = qids_for_position(position_name=position, include_all_levels=False)
+    if not pool_qids:
+        await call.answer("Для цієї посади немає питань", show_alert=True)
+        return
 
     await call.answer()
     try:
@@ -1932,7 +2061,11 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
     except Exception:
         pass
 
-    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    if mode == "train":
+        await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    else:
+        exam_qids = build_position_exam_qids(position)
+        await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
 
 @router.callback_query(PosTopicDoneCb.filter())
@@ -1959,21 +2092,40 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
 
     pool_qids = sorted(list(pool_set))
 
-    if mode == "train" and not pool_qids:
-        await call.answer("У вибраних блоках немає питань", show_alert=True)
-        return
+    if mode == "train":
+        if not pool_qids:
+            await call.answer("У вибраних блоках немає питань", show_alert=True)
+            return
 
-    await call.answer()
-    try:
-        await call.message.edit_text(
-            f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо...",
-            parse_mode=ParseMode.HTML,
-            reply_markup=None,
-        )
-    except Exception:
-        pass
+        await call.answer()
+        try:
+            await call.message.edit_text(
+                f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо...",
+                parse_mode=ParseMode.HTML,
+                reply_markup=None,
+            )
+        except Exception:
+            pass
 
-    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+        await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    else:
+        # екзамен: 50 із законодавства + 20 з кожного обраного блоку
+        exam_qids = build_position_exam_qids(position, topics=selected)
+        if not exam_qids:
+            await call.answer("Для обраних блоків немає достатньо питань для екзамену.", show_alert=True)
+            return
+
+        await call.answer()
+        try:
+            await call.message.edit_text(
+                f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо екзамен...",
+                parse_mode=ParseMode.HTML,
+                reply_markup=None,
+            )
+        except Exception:
+            pass
+
+        await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
 def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
