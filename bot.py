@@ -1001,13 +1001,21 @@ def qids_for_position_topic(position_name: str, topic: str) -> List[int]:
 
 def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=f"🎲 Випадково ({TRAIN_QUESTIONS if mode=='train' else EXAM_QUESTIONS})",
-             callback_data=PosMenuCb(mode=mode, position=position, action="random").pack())
-    b.button(text="📚 Обрати блоки",
-             callback_data=PosMenuCb(mode=mode, position=position, action="blocks").pack())
+
+    # action шифруємо коротко: r = random, b = blocks
+    b.button(
+        text=f"🎲 Випадково ({TRAIN_QUESTIONS if mode=='train' else EXAM_QUESTIONS})",
+        callback_data=PosMenuCb(mode=mode, position=position, action="r").pack(),
+    )
+    b.button(
+        text="📚 Обрати блоки",
+        callback_data=PosMenuCb(mode=mode, position=position, action="b").pack(),
+    )
+
     b.button(text="⬅️ Назад", callback_data=f"backmode:{mode}")
     b.adjust(1)
     return b.as_markup()
+
 
 
 def kb_pos_topics(
@@ -1056,7 +1064,10 @@ def kb_pos_topics(
         b.row(*nav)
 
     b.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=PosMenuCb(mode=mode, position=position, action="menu").pack()),
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=PosMenuCb(mode=mode, position=position, action="m").pack(),
+        ),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     )
     return b.as_markup()
@@ -1615,7 +1626,15 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
 
     mode = str(callback_data.mode)
     position = str(callback_data.position)
-    action = str(callback_data.action)
+
+    # розшифровуємо короткий action
+    raw_action = str(callback_data.action)
+    action_map = {
+        "r": "random",
+        "b": "blocks",
+        "m": "menu",
+    }
+    action = action_map.get(raw_action, raw_action)
 
     pool_qids = qids_for_position(position_name=position, include_all_levels=True)
     if not pool_qids:
@@ -1632,7 +1651,7 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         await call.answer()
         return
 
-    if action in ("blocks",):
+    if action == "blocks":
         # показуємо екран вибору блоків
         pref_ok = _pos_pref_ok_code(position)
         selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
@@ -1661,6 +1680,7 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         return
 
     await call.answer()
+
 
 @router.callback_query(PosTopicPageCb.filter())
 async def pos_topic_page(call: CallbackQuery, callback_data: PosTopicPageCb):
