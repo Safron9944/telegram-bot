@@ -1162,13 +1162,17 @@ async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.R
 
     expires = utcnow() + timedelta(minutes=EXAM_DURATION_MINUTES)
     await db_create_session(DB_POOL, tg_id, "exam", qids, expires_at=expires)
+
     await bot.send_message(
         chat_id,
         f"📝 Екзамен стартував ✅\nПитань у сесії: <b>{len(qids)}</b>",
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
         parse_mode=ParseMode.HTML,
     )
-    await send_current_question(bot, tg_id, chat_id)
+
+    # ✅ правильний виклик
+    await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
+
 
 def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -1711,7 +1715,6 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
         # ========= ЕКЗАМЕН =========
         if action == "exam":
-            # Екзамен за посадою: 50 із загального + по 20 з кожного блоку
             position = user.get("position")
             if not position:
                 await call.message.edit_text(
@@ -1721,22 +1724,18 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 await call.answer()
                 return
 
-            num_topics = len(topics_for_position(position))
-            total_questions = EXAM_LAW_QUESTIONS + num_topics * EXAM_PER_TOPIC_QUESTIONS
-
-            text = (
-                f"📝 Екзамен за посадою: <b>{html_escape(position)}</b>\n"
-                f"Питань: <b>{total_questions}</b>\n"
-                f"- {EXAM_LAW_QUESTIONS} з загального законодавства (LAW)\n"
-                f"- по {EXAM_PER_TOPIC_QUESTIONS} з кожного блоку посади\n"
-                f"Час: <b>{EXAM_DURATION_MINUTES} хв</b>"
-            )
-            await call.message.edit_text(
-                text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_position_start("exam", position),
-            )
+            # ✅ НІЧОГО НЕ РЕДАГУЄМО НА "СТАРТ/ВИПАДКОВО/БЛОКИ"
+            # ✅ Одразу формуємо питання і запускаємо екзамен
             await call.answer()
+
+            exam_qids = build_position_exam_qids(position)
+            await start_exam_session(
+                call.bot,
+                tg_id,
+                call.message.chat.id,
+                user,
+                exam_qids,
+            )
             return
 
         # ========= НАВЧАННЯ =========
@@ -1782,7 +1781,6 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 await call.answer()
                 return
 
-            # якщо посада ще не збережена — просимо обрати
             await call.message.edit_text(
                 "Оберіть посаду:",
                 reply_markup=kb_pick_position(mode),
@@ -1793,7 +1791,6 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         # 3) manual — ОК потрібен
         if train_mode == "manual":
             if not user_has_scope(user):
-                # опціонально запам'ятати, що після вибору ОК треба продовжити TRAIN
                 try:
                     PENDING_AFTER_OK[tg_id] = mode
                 except NameError:
@@ -1816,13 +1813,14 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        # 4) fallback якщо в БД щось дивне
+        # 4) fallback
         text = "Як ви хочете навчатись?"
         await call.message.edit_text(text, reply_markup=kb_train_mode(mode))
         await call.answer()
         return
 
     await call.answer()
+
 
 
 @router.callback_query(TrainModeCb.filter())
@@ -2757,9 +2755,7 @@ async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
         await call.answer("Немає активного навчання.", show_alert=True)
         return
 
-    qids = json.loads(sess["question_ids"])
-    qids = [int(x) for x in qids]
-
+    qids = [int(x) for x in json.loads(sess["question_ids"])]
     idx0 = int(sess["current_index"])
     if idx0 >= len(qids):
         await call.answer()
@@ -2770,11 +2766,16 @@ async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
         await call.answer("Це старе питання.", show_alert=False)
         return
 
-    # Пропуск = крок у прогресі (не повертаємось до питання в цій сесії)
-    await db_update_session_progress(DB_POOL, sess["session_id"], idx0 + 1, skipped_delta=1)
+    # ✅ Пропуск = переносимо поточне питання в кінець черги, щоб повернулось після інших
+    cur = qids.pop(idx0)
+    qids.append(cur)
+
+    # current_index НЕ збільшуємо: після pop() наступне питання стало на місце idx0
+    await db_defer_question_to_end(DB_POOL, sess["session_id"], qids, idx0, skipped_delta=1)
+
     await db_stats_add(DB_POOL, tg_id, "train", skipped=1)
 
-    await call.answer("⏭ Пропущено")
+    await call.answer("⏭ Пропущено (повернеться в кінці)")
     await send_current_question(
         call.bot,
         DB_POOL,
@@ -2783,6 +2784,29 @@ async def on_skip(call: CallbackQuery, callback_data: SkipCb) -> None:
         "train",
         edit_message=call.message,
     )
+
+async def db_defer_question_to_end(
+    pool: asyncpg.Pool,
+    session_id: uuid.UUID,
+    new_qids: List[int],
+    current_index: int,
+    skipped_delta: int = 1,
+) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            UPDATE sessions
+            SET question_ids=$2,
+                current_index=$3,
+                skipped_count=skipped_count+$4
+            WHERE session_id=$1
+            """,
+            session_id,
+            json.dumps(new_qids),
+            current_index,
+            skipped_delta,
+        )
+
 
 @router.callback_query(AnswerCb.filter())
 async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
