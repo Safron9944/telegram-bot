@@ -545,7 +545,8 @@ CREATE TABLE IF NOT EXISTS users (
   last_seen TIMESTAMPTZ NOT NULL,
   ok_code TEXT,
   ok_level INT,
-  train_mode TEXT
+  train_mode TEXT,
+  position TEXT
 );
 
 CREATE TABLE IF NOT EXISTS stats (
@@ -594,6 +595,7 @@ DDL_MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_code TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_level INT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS train_mode TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS position TEXT",
 ]
 
 
@@ -636,6 +638,19 @@ async def db_upsert_user(pool: asyncpg.Pool, tg_id: int, phone: Optional[str], i
                 tg_id, phone, is_admin, now
             )
         return await conn.fetchrow("SELECT * FROM users WHERE tg_id=$1", tg_id)
+
+async def db_set_position(pool: asyncpg.Pool, tg_id: int, position: Optional[str]) -> asyncpg.Record:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET position=$2 WHERE tg_id=$1",
+            tg_id,
+            position,
+        )
+        return await conn.fetchrow(
+            "SELECT * FROM users WHERE tg_id=$1",
+            tg_id,
+        )
+
 
 async def db_set_scope(
     pool: asyncpg.Pool,
@@ -1485,15 +1500,14 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         if not rows:
             await call.message.answer(
                 "Поки що статистики немає.",
-                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"]))
-            )
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
             await call.answer()
             return
 
         out = "<b>📊 Ваша статистика</b>\n\n"
         for r in rows:
             out += (
-                f"<b>{'Навчання' if r['mode']=='train' else 'Екзамен'}</b>\n"
+                f"<b>{'Навчання' if r['mode'] == 'train' else 'Екзамен'}</b>\n"
                 f"Відповіли: {r['answered']}\n"
                 f"✅ Правильно: {r['correct']}\n"
                 f"❌ Невірно: {r['wrong']}\n"
@@ -1505,8 +1519,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         await call.message.answer(
             out,
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"]))
-        )
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         await call.answer()
         return
 
@@ -1535,8 +1548,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         await call.message.answer(
             out,
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"]))
-        )
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
         await call.answer()
         return
 
@@ -1576,8 +1588,35 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
         # 2) за посадою — ОК НЕ потрібен
         if train_mode == "position":
+            position = user.get("position")
+
+            if position:
+                # якщо посада вже збережена, пробуємо одразу запустити по ній
+                pool_qids = qids_for_position(
+                    position_name=position,
+                    include_all_levels=True,
+                )
+                if pool_qids:
+                    await call.message.answer(
+                        f"👔 Поточна посада: <b>{html_escape(position)}</b>\n"
+                        "Оберіть як почати:",
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=kb_position_start(action, position),
+                    )
+                    await call.answer()
+                    return
+                else:
+                    # якщо раптом для цієї посади зараз немає питань — просимо обрати іншу
+                    await call.message.answer(
+                        "Для вашої поточної посади немає питань.\nОберіть іншу посаду:",
+                        reply_markup=kb_pick_position(action),
+                    )
+                    await call.answer()
+                    return
+
+            # якщо посада ще не збережена — як і раніше показуємо список посад
             await call.message.answer(
-                "Навчання за посадою:" if action == "train" else "Екзамен за посадою:",
+                "Оберіть посаду:",
                 reply_markup=kb_pick_position(action)
             )
             await call.answer()
@@ -1672,6 +1711,10 @@ async def position_pick(call: CallbackQuery):
         await call.answer("Для цієї посади немає питань", show_alert=True)
         return
 
+    # 🔹 зберігаємо вибрану посаду як поточну для користувача
+    if user:
+        await db_set_position(DB_POOL, tg_id, position)
+
     await call.message.edit_text(
         f"👔 Посада: <b>{html_escape(position)}</b>\n"
         "Оберіть як почати:",
@@ -1679,6 +1722,8 @@ async def position_pick(call: CallbackQuery):
         reply_markup=kb_position_start(mode, position),
     )
     await call.answer()
+
+
 
 @router.callback_query(PosMenuCb.filter())
 async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
