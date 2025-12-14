@@ -1562,23 +1562,7 @@ async def cmd_start(message: Message) -> None:
     except Exception:
         pass
 
-    # 2) окремо показуємо статус/набір (без меню), щоб текст меню не "плавав"
-    if user_has_scope(user):
-        ok_code, lvl = get_user_scope(user)
-        scope_line = f"Ваш набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>"
-    else:
-        scope_line = (
-            "Ваш набір: <i>не вибрано</i>\n"
-            "Оберіть його в <b>⚙️ Налаштуваннях</b> або бот запропонує вибір, "
-            "коли натиснете <b>Навчання/Екзамен</b>."
-        )
-
-    await message.answer(
-        f"Готово ✅\n{scope_line}",
-        parse_mode=ParseMode.HTML,
-    )
-
-    # 3) показуємо головне меню (стабільний текст)
+    # 2) ОДРАЗУ показуємо головне меню (без "Готово ✅ ...")
     await show_main_menu(message, is_admin=bool(user["is_admin"]))
 
 
@@ -1816,10 +1800,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         if action == "exam":
             position = user.get("position")
             if not position:
-                await call.message.answer(
-                    "Оберіть посаду для екзамену:",
-                    reply_markup=kb_pick_position("exam"),
-                )
+                await call.message.edit_text("Оберіть посаду для екзамену:", reply_markup=kb_pick_position("exam")),
                 await call.answer()
                 return
 
@@ -1833,7 +1814,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         train_mode = user.get("train_mode")  # "position" | "manual" | None
 
         if not train_mode:
-            await call.message.answer("Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
+            await call.message.edit_text("Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
             await call.answer()
             return
 
@@ -1894,7 +1875,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        await call.message.answer("Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
+        await call.message.edit_text("Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
         await call.answer()
         return
 
@@ -1989,6 +1970,7 @@ async def position_pick(call: CallbackQuery):
 @router.callback_query(PosMenuCb.filter())
 async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
     if not DB_POOL:
+        await call.answer()
         return
 
     tg_id = call.from_user.id
@@ -2019,19 +2001,24 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         return
 
     if action == "random":
+        # Перед стартом прибираємо клавіатуру/меню, щоб не висіло і не було повторних натискань
+        if call.message:
+            try:
+                await call.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
         await call.answer()
 
-
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
         if mode == "train":
-            await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+            await start_session_for_pool(
+                call.bot, tg_id, call.message.chat.id, user, mode, pool_qids
+            )
         else:
             exam_qids = build_position_exam_qids(position)
-            await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
+            await start_exam_session(
+                call.bot, tg_id, call.message.chat.id, user, exam_qids
+            )
         return
 
     if action == "blocks":
@@ -2044,6 +2031,7 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
             f"Обрано блоків: <b>{len(selected)}</b>\n\n"
             "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
         )
+
         await call.message.edit_text(
             title,
             parse_mode=ParseMode.HTML,
@@ -2062,7 +2050,6 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         return
 
     await call.answer()
-
 
 
 
@@ -2688,21 +2675,27 @@ async def back_to_mode_pick(call: CallbackQuery) -> None:
 @router.callback_query(F.data == "menu")
 async def menu_from_inline(call: CallbackQuery) -> None:
     if not DB_POOL:
+        await call.answer()
         return
 
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
 
-    # "замикаємо" старе повідомлення (щоб не було 2 активних клавіатур на одному питанні/екрані)
     try:
-        await call.message.edit_reply_markup(reply_markup=None)
+        await call.message.edit_text(
+            MAIN_MENU_TEXT,
+            reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"])),
+            parse_mode=ParseMode.HTML,
+        )
     except Exception:
-        pass
+        # якщо текст такий самий або повідомлення не можна редагувати — просто оновимо клавіатуру
+        try:
+            await call.message.edit_reply_markup(
+                reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"]))
+            )
+        except Exception:
+            pass
 
-    await call.message.answer(
-        MAIN_MENU_TEXT,
-        reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"])),
-    )
     await call.answer()
 
 
@@ -2751,9 +2744,12 @@ async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
 @router.callback_query(StartScopeCb.filter())
 async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
     if not DB_POOL:
+        await call.answer()
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
+
     if not user:
         await call.answer("Немає профілю", show_alert=True)
         return
@@ -2768,9 +2764,24 @@ async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
     base = base_qids_for_scope(ok_code, lvl)
     pool_qids = effective_qids(base)
 
+    # підтверджуємо callback одразу
     await call.answer()
-    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
 
+    # "замикаємо" попередню клавіатуру (щоб не було повторних натискань)
+    if call.message:
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+    await start_session_for_pool(
+        call.bot,
+        tg_id,
+        call.message.chat.id,
+        user,
+        mode,
+        pool_qids,
+    )
 
 # -------------------------
 # Навчання/екзамен: відповіді
