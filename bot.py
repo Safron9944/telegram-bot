@@ -52,6 +52,8 @@ KYIV_TZ = ZoneInfo("Europe/Kyiv")
 OK_CODE_LAW = "LAW"  # внутрішній код для "законодавства"
 LEVEL_ALL = -1  # спеціальне значення: всі рівні для обраного ОК
 
+PENDING_AFTER_OK: dict[int, str] = {}  # tg_id -> "train" | "exam"
+
 POSITION_OK_MAP: Dict[str, Dict[str, int]] = {
     "Начальник відділу": {
         "ОК-4": 2,
@@ -1056,9 +1058,12 @@ def user_has_scope(user: asyncpg.Record) -> bool:
 def get_user_scope(user: asyncpg.Record) -> tuple[str, int | None]:
     return str(user["ok_code"]), user["ok_level"]
 
-async def ensure_profile(message: Message, user: asyncpg.Record) -> bool:
+async def ensure_profile(message: Message, user: asyncpg.Record, next_mode: str | None = None) -> bool:
     if user_has_scope(user):
         return True
+
+    if next_mode in ("train", "exam"):
+        PENDING_AFTER_OK[int(user["tg_id"])] = next_mode
 
     await message.answer(
         "⚙️ Потрібно обрати <b>ОК</b>, бо для кожного набір питань різний.\n\n"
@@ -1068,6 +1073,7 @@ async def ensure_profile(message: Message, user: asyncpg.Record) -> bool:
     )
     await message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
     return False
+
 
 
 # -------------------------
@@ -1262,24 +1268,45 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
     if not user or not user["phone"]:
-        await call.message.answer(
-            "Спочатку зареєструйтесь.",
-            reply_markup=kb_request_contact()
-        )
+        await call.message.answer("Спочатку зареєструйтесь.", reply_markup=kb_request_contact())
         await call.answer()
         return
 
     ok_code = str(callback_data.ok_code)
 
-    # ⬇️ рівень більше не має значення
+    # рівень більше не має значення
     user = await db_set_scope(DB_POOL, tg_id, ok_code, None)
 
+    # ✅ авто-продовження
+    next_mode = PENDING_AFTER_OK.pop(tg_id, None)
+
+    if next_mode == "train":
+        # без зайвих кліків: одразу показуємо вибір старту
+        await call.message.answer(
+            f"Навчання для: <b>{html_escape(scope_title(ok_code))}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick(ok_code, 0),
+        )
+        await call.answer()
+        return
+
+    if next_mode == "exam":
+        await call.message.answer(
+            f"Екзамен для: <b>{html_escape(scope_title(ok_code))}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_exam_pick(ok_code, 0),
+        )
+        await call.answer()
+        return
+
+    # дефолт: просто підтвердили і повернули меню
     await call.message.answer(
         f"✅ Встановлено: <b>{html_escape(scope_title(ok_code))}</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
     await call.answer()
+
 
 
 @router.callback_query(LevelPickCb.filter())
@@ -1420,6 +1447,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         if not user.get("is_admin"):
             await call.answer("⛔️ Немає доступу.", show_alert=True)
             return
+
         await call.message.answer("Адмін-панель:", reply_markup=kb_admin_panel())
         await call.answer()
         return
@@ -1428,7 +1456,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     # TRAIN / EXAM
     # -------------------------
     if action in ("train", "exam"):
-        # спочатку перевіряємо доступ (не scope)
+        # доступ перевіряємо завжди
         if not await db_has_access(user):
             await call.message.answer(
                 "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу.",
@@ -1437,16 +1465,16 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        train_mode = user.get("train_mode")  # position / manual / None
+        train_mode = user.get("train_mode")  # "position" | "manual" | None
 
-        # якщо режим ще не обрано — показуємо вибір (НЕ кидаємо в ОК)
+        # 1) якщо ще не обрали стиль навчання — показуємо вибір
         if not train_mode:
             text = "Як ви хочете навчатись?" if action == "train" else "Як ви хочете складати екзамен?"
             await call.message.answer(text, reply_markup=kb_train_mode(action))
             await call.answer()
             return
 
-        # ------ POSITION ------
+        # 2) за посадою — ОК НЕ потрібен
         if train_mode == "position":
             await call.message.answer(
                 "Навчання за посадою:" if action == "train" else "Екзамен за посадою:",
@@ -1455,10 +1483,16 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        # ------ MANUAL ------
+        # 3) manual — ОК потрібен
         if train_mode == "manual":
-            # для manual потрібен scope
             if not user_has_scope(user):
+                # ✅ якщо хочеш автопродовження після вибору ОК — ставимо pending
+                # (потрібно мати PENDING_AFTER_OK і обробку в ok_pick)
+                try:
+                    PENDING_AFTER_OK[tg_id] = action  # "train" або "exam"
+                except NameError:
+                    pass
+
                 await call.message.answer(
                     "⚙️ Для режиму «вручну» потрібно обрати ОК.\nОберіть ОК:",
                     reply_markup=kb_pick_ok(page=0)
@@ -1484,13 +1518,14 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        # fallback (на випадок якщо в БД щось інше)
+        # fallback якщо в БД щось несподіване
         text = "Як ви хочете навчатись?" if action == "train" else "Як ви хочете складати екзамен?"
         await call.message.answer(text, reply_markup=kb_train_mode(action))
         await call.answer()
         return
 
     await call.answer()
+
 
 
 @router.callback_query(TrainModeCb.filter())
