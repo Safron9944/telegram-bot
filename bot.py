@@ -1321,6 +1321,57 @@ def kb_pos_topics(
     b.row(*bottom)
     return b.as_markup()
 
+@router.callback_query(PosTopicDoneCb.filter())
+async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    mode = _normalize_mode(str(callback_data.mode))
+    pid = int(callback_data.pid)
+    position = pos_name(pid)
+    if not position:
+        await call.answer("Невірна посада", show_alert=True)
+        return
+
+    pref_ok = _pos_pref_ok_code(position)
+    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
+    if not selected:
+        await call.answer("Оберіть хоча б 1 блок або натисніть «Всі блоки».", show_alert=True)
+        return
+
+    await call.answer()
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if mode == "train":
+        pool_set: Set[int] = set()
+
+        for t in selected:
+            # законодавство у тебе позначене окремою “псевдо-темою”
+            if t == "📜 Законодавство":
+                for lvl in levels_for_ok(OK_CODE_LAW):
+                    pool_set.update(base_qids_for_scope(OK_CODE_LAW, lvl))
+                continue
+
+            pool_set.update(qids_for_position_topic(position, t))
+
+        pool_qids = effective_qids(sorted(pool_set))
+        if not pool_qids:
+            await call.answer("У вибраних блоках немає питань.", show_alert=True)
+            return
+
+        await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+
+    else:
+        # екзамен: LAW додається всередині build_position_exam_qids, тому цю “тему” краще прибрати
+        topics = {t for t in selected if t != "📜 Законодавство"}
+        exam_qids = build_position_exam_qids(position, topics=topics)
+        await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
 
 
