@@ -338,13 +338,20 @@ class PosTopicAllCb(CallbackData, prefix="pta"):
 # Клавіатури
 # -------------------------
 
-MAIN_MENU_TEXT = "Оберіть режим:\n⬇️"
+MAIN_MENU_TEXT = (
+    "<b>Оберіть режим</b> 👇\n\n"
+    "📚 <b>Навчання</b> — тренування без таймера\n"
+    "📝 <b>Екзамен</b> — режим з таймером\n\n"
+    "Натисніть потрібну кнопку нижче:"
+)
 
 async def show_main_menu(message: Message, *, is_admin: bool) -> None:
     await message.answer(
         MAIN_MENU_TEXT,
         reply_markup=kb_main_menu(is_admin=is_admin),
+        parse_mode="HTML",
     )
+
 
 
 def kb_request_contact() -> ReplyKeyboardMarkup:
@@ -356,21 +363,27 @@ def kb_request_contact() -> ReplyKeyboardMarkup:
     )
 
 def kb_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
-    rows = [
-        [
-            InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"),
-            InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"),
-        ],
-        [
-            InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"),
-            InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"),
-        ],
-        [
-            InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"),
-            InlineKeyboardButton(text="🛠 Адмін", callback_data="mm:admin") if is_admin
-            else InlineKeyboardButton(text=" ", callback_data="mm:none"),  # заглушка для рівної сітки
-        ],
-    ]
+    """Головне меню (inline) у форматі 2 кнопки в ряд — як у зразку."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"),
+                InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"),
+            ],
+            [
+                InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"),
+                InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"),
+            ],
+            [
+                InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"),
+                InlineKeyboardButton(
+                    text=("🛠 Адмін" if is_admin else "🏠 Меню"),
+                    callback_data=("mm:admin" if is_admin else "menu"),
+                ),
+            ],
+        ]
+    )
+
 
     # якщо не адмін — прибираємо заглушку (щоб не було "порожньої" кнопки)
     if not is_admin:
@@ -510,8 +523,7 @@ def kb_topics(
     """
     Multi-select тем (блоків).
     - Клік по темі: вмикає/вимикає.
-    - "✅ Почати": стартує навчання/екзамен по обраних темах.
-    - "🎯 Всі блоки": стартує без фільтра по темах.
+
     """
     selected_set: Set[str] = set(selected or [])
     topics = effective_topics(ok_code, level)
@@ -1190,9 +1202,6 @@ def build_position_exam_qids(position_name: str, topics: Optional[Set[str]] = No
 
 
 async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.Record, qids: List[int]) -> None:
-    """
-    Старт екзамену з вже готовим списком питань (без додаткового random.sample).
-    """
     qids = list(dict.fromkeys(qids))
     if not qids:
         await bot.send_message(chat_id, "Немає доступних питань для екзамену.")
@@ -1201,14 +1210,9 @@ async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.R
     expires = utcnow() + timedelta(minutes=EXAM_DURATION_MINUTES)
     await db_create_session(DB_POOL, tg_id, "exam", qids, expires_at=expires)
 
-    # без меню-клавіатури — щоб меню не дублювалось/не "плавало" під різними повідомленнями
-    await bot.send_message(
-        chat_id,
-        f"📝 Екзамен стартував ✅\nПитань у сесії: <b>{len(qids)}</b>",
-        parse_mode=ParseMode.HTML,
-    )
-
+    # ✅ одразу питання, без стартового повідомлення
     await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
+
 
 def kb_position_start(mode: str, position: str, back_to: str = "auto") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -1585,7 +1589,7 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     next_mode = PENDING_AFTER_OK.pop(tg_id, None)
 
     if next_mode == "train":
-        # без зайвих кліків: одразу показуємо вибір старту
+
         await call.message.answer(
             f"Навчання для: <b>{html_escape(scope_title(ok_code))}</b>",
             parse_mode=ParseMode.HTML,
@@ -1932,8 +1936,6 @@ async def position_pick(call: CallbackQuery):
 
 
 
-
-
 @router.callback_query(PosMenuCb.filter())
 async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
     if not DB_POOL:
@@ -1967,17 +1969,19 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
         return
 
     if action == "random":
-        await call.message.edit_text(
-            f"👔 Посада: <b>{html_escape(position)}</b>\nСтартуємо випадково...",
-            parse_mode=ParseMode.HTML,
-            reply_markup=None,
-        )
+        await call.answer()
+
+
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
         if mode == "train":
             await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
         else:
             exam_qids = build_position_exam_qids(position)
             await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
-        await call.answer()
         return
 
     if action == "blocks":
@@ -2117,7 +2121,6 @@ async def pos_topic_clear(call: CallbackQuery, callback_data: PosTopicClearCb):
         reply_markup=kb_pos_topics(mode, position, page=page, selected=set()),
     )
     await call.answer("Очищено")
-
 @router.callback_query(PosTopicAllCb.filter())
 async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
     tg_id = call.from_user.id
@@ -2140,11 +2143,10 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
         return
 
     await call.answer()
+
+
     try:
-        await call.message.edit_text(
-            "🎯 Всі блоки. Стартуємо...",
-            reply_markup=None,
-        )
+        await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
@@ -2154,67 +2156,57 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
         exam_qids = build_position_exam_qids(position)
         await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
 
-@router.callback_query(PosTopicDoneCb.filter())
-async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
+@router.callback_query(TopicDoneCb.filter())
+async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
+    if not DB_POOL:
+        return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
-    if not user or not await db_has_access(user):
+
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+
+    if not await db_has_access(user):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    mode = _normalize_mode(str(callback_data.mode))
-    pid = int(callback_data.pid)
-    position = pos_name(pid)
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+    mode = str(callback_data.mode)
 
-    if not position:
-        await call.answer("Невірна посада", show_alert=True)
-        return
-
-    pref_ok = _pos_pref_ok_code(position)
-    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, pref_ok, 0)
+    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
     if not selected:
         await call.answer("Оберіть хоча б 1 блок або натисніть «Всі блоки».", show_alert=True)
         return
 
     pool_set: Set[int] = set()
     for t in selected:
-        pool_set.update(qids_for_position_topic(position, t))
-    pool_qids = sorted(pool_set)
+        base = base_qids_for_topic(ok_code, lvl, t)
+        pool_set.update(base)
 
-    if mode == "train":
-        if not pool_qids:
-            await call.answer("У вибраних блоках немає питань", show_alert=True)
-            return
+    pool_qids = effective_qids(list(pool_set))
+    if not pool_qids:
+        await call.answer("У вибраних блоках немає питань.", show_alert=True)
+        return
 
-        await call.answer()
-        try:
-            await call.message.edit_text(
-                f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо...",
-                parse_mode=ParseMode.HTML,
-                reply_markup=None,
-            )
-        except Exception:
-            pass
+    await call.answer()
 
-        await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    # ✅ прибираємо клавіатуру під повідомленням (без нового тексту)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
-    else:
-        exam_qids = build_position_exam_qids(position, topics=selected)
-        if not exam_qids:
-            await call.answer("Для обраних блоків немає достатньо питань для екзамену.", show_alert=True)
-            return
-
-        await call.answer()
-        try:
-            await call.message.edit_text(
-                f"✅ Обрано блоків: <b>{len(selected)}</b>\nСтартуємо екзамен...",
-                parse_mode=ParseMode.HTML,
-                reply_markup=None,
-            )
-        except Exception:
-            pass
-
-        await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
+    await start_session_for_pool(
+        call.bot,
+        tg_id,
+        call.message.chat.id,
+        user,
+        mode,
+        pool_qids,
+    )
 
 def kb_pick_position(mode: str, back_to: str = "auto") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -2389,18 +2381,10 @@ async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: async
             await bot.send_message(chat_id, "Немає доступних питань для навчання.")
             return
 
-        # Навчання: беремо ВСІ питання з пулу, тільки перемішуємо порядок
-        qids = list(dict.fromkeys(pool_qids))  # прибираємо дублі
+        qids = list(dict.fromkeys(pool_qids))
         random.shuffle(qids)
 
         await db_create_session(DB_POOL, tg_id, "train", qids, expires_at=None)
-
-        # без меню-клавіатури — щоб не з'являлось "друге меню" під стартовим повідомленням
-        await bot.send_message(
-            chat_id,
-            f"Стартуємо навчання ✅\nПитань у сесії: <b>{len(qids)}</b>",
-            parse_mode=ParseMode.HTML,
-        )
         await send_current_question(bot, DB_POOL, chat_id, tg_id, "train")
         return
 
@@ -2419,10 +2403,9 @@ async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: async
         expires = utcnow() + timedelta(minutes=EXAM_DURATION_MINUTES)
         await db_create_session(DB_POOL, tg_id, "exam", qids, expires_at=expires)
 
-        # без меню-клавіатури — меню лишається в окремому повідомленні
-        await bot.send_message(chat_id, "📝 Екзамен стартував ✅")
         await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
         return
+
 
 @router.callback_query(TopicPageCb.filter())
 async def topic_page(call: CallbackQuery, callback_data: TopicPageCb) -> None:
@@ -2524,7 +2507,6 @@ async def topic_clear(call: CallbackQuery, callback_data: TopicClearCb) -> None:
         reply_markup=kb_topics(mode, ok_code, lvl, page=page, selected=set()),
     )
     await call.answer("Очищено")
-
 @router.callback_query(TopicDoneCb.filter())
 async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
     if not DB_POOL:
@@ -2547,10 +2529,7 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
 
     selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
     if not selected:
-        await call.answer(
-            "Оберіть хоча б 1 блок або натисніть «Всі блоки».",
-            show_alert=True
-        )
+        await call.answer("Оберіть хоча б 1 блок або натисніть «Всі блоки».", show_alert=True)
         return
 
     pool_set: Set[int] = set()
@@ -2559,25 +2538,16 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
         pool_set.update(base)
 
     pool_qids = effective_qids(list(pool_set))
-
-    # ✅ загальна перевірка – немає жодного питання
     if not pool_qids:
         await call.answer("У вибраних блоках немає питань.", show_alert=True)
         return
 
     await call.answer()
+
+    # ✅ прибираємо клавіатуру під повідомленням (без нового тексту)
     try:
-        await call.message.edit_text(
-            (
-                f"✅ Обрано блоків: <b>{len(selected)}</b>\n"
-                f"{'Навчання' if mode == 'train' else 'Екзамен'} "
-                f"по всіх питаннях з обраних блоків. Стартуємо..."
-            ),
-            parse_mode=ParseMode.HTML,
-            reply_markup=None,
-        )
+        await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
-        # якщо не вийшло редагувати — ігноруємо
         pass
 
     await start_session_for_pool(
@@ -2617,25 +2587,10 @@ async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
         return
 
     await call.answer()
-    try:
-        if mode == "train":
-            text = (
-                "🎯 Всі блоки.\n"
-                "Навчання по <b>всіх</b> питаннях з цього ОК. Стартуємо..."
-            )
-        else:
-            # якщо в екзамені лишаєш 20 рандомних – текст залишаємо таким
-            text = (
-                f"🎯 Всі блоки.\n"
-                f"Екзамен — {EXAM_QUESTIONS} випадкових питань з усіх блоків. "
-                "Стартуємо..."
-            )
 
-        await call.message.edit_text(
-            text,
-            parse_mode=ParseMode.HTML,
-            reply_markup=None,
-        )
+    # ✅ прибрати кнопки вибору без "Стартуємо..."
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
@@ -2647,6 +2602,7 @@ async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
         mode,
         pool_qids,
     )
+
 
 # Назад до екрану старту (Навчання/Екзамен) з inline-вибору тем
 @router.callback_query(F.data.startswith("back:"))
@@ -2705,6 +2661,7 @@ async def menu_from_inline(call: CallbackQuery) -> None:
 async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
     if not user:
@@ -2732,10 +2689,13 @@ async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
     pool_qids = effective_qids(base)
 
     await call.answer()
-    await call.message.answer(
-        f"Блок: <b>{html_escape(topic)}</b>\nСтартуємо...",
-        parse_mode=ParseMode.HTML
-    )
+
+    # ✅ прибрати кнопки вибору (без нового повідомлення)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
     await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
 
 @router.callback_query(StartScopeCb.filter())
