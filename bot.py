@@ -1320,12 +1320,18 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     user = await db_get_user(DB_POOL, tg_id)
 
     if not user or not user["phone"]:
-        await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
+        await call.message.answer(
+            "Спочатку зареєструйтесь (поділіться номером).",
+            reply_markup=kb_request_contact()
+        )
         await call.answer()
         return
 
     action = (call.data or "").split(":", 1)[1] if ":" in (call.data or "") else ""
 
+    # -------------------------
+    # SETTINGS
+    # -------------------------
     if action == "settings":
         if user_has_scope(user):
             ok_code, lvl = get_user_scope(user)
@@ -1336,62 +1342,24 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 reply_markup=ReplyKeyboardRemove(),
             )
         else:
-            await call.message.answer("⚙️ Потрібно налаштувати ОК:", reply_markup=ReplyKeyboardRemove())
+            await call.message.answer(
+                "⚙️ Потрібно налаштувати ОК:",
+                reply_markup=ReplyKeyboardRemove()
+            )
         await call.message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
         await call.answer()
         return
 
-    if action in ("train", "exam"):
-        if not user_has_scope(user):
-            await ensure_profile(call.message, user)
-            await call.answer()
-            return
-
-        if not await db_has_access(user):
-            await call.message.answer(
-                "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу.",
-                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
-            )
-            await call.answer()
-            return
-
-    if action == "train":
-        train_mode = user.get("train_mode")
-
-        if train_mode == "position":
-            await call.message.answer(
-                "Навчання за посадою:",
-                reply_markup=kb_pick_position("train")
-            )
-        elif train_mode == "manual":
-            ok_code, lvl = get_user_scope(user)
-            await call.message.answer(
-                f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_train_pick(ok_code, lvl),
-            )
-        else:
-            # перший раз — запропонувати вибір
-            await call.message.answer(
-                "Як ви хочете навчатись?",
-                reply_markup=kb_train_mode("train")
-            )
-
-        await call.answer()
-        return
-
-    if action == "exam":
-        await call.message.answer(
-            "Як ви хочете складати екзамен?",
-            reply_markup=kb_train_mode("exam")
-        )
-        await call.answer()
-        return
-
+    # -------------------------
+    # STATS
+    # -------------------------
     if action == "stats":
         rows = await db_stats_get(DB_POOL, tg_id)
         if not rows:
-            await call.message.answer("Поки що статистики немає.", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+            await call.message.answer(
+                "Поки що статистики немає.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"]))
+            )
             await call.answer()
             return
 
@@ -1407,10 +1375,17 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 out += f"⏭ Пропущено: {r['skipped']}\n"
             out += "\n"
 
-        await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await call.message.answer(
+            out,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"]))
+        )
         await call.answer()
         return
 
+    # -------------------------
+    # ACCESS
+    # -------------------------
     if action == "access":
         now = utcnow()
         tu = user["trial_until"]
@@ -1430,16 +1405,88 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             out += "Набір: <i>не вибрано</i>\n"
         out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
 
-        await call.message.answer(out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await call.message.answer(
+            out,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"]))
+        )
         await call.answer()
         return
 
+    # -------------------------
+    # ADMIN
+    # -------------------------
     if action == "admin":
         if not user.get("is_admin"):
             await call.answer("⛔️ Немає доступу.", show_alert=True)
             return
-
         await call.message.answer("Адмін-панель:", reply_markup=kb_admin_panel())
+        await call.answer()
+        return
+
+    # -------------------------
+    # TRAIN / EXAM
+    # -------------------------
+    if action in ("train", "exam"):
+        # спочатку перевіряємо доступ (не scope)
+        if not await db_has_access(user):
+            await call.message.answer(
+                "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
+            await call.answer()
+            return
+
+        train_mode = user.get("train_mode")  # position / manual / None
+
+        # якщо режим ще не обрано — показуємо вибір (НЕ кидаємо в ОК)
+        if not train_mode:
+            text = "Як ви хочете навчатись?" if action == "train" else "Як ви хочете складати екзамен?"
+            await call.message.answer(text, reply_markup=kb_train_mode(action))
+            await call.answer()
+            return
+
+        # ------ POSITION ------
+        if train_mode == "position":
+            await call.message.answer(
+                "Навчання за посадою:" if action == "train" else "Екзамен за посадою:",
+                reply_markup=kb_pick_position(action)
+            )
+            await call.answer()
+            return
+
+        # ------ MANUAL ------
+        if train_mode == "manual":
+            # для manual потрібен scope
+            if not user_has_scope(user):
+                await call.message.answer(
+                    "⚙️ Для режиму «вручну» потрібно обрати ОК.\nОберіть ОК:",
+                    reply_markup=kb_pick_ok(page=0)
+                )
+                await call.answer()
+                return
+
+            ok_code, lvl = get_user_scope(user)
+
+            if action == "train":
+                await call.message.answer(
+                    f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb_train_pick(ok_code, lvl),
+                )
+            else:
+                await call.message.answer(
+                    f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb_exam_pick(ok_code, lvl),
+                )
+
+            await call.answer()
+            return
+
+        # fallback (на випадок якщо в БД щось інше)
+        text = "Як ви хочете навчатись?" if action == "train" else "Як ви хочете складати екзамен?"
+        await call.message.answer(text, reply_markup=kb_train_mode(action))
         await call.answer()
         return
 
