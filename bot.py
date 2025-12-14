@@ -116,6 +116,7 @@ PROBLEM_IDS_FILE: Set[int] = set()
 DISABLED_IDS_DB: Set[int] = set()
 
 
+
 # -------------------------
 # Допоміжні утиліти
 # -------------------------
@@ -336,6 +337,15 @@ class PosTopicAllCb(CallbackData, prefix="pta"):
 # -------------------------
 # Клавіатури
 # -------------------------
+
+MAIN_MENU_TEXT = "Оберіть режим:\n⬇️"
+
+async def show_main_menu(message: Message, *, is_admin: bool) -> None:
+    await message.answer(
+        MAIN_MENU_TEXT,
+        reply_markup=kb_main_menu(is_admin=is_admin),
+    )
+
 
 def kb_request_contact() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -1495,17 +1505,20 @@ async def cmd_start(message: Message) -> None:
 async def on_contact(message: Message) -> None:
     if not DB_POOL:
         return
+
     tg_id = message.from_user.id
     c = message.contact
     if c.user_id and c.user_id != tg_id:
-        await message.answer("Будь ласка, надішліть <b>свій</b> номер через кнопку.", parse_mode=ParseMode.HTML)
+        await message.answer(
+            "Будь ласка, надішліть <b>свій</b> номер через кнопку.",
+            parse_mode=ParseMode.HTML
+        )
         return
+
     phone = c.phone_number
     is_admin = tg_id in ADMIN_IDS
     user = await db_upsert_user(DB_POOL, tg_id, phone, is_admin)
 
-    # після реєстрації — показуємо меню (вибір ОК/рівня — в «Навчання» або «Налаштування»)
-    # після реєстрації — ховаємо reply-клавіатуру і показуємо меню (inline)
     await message.answer(
         "Дякую! Реєстрацію завершено ✅\n\n"
         f"Безкоштовний доступ до: <b>{user['trial_until'].astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n\n"
@@ -1514,7 +1527,8 @@ async def on_contact(message: Message) -> None:
         parse_mode=ParseMode.HTML,
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer("Меню:", reply_markup=kb_main_menu(is_admin=bool(user['is_admin'])))
+
+    await show_main_menu(message, is_admin=bool(user["is_admin"]))
 
 
 @router.callback_query(OkPageCb.filter())
@@ -3024,9 +3038,11 @@ async def admin_entry(message: Message) -> None:
 async def back_from_admin(message: Message) -> None:
     if not DB_POOL:
         return
+
     tg_id = message.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
-    await message.answer("Меню:", reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"])))
+
+    await show_main_menu(message, is_admin=bool(user and user["is_admin"]))
 
 @router.message(F.text == "👥 Користувачі")
 async def admin_users(message: Message) -> None:
