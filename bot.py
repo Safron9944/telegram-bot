@@ -977,6 +977,32 @@ def _pos_pref_ok_code(position: str) -> str:
     # ключ для topic_prefs (можна будь-який рядок)
     return f"POS::{position}"
 
+def _short_mode(mode: str) -> str:
+    """
+    'train' -> 't', 'exam' -> 'e', інше лишає як є
+    """
+    mode = str(mode)
+    if mode == "train":
+        return "t"
+    if mode == "exam":
+        return "e"
+    return mode
+
+
+def _normalize_mode(raw: str) -> str:
+    """
+    't' / 'train' -> 'train'
+    'e' / 'exam'  -> 'exam'
+    інше повертаємо як є (на майбутнє)
+    """
+    raw = str(raw)
+    if raw in ("t", "train"):
+        return "train"
+    if raw in ("e", "exam"):
+        return "exam"
+    return raw
+
+
 def topics_for_position(position_name: str) -> List[str]:
     qids = qids_for_position(position_name, include_all_levels=True)
     s: Set[str] = set()
@@ -1028,22 +1054,40 @@ def kb_pos_topics(
     selected_set: Set[str] = set(selected or [])
     topics = topics_for_position(position)
 
-    pages: List[List[str]] = [topics[i:i+per_page] for i in range(0, len(topics), per_page)]
+    pages: List[List[str]] = [topics[i:i + per_page] for i in range(0, len(topics), per_page)]
     if not pages:
         pages = [[]]
     page = max(0, min(page, len(pages) - 1))
     current = pages[page]
     start_idx = page * per_page
 
+    # скорочений режим для callback_data, щоб влізти в 64 байти
+    cb_mode = _short_mode(mode)
+
     b = InlineKeyboardBuilder()
 
+    # верхній рядок: Почати + Очистити
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
     b.row(
-        InlineKeyboardButton(text=start_label, callback_data=PosTopicDoneCb(mode=mode, position=position).pack()),
-        InlineKeyboardButton(text="🧹 Очистити", callback_data=PosTopicClearCb(mode=mode, position=position, page=page).pack()),
+        InlineKeyboardButton(
+            text=start_label,
+            callback_data=PosTopicDoneCb(mode=cb_mode, position=position).pack(),
+        ),
+        InlineKeyboardButton(
+            text="🧹 Очистити",
+            callback_data=PosTopicClearCb(mode=cb_mode, position=position, page=page).pack(),
+        ),
     )
-    b.row(InlineKeyboardButton(text="🎯 Всі блоки", callback_data=PosTopicAllCb(mode=mode, position=position).pack()))
 
+    # рядок "Всі блоки"
+    b.row(
+        InlineKeyboardButton(
+            text="🎯 Всі блоки",
+            callback_data=PosTopicAllCb(mode=cb_mode, position=position).pack(),
+        )
+    )
+
+    # самі блоки (multi-select)
     for i, t in enumerate(current):
         idx = start_idx + i
         checked = "☑️" if t in selected_set else "⬜️"
@@ -1051,27 +1095,53 @@ def kb_pos_topics(
         b.row(
             InlineKeyboardButton(
                 text=label,
-                callback_data=PosTopicToggleCb(mode=mode, position=position, topic_idx=idx, page=page).pack(),
+                callback_data=PosTopicToggleCb(
+                    mode=cb_mode,
+                    position=position,
+                    topic_idx=idx,
+                    page=page,
+                ).pack(),
             )
         )
 
-    nav = []
+    # навігація сторінками
+    nav: List[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=PosTopicPageCb(mode=mode, position=position, page=page-1).pack()))
+        nav.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=PosTopicPageCb(
+                    mode=cb_mode,
+                    position=position,
+                    page=page - 1,
+                ).pack(),
+            )
+        )
     if page < len(pages) - 1:
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=PosTopicPageCb(mode=mode, position=position, page=page+1).pack()))
+        nav.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=PosTopicPageCb(
+                    mode=cb_mode,
+                    position=position,
+                    page=page + 1,
+                ).pack(),
+            )
+        )
     if nav:
         b.row(*nav)
 
+    # "Назад" -> в меню для цієї посади
     b.row(
         InlineKeyboardButton(
             text="⬅️ Назад",
-            callback_data=PosMenuCb(mode=mode, position=position, action="m").pack(),
+            # тут ЯВНО короткий action, щоб не роздувати callback
+            callback_data=PosMenuCb(mode=cb_mode, position=position, action="m").pack(),
         ),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     )
-    return b.as_markup()
 
+    return b.as_markup()
 
 # -------------------------
 # Логіка доступу/профілю
@@ -1685,7 +1755,8 @@ async def pos_menu(call: CallbackQuery, callback_data: PosMenuCb):
 @router.callback_query(PosTopicPageCb.filter())
 async def pos_topic_page(call: CallbackQuery, callback_data: PosTopicPageCb):
     tg_id = call.from_user.id
-    mode = str(callback_data.mode)
+    raw_mode = str(callback_data.mode)
+    mode = _normalize_mode(raw_mode)
     position = str(callback_data.position)
     page = int(callback_data.page)
 
@@ -1694,13 +1765,17 @@ async def pos_topic_page(call: CallbackQuery, callback_data: PosTopicPageCb):
 
     title = (
         f"👔 Посада: <b>{html_escape(position)}</b>\n"
-        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
+        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode == 'train' else 'екзамену'}</b>\n"
         f"Обрано блоків: <b>{len(selected)}</b>\n\n"
         "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
     )
-    await call.message.edit_text(title, parse_mode=ParseMode.HTML,
-                                reply_markup=kb_pos_topics(mode, position, page=page, selected=selected))
+    await call.message.edit_text(
+        title,
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pos_topics(mode, position, page=page, selected=selected),
+    )
     await call.answer()
+
 
 
 @router.callback_query(PosTopicToggleCb.filter())
@@ -1711,7 +1786,8 @@ async def pos_topic_toggle(call: CallbackQuery, callback_data: PosTopicToggleCb)
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    mode = str(callback_data.mode)
+    raw_mode = str(callback_data.mode)
+    mode = _normalize_mode(raw_mode)
     position = str(callback_data.position)
     idx = int(callback_data.topic_idx)
     page = int(callback_data.page)
@@ -1734,19 +1810,24 @@ async def pos_topic_toggle(call: CallbackQuery, callback_data: PosTopicToggleCb)
 
     title = (
         f"👔 Посада: <b>{html_escape(position)}</b>\n"
-        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
+        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode == 'train' else 'екзамену'}</b>\n"
         f"Обрано блоків: <b>{len(selected)}</b>\n\n"
         "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
     )
-    await call.message.edit_text(title, parse_mode=ParseMode.HTML,
-                                reply_markup=kb_pos_topics(mode, position, page=page, selected=selected))
+    await call.message.edit_text(
+        title,
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pos_topics(mode, position, page=page, selected=selected),
+    )
     await call.answer()
+
 
 
 @router.callback_query(PosTopicClearCb.filter())
 async def pos_topic_clear(call: CallbackQuery, callback_data: PosTopicClearCb):
     tg_id = call.from_user.id
-    mode = str(callback_data.mode)
+    raw_mode = str(callback_data.mode)
+    mode = _normalize_mode(raw_mode)
     position = str(callback_data.position)
     page = int(callback_data.page)
 
@@ -1755,13 +1836,17 @@ async def pos_topic_clear(call: CallbackQuery, callback_data: PosTopicClearCb):
 
     title = (
         f"👔 Посада: <b>{html_escape(position)}</b>\n"
-        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode=='train' else 'екзамену'}</b>\n"
+        f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode == 'train' else 'екзамену'}</b>\n"
         "Обрано блоків: <b>0</b>\n\n"
         "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
     )
-    await call.message.edit_text(title, parse_mode=ParseMode.HTML,
-                                reply_markup=kb_pos_topics(mode, position, page=page, selected=set()))
+    await call.message.edit_text(
+        title,
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pos_topics(mode, position, page=page, selected=set()),
+    )
     await call.answer("Очищено")
+
 
 
 @router.callback_query(PosTopicAllCb.filter())
@@ -1772,14 +1857,18 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    mode = str(callback_data.mode)
+    raw_mode = str(callback_data.mode)
+    mode = _normalize_mode(raw_mode)
     position = str(callback_data.position)
 
     pool_qids = qids_for_position(position_name=position, include_all_levels=True)
 
     await call.answer()
     try:
-        await call.message.edit_text("🎯 Всі блоки. Стартуємо...", reply_markup=None)
+        await call.message.edit_text(
+            "🎯 Всі блоки. Стартуємо...",
+            reply_markup=None,
+        )
     except Exception:
         pass
 
@@ -1794,7 +1883,8 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
         await call.answer("Доступ завершився", show_alert=True)
         return
 
-    mode = str(callback_data.mode)
+    raw_mode = str(callback_data.mode)
+    mode = _normalize_mode(raw_mode)
     position = str(callback_data.position)
 
     pref_ok = _pos_pref_ok_code(position)
@@ -1824,7 +1914,6 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
         pass
 
     await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
-
 
 def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
