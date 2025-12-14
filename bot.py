@@ -1050,21 +1050,33 @@ def _normalize_mode(raw: str) -> str:
 
 def topics_for_position(position_name: str) -> List[str]:
     """
-    Повертає список тем (topic) для посади, БЕЗ загального законодавства.
-    Беремо тільки рівні ОК, задані в POSITION_OK_MAP.
+    Повертає список тем (topic) для посади, ВКЛЮЧНО із загальним законодавством.
     """
     qids = qids_for_position(position_name, include_all_levels=False)
+
     s: Set[str] = set()
+    has_law = False
+
     for qid in qids:
         q = QUESTIONS_BY_ID.get(qid)
         if not q:
             continue
-        # пропускаємо питання із загального законодавства
+
         ok_code = normalize_ok_code(q.get("ok"))
         if ok_code == OK_CODE_LAW:
+            has_law = True
             continue
+
         s.add(str(q.get("topic") or "Без блоку"))
-    return sorted(s)
+
+    topics = sorted(s)
+
+    # додаємо "Законодавство" першим, якщо воно є в питаннях
+    if has_law:
+        topics = ["📜 Законодавство"] + topics
+
+    return topics
+
 
 
 def qids_for_position_topic(position_name: str, topic: str) -> List[int]:
@@ -1209,28 +1221,7 @@ def kb_pos_topics(
 
     b = InlineKeyboardBuilder()
 
-    # верхній рядок: Почати + Очистити
-    start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
-    b.row(
-        InlineKeyboardButton(
-            text=start_label,
-            callback_data=PosTopicDoneCb(mode=cb_mode, position=position).pack(),
-        ),
-        InlineKeyboardButton(
-            text="🧹 Очистити",
-            callback_data=PosTopicClearCb(mode=cb_mode, position=position, page=page).pack(),
-        ),
-    )
-
-    # рядок "Всі блоки"
-    b.row(
-        InlineKeyboardButton(
-            text="🎯 Всі блоки",
-            callback_data=PosTopicAllCb(mode=cb_mode, position=position).pack(),
-        )
-    )
-
-    # самі блоки (multi-select)
+    # самі блоки (multi-select) — ПЕРШИМИ
     for i, t in enumerate(current):
         idx = start_idx + i
         checked = "☑️" if t in selected_set else "⬜️"
@@ -1247,44 +1238,48 @@ def kb_pos_topics(
             )
         )
 
-    # навігація сторінками
-    nav: List[InlineKeyboardButton] = []
+    # нижній ряд: Назад + (⬅️/➡️ якщо треба) + Всі блоки + Почати + Меню
+    start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
+
+    bottom: List[InlineKeyboardButton] = [
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=PosMenuCb(mode=cb_mode, position=position, action="m").pack(),
+        )
+    ]
+
+    # стрілки пагінації — ТЕЖ ВНИЗУ
     if page > 0:
-        nav.append(
+        bottom.append(
             InlineKeyboardButton(
                 text="⬅️",
-                callback_data=PosTopicPageCb(
-                    mode=cb_mode,
-                    position=position,
-                    page=page - 1,
-                ).pack(),
+                callback_data=PosTopicPageCb(mode=cb_mode, position=position, page=page - 1).pack(),
             )
         )
     if page < len(pages) - 1:
-        nav.append(
+        bottom.append(
             InlineKeyboardButton(
                 text="➡️",
-                callback_data=PosTopicPageCb(
-                    mode=cb_mode,
-                    position=position,
-                    page=page + 1,
-                ).pack(),
+                callback_data=PosTopicPageCb(mode=cb_mode, position=position, page=page + 1).pack(),
             )
         )
-    if nav:
-        b.row(*nav)
 
-    # "Назад" -> в меню для цієї посади
-    b.row(
+    bottom += [
         InlineKeyboardButton(
-            text="⬅️ Назад",
-            # тут ЯВНО короткий action, щоб не роздувати callback
-            callback_data=PosMenuCb(mode=cb_mode, position=position, action="m").pack(),
+            text="🎯 Всі блоки",
+            callback_data=PosTopicAllCb(mode=cb_mode, position=position).pack(),
+        ),
+        InlineKeyboardButton(
+            text=start_label,
+            callback_data=PosTopicDoneCb(mode=cb_mode, position=position).pack(),
         ),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
-    )
+    ]
+
+    b.row(*bottom)
 
     return b.as_markup()
+
 
 # -------------------------
 # Логіка доступу/профілю
@@ -2188,13 +2183,16 @@ async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
 def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
+    # кожна кнопка буде в окремому рядку
     for pos in POSITION_OK_MAP.keys():
-        b.button(
-            text=f"👔 {pos}",
-            callback_data=f"pos:{mode}:{pos}",
+        b.row(
+            InlineKeyboardButton(
+                text=f"👔 {pos}",
+                callback_data=f"pos:{mode}:{pos}",
+            )
         )
 
-    # для train — назад до вибору режиму, для exam — назад у головне меню
+    # кнопка Назад
     back_cb = f"backmode:{mode}" if mode == "train" else "menu"
     b.row(
         InlineKeyboardButton(
