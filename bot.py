@@ -478,7 +478,7 @@ def kb_topics(
     selected_set: Set[str] = set(selected or [])
     topics = effective_topics(ok_code, level)
 
-    pages: List[List[str]] = [topics[i:i+per_page] for i in range(0, len(topics), per_page)]
+    pages: List[List[str]] = [topics[i:i + per_page] for i in range(0, len(topics), per_page)]
     if not pages:
         pages = [[]]
     page = max(0, min(page, len(pages) - 1))
@@ -487,25 +487,7 @@ def kb_topics(
 
     b = InlineKeyboardBuilder()
 
-    start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
-    b.row(
-        InlineKeyboardButton(
-            text=start_label,
-            callback_data=TopicDoneCb(mode=mode, ok_code=ok_code, level=level).pack(),
-        ),
-        InlineKeyboardButton(
-            text="🧹 Очистити",
-            callback_data=TopicClearCb(mode=mode, ok_code=ok_code, level=level, page=page).pack(),
-        ),
-    )
-
-    b.row(
-        InlineKeyboardButton(
-            text="🎯 Всі блоки",
-            callback_data=TopicAllCb(mode=mode, ok_code=ok_code, level=level).pack(),
-        )
-    )
-
+    # список тем
     for i, t in enumerate(current):
         idx = start_idx + i
         checked = "☑️" if t in selected_set else "⬜️"
@@ -513,24 +495,61 @@ def kb_topics(
         b.row(
             InlineKeyboardButton(
                 text=label,
-                callback_data=TopicToggleCb(mode=mode, ok_code=ok_code, level=level, topic_idx=idx, page=page).pack(),
+                callback_data=TopicToggleCb(
+                    mode=mode,
+                    ok_code=ok_code,
+                    level=level,
+                    topic_idx=idx,
+                    page=page,
+                ).pack(),
             )
         )
 
+    # пагінація
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=TopicPageCb(mode=mode, ok_code=ok_code, level=level, page=page-1).pack()))
+        nav.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=TopicPageCb(
+                    mode=mode, ok_code=ok_code, level=level, page=page - 1
+                ).pack(),
+            )
+        )
     if page < len(pages) - 1:
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=TopicPageCb(mode=mode, ok_code=ok_code, level=level, page=page+1).pack()))
+        nav.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=TopicPageCb(
+                    mode=mode, ok_code=ok_code, level=level, page=page + 1
+                ).pack(),
+            )
+        )
     if nav:
         b.row(*nav)
 
-    # навігація вниз
+    # нижній блок навігації
+    start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
+
     b.row(
         InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back:{mode}"),
+        InlineKeyboardButton(
+            text="🎯 Всі блоки",
+            callback_data=TopicAllCb(mode=mode, ok_code=ok_code, level=level).pack(),
+        ),
+        InlineKeyboardButton(
+            text=start_label,
+            callback_data=TopicDoneCb(
+                mode=mode,
+                ok_code=ok_code,
+                level=level,
+            ).pack(),
+        ),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     )
+
     return b.as_markup()
+
 
 
 
@@ -1159,10 +1178,12 @@ def kb_position_start(mode: str, position: str) -> InlineKeyboardMarkup:
         callback_data=PosMenuCb(mode=mode, position=position, action="b").pack(),
     )
 
-    b.button(text="⬅️ Назад", callback_data=f"backmode:{mode}")
+    # для train — назад до вибору режиму, для exam — назад у головне меню
+    back_cb = f"backmode:{mode}" if mode == "train" else "menu"
+    b.button(text="⬅️ Назад", callback_data=back_cb)
+
     b.adjust(1)
     return b.as_markup()
-
 
 
 
@@ -1568,15 +1589,18 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
 
+    # якщо ще не зареєстрований — лишаємо окреме повідомлення,
+    # бо потрібна reply-клавіатура з кнопкою "Поділитись контактом"
     if not user or not user["phone"]:
         await call.message.answer(
             "Спочатку зареєструйтесь (поділіться номером).",
-            reply_markup=kb_request_contact()
+            reply_markup=kb_request_contact(),
         )
         await call.answer()
         return
 
-    action = (call.data or "").split(":", 1)[1] if ":" in (call.data or "") else ""
+    # callback_data має вигляд "mm:<action>"
+    _, action = call.data.split(":", 1)
 
     # -------------------------
     # SETTINGS
@@ -1584,18 +1608,18 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     if action == "settings":
         if user_has_scope(user):
             ok_code, lvl = get_user_scope(user)
-            await call.message.answer(
+            text = (
                 f"⚙️ Ваш поточний набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
-                "Натисніть нижче, щоб змінити:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=ReplyKeyboardRemove(),
+                "Оберіть інший ОК нижче:"
             )
         else:
-            await call.message.answer(
-                "⚙️ Потрібно налаштувати ОК:",
-                reply_markup=ReplyKeyboardRemove()
-            )
-        await call.message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
+            text = "⚙️ Потрібно налаштувати ОК.\nОберіть ОК нижче:"
+
+        await call.message.edit_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_pick_ok(page=0),
+        )
         await call.answer()
         return
 
@@ -1605,9 +1629,10 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     if action == "stats":
         rows = await db_stats_get(DB_POOL, tg_id)
         if not rows:
-            await call.message.answer(
+            await call.message.edit_text(
                 "Поки що статистики немає.",
-                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
             await call.answer()
             return
 
@@ -1623,10 +1648,11 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 out += f"⏭ Пропущено: {r['skipped']}\n"
             out += "\n"
 
-        await call.message.answer(
+        await call.message.edit_text(
             out,
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        )
         await call.answer()
         return
 
@@ -1652,10 +1678,11 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             out += "Набір: <i>не вибрано</i>\n"
         out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
 
-        await call.message.answer(
+        await call.message.edit_text(
             out,
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        )
         await call.answer()
         return
 
@@ -1667,7 +1694,10 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer("⛔️ Немає доступу.", show_alert=True)
             return
 
-        await call.message.answer("Адмін-панель:", reply_markup=kb_admin_panel())
+        await call.message.edit_text(
+            "Адмін-панель:",
+            reply_markup=kb_admin_panel(),
+        )
         await call.answer()
         return
 
@@ -1675,33 +1705,64 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     # TRAIN / EXAM
     # -------------------------
     if action in ("train", "exam"):
-        # доступ перевіряємо завжди
+        # для навчання/екзамену потрібен активний доступ
         if not await db_has_access(user):
-            await call.message.answer(
+            await call.message.edit_text(
                 "⛔️ Доступ завершився.\nПідписку додамо далі. Напишіть адміну для доступу.",
                 reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
             )
             await call.answer()
             return
 
-        mode = action  # "train" або "exam"
+        # ========= ЕКЗАМЕН =========
+        if action == "exam":
+            # Екзамен за посадою: 50 із загального + по 20 з кожного блоку
+            position = user.get("position")
+            if not position:
+                await call.message.edit_text(
+                    "Оберіть посаду для екзамену:",
+                    reply_markup=kb_pick_position("exam"),
+                )
+                await call.answer()
+                return
+
+            num_topics = len(topics_for_position(position))
+            total_questions = EXAM_LAW_QUESTIONS + num_topics * EXAM_PER_TOPIC_QUESTIONS
+
+            text = (
+                f"📝 Екзамен за посадою: <b>{html_escape(position)}</b>\n"
+                f"Питань: <b>{total_questions}</b>\n"
+                f"- {EXAM_LAW_QUESTIONS} з загального законодавства (LAW)\n"
+                f"- по {EXAM_PER_TOPIC_QUESTIONS} з кожного блоку посади\n"
+                f"Час: <b>{EXAM_DURATION_MINUTES} хв</b>"
+            )
+            await call.message.edit_text(
+                text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_position_start("exam", position),
+            )
+            await call.answer()
+            return
+
+        # ========= НАВЧАННЯ =========
+        mode = "train"
         train_mode = user.get("train_mode")  # "position" | "manual" | None
 
         # 1) якщо ще не обрали стиль навчання — показуємо вибір
         if not train_mode:
-            text = "Як ви хочете навчатись?" if mode == "train" else "Як ви хочете складати екзамен?"
-            await call.message.answer(text, reply_markup=kb_train_mode(mode))
+            text = "Як ви хочете навчатись?"
+            await call.message.edit_text(text, reply_markup=kb_train_mode(mode))
             await call.answer()
             return
 
-        # 2) РЕЖИМ "ЗА ПОСАДОЮ" — одразу показуємо всі блоки по цій посаді
+        # 2) РЕЖИМ "ЗА ПОСАДОЮ" — показуємо блоки по поточній посади
         if train_mode == "position":
             position = user.get("position")
 
             if position:
                 pool_qids = qids_for_position(position_name=position, include_all_levels=True)
                 if not pool_qids:
-                    await call.message.answer(
+                    await call.message.edit_text(
                         "Для вашої поточної посади немає питань.\nОберіть іншу посаду:",
                         reply_markup=kb_pick_position(mode),
                     )
@@ -1713,12 +1774,12 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
                 title = (
                     f"👔 Поточна посада: <b>{html_escape(position)}</b>\n"
-                    f"Оберіть <b>декілька</b> блоків для <b>{'навчання' if mode == 'train' else 'екзамену'}</b>\n"
+                    f"Оберіть <b>декілька</b> блоків для <b>навчання</b>\n"
                     f"Обрано блоків: <b>{len(selected)}</b>\n\n"
                     "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b> або «🎯 Всі блоки»."
                 )
 
-                await call.message.answer(
+                await call.message.edit_text(
                     title,
                     parse_mode=ParseMode.HTML,
                     reply_markup=kb_pos_topics(mode, position, page=0, selected=selected),
@@ -1727,7 +1788,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 return
 
             # якщо посада ще не збережена — просимо обрати
-            await call.message.answer(
+            await call.message.edit_text(
                 "Оберіть посаду:",
                 reply_markup=kb_pick_position(mode),
             )
@@ -1737,57 +1798,51 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         # 3) manual — ОК потрібен
         if train_mode == "manual":
             if not user_has_scope(user):
-                # ✅ автопродовження після вибору ОК
+                # опціонально запам'ятати, що після вибору ОК треба продовжити TRAIN
                 try:
-                    PENDING_AFTER_OK[tg_id] = mode  # "train" або "exam"
+                    PENDING_AFTER_OK[tg_id] = mode
                 except NameError:
                     pass
 
-                await call.message.answer(
+                await call.message.edit_text(
                     "⚙️ Для режиму «вручну» потрібно обрати ОК.\nОберіть ОК:",
-                    reply_markup=kb_pick_ok(page=0)
+                    reply_markup=kb_pick_ok(page=0),
                 )
                 await call.answer()
                 return
 
             ok_code, lvl = get_user_scope(user)
 
-            if mode == "train":
-                await call.message.answer(
-                    f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=kb_train_pick(ok_code, lvl),
-                )
-            else:
-                await call.message.answer(
-                    f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=kb_exam_pick(ok_code, lvl),
-                )
-
+            await call.message.edit_text(
+                f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_train_pick(ok_code, lvl),
+            )
             await call.answer()
             return
 
-        # fallback якщо в БД щось несподіване
-        text = "Як ви хочете навчатись?" if mode == "train" else "Як ви хочете складати екзамен?"
-        await call.message.answer(text, reply_markup=kb_train_mode(mode))
+        # 4) fallback якщо в БД щось дивне
+        text = "Як ви хочете навчатись?"
+        await call.message.edit_text(text, reply_markup=kb_train_mode(mode))
         await call.answer()
         return
 
     await call.answer()
 
 
-
 @router.callback_query(TrainModeCb.filter())
 async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
-    mode = callback_data.mode
-    kind = callback_data.kind
+    mode = callback_data.mode      # "train" (для inline-меню)
+    kind = callback_data.kind      # "position" | "manual"
 
-    # Оновлюємо режим тренування в базі даних
+    if not DB_POOL:
+        return
+
+    # Оновлюємо режим тренування в БД
     result = await DB_POOL.fetchrow(
         "UPDATE users SET train_mode=$2 WHERE tg_id=$1 RETURNING tg_id",
         call.from_user.id,
-        kind
+        kind,
     )
 
     if result is None:
@@ -1795,20 +1850,23 @@ async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
         return
 
     if kind == "manual":
-        await call.message.answer(
+        await call.message.edit_text(
             "Оберіть ОК:",
-            reply_markup=kb_pick_ok(page=0)
+            reply_markup=kb_pick_ok(page=0),
         )
         await call.answer()
         return
 
     if kind == "position":
-        await call.message.answer(
+        await call.message.edit_text(
             "Оберіть посаду:",
-            reply_markup=kb_pick_position(mode)
+            reply_markup=kb_pick_position(mode),
         )
         await call.answer()
         return
+
+    await call.answer()
+
 
 
 @router.callback_query(F.data.startswith("pos:"))
@@ -2133,18 +2191,20 @@ def kb_pick_position(mode: str) -> InlineKeyboardMarkup:
     for pos in POSITION_OK_MAP.keys():
         b.button(
             text=f"👔 {pos}",
-            callback_data=f"pos:{mode}:{pos}"
+            callback_data=f"pos:{mode}:{pos}",
         )
 
+    # для train — назад до вибору режиму, для exam — назад у головне меню
+    back_cb = f"backmode:{mode}" if mode == "train" else "menu"
     b.row(
         InlineKeyboardButton(
             text="⬅️ Назад",
-            callback_data=f"backmode:{mode}"
+            callback_data=back_cb,
         )
     )
 
-    b.adjust(1)
     return b.as_markup()
+
 
 @router.callback_query(F.data.startswith("backmode:"))
 async def backmode(call: CallbackQuery):
@@ -2565,13 +2625,16 @@ async def back_to_mode_pick(call: CallbackQuery) -> None:
 async def menu_from_inline(call: CallbackQuery) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     user = await db_get_user(DB_POOL, tg_id)
-    await call.message.answer(
+
+    await call.message.edit_text(
         "Меню:",
         reply_markup=kb_main_menu(is_admin=bool(user and user["is_admin"])),
     )
     await call.answer()
+
 
 # Сумісність: якщо залишились старі кнопки (одиночний вибір блоку)
 @router.callback_query(TopicPickCb.filter())
