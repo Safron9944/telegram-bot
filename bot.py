@@ -356,19 +356,17 @@ def kb_request_contact() -> ReplyKeyboardMarkup:
     )
 
 def kb_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
-    """Головне меню як inline-клавіатура (щоб НЕ показувалась нижня reply-клавіатура)."""
     b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"),
-        InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"),
-    )
-    b.row(
-        InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"),
-        InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"),
-    )
+
+    b.row(InlineKeyboardButton(text="📚 Навчання", callback_data="mm:train"))
+    b.row(InlineKeyboardButton(text="📝 Екзамен", callback_data="mm:exam"))
+    b.row(InlineKeyboardButton(text="📊 Статистика", callback_data="mm:stats"))
+    b.row(InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"))
     b.row(InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"))
+
     if is_admin:
         b.row(InlineKeyboardButton(text="🛠 Адмін", callback_data="mm:admin"))
+
     return b.as_markup()
 
 def kb_admin_panel() -> InlineKeyboardMarkup:
@@ -2956,13 +2954,15 @@ async def on_answer(call: CallbackQuery, callback_data: AnswerCb) -> None:
     result_block = (
         "────────────\n"
         "❌ <b>Неправильно</b>\n"
-        f"❌ Ваш вибір: <b>{chosen_label}</b>{(' — ' + chosen_text) if chosen_text else ''}\n"
-        f"✅ Правильна: <b>{corr_label}</b>{(' — ' + corr_text) if corr_text else ''}"
+        "<i>Правильний варіант позначено ✅ вище.</i>"
     )
+
+    qa_sep = "────────────\n"
 
     shown = (
         f"{head}\n\n"
-        f"❓ <b>Питання:</b>\n<b>{qtext}</b>\n\n"
+        f"❓ <b>Питання:</b>\n<b>{qtext}</b>\n"
+        f"{qa_sep}"
         f"{options_block}\n"
         f"{result_block}"
     )
