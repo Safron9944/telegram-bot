@@ -535,21 +535,21 @@ def screen_law_groups(qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
 def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     qids = qb.law_groups.get(group_key, [])
     total = len(qids)
-    # Видалити показ пункту
-    # title = clean_law_title(qb.law_group_title(group_key))
+
+    header = "📜 <b>Законодавство</b>"
 
     if total <= 50:
-        # Видалити показ пункту
-        text = f"📜 <b>Законодавство</b>\n\nПитань: {total}\nПочати?"
+        text = f"{header}\n\nПитань: {total}\nПочати?"
         kb = kb_inline([
             ("▶️ Почати", f"learn_start:law:{group_key}:1"),
+            ("🎲 Рандомні", f"learn_start:lawrand:{group_key}"),
             ("⬅️ Назад", "learn:law"),
         ], row=1)
         return text, kb
 
     # make parts: 1-50, 51-100, ...
-    parts = []
     part_size = 50
+    parts = []
     p = 1
     for i in range(0, total, part_size):
         a = i + 1
@@ -557,10 +557,15 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
         parts.append((p, a, b))
         p += 1
 
-    text = f"📜 <b>Законодавство</b>\n\nОберіть частину:"
+    text = f"{header}\n\nОберіть частину:"
     buttons = []
+
+    # нове:
+    buttons.append(("🎲 Рандомні 50", f"learn_start:lawrand:{group_key}"))
+
     for p, a, b in parts:
         buttons.append((f"{a}–{b}", f"learn_start:law:{group_key}:{p}"))
+
     buttons.append(("⬅️ Назад", "learn:law"))
     kb = kb_inline(buttons, row=2)
     return text, kb
@@ -635,6 +640,40 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
         lines.append(f"<b>{i+1})</b> {ch}")
 
     return "\n".join(lines)
+
+def build_feedback_text(q: Q, header: str, chosen: int) -> str:
+    question = hescape(q.question or "")
+    choices = [hescape(ch or "") for ch in (q.choices or [])]
+    correct_set = set(int(x) for x in (q.correct or []))
+
+    lines: List[str] = []
+    if header:
+        lines.append(header)
+
+    lines += [
+        "❌ <b>Неправильно</b>",
+        "",
+        "❓ <b>Питання</b>",
+        question,
+        "",
+        "━━━━━━━━━━━━━━━━",
+        "📝 <b>Варіанти відповіді</b>",
+    ]
+
+    for i, ch in enumerate(choices):
+        if i in correct_set:
+            mark = "✅"
+            note = " <i>(правильно)</i>"
+        elif i == chosen:
+            mark = "❌"
+            note = " <i>(ваш вибір)</i>"
+        else:
+            mark = "▫️"
+            note = ""
+        lines.append(f"{mark} <b>{i+1})</b> {ch}{note}")
+
+    return "\n".join(lines)
+
 
 
 def kb_answers(n: int) -> InlineKeyboardMarkup:
@@ -931,6 +970,10 @@ async def start_learning_session(
         "phase": "pending",
         "feedback": None,
         "current_qid": None,
+        "correct_count": 0,
+        "total": len(qids),
+        "started_at": dt_to_iso(now()),
+        "answers": {},
         "meta": save_meta,
     }
     await store.set_state(uid, state)
@@ -980,15 +1023,20 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
             finished_at = now()
             await store.save_test(uid, started_at, finished_at, total, correct)
 
+            # Обчислення відсотка для відображення
+            percent_display = f"{percent:.1f}%"
+
             text = (
-                "📝 <b>Тест завершено</b>\n\n"
-                f"Правильних: <b>{correct}</b> із <b>{total}</b>\n"
-                f"Результат: <b>{percent:.1f}%</b>\n"
-                f"Прохідний: <b>60%</b>\n\n"
-                f"{'✅ Складено' if passed else '⛔️ Не складено'}"
+                "📝 <b>Тестування завершено</b>\n\n"
+                "📊 <b>Результати:</b>\n\n"
+                f"✅ <b>{correct}</b> з <b>{total}</b> питань\n"
+                f"📈 <b>{percent_display}</b> правильних відповідей\n"
+                f"🎯 Прохідний поріг: <b>60%</b>\n\n"
+                f"<b>{'🎉 Вітаємо! Тест складено!' if passed else '❌ Тест не складено. Потрібно ще попрацювати.'}</b>"
             )
             await store.set_state(uid, {})
-            await render_main(bot, store, uid, chat_id, text, kb_inline([("⬅️ Меню", "nav:menu")], row=1), message=message)
+            await render_main(bot, store, uid, chat_id, text, kb_inline([("⬅️ Головне меню", "nav:menu")], row=1),
+                              message=message)
             return
 
         if mode == "mistakes":
@@ -1012,7 +1060,15 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
             return
 
         # learn finish
-        text = "✅ <b>Навчання завершено</b>\n\nВи відповіли на всі питання."
+        correct = int(st.get("correct_count", 0))
+        total = int(st.get("total", 0)) or 0
+        percent = (correct / total * 100.0) if total else 0.0
+        text = (
+            "📚 <b>Навчання завершено</b>\n\n"
+            "📊 <b>Результат:</b>\n"
+            f"✅ <b>{correct}</b> з <b>{total}</b> правильних\n"
+            f"📈 <b>{percent:.1f}%</b>"
+        )
         await store.set_state(uid, {})
         await render_main(bot, store, uid, chat_id, text, kb_inline([("⬅️ Навчання", "nav:learn")], row=1), message=message)
         return
@@ -1033,7 +1089,8 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
     total = int(st.get("total", 0)) or (len(pending) + len(skipped))
     done = total - len(pending) - len(skipped)
     phase_note = " (пропущені)" if phase == "skipped" else ""
-    progress = f"Питань: <b>{total}</b> • Відповів: <b>{done}</b>{phase_note}"
+    remaining = len(pending) + len(skipped)
+    progress = f"Питань залишилось: <b>{remaining}</b>{phase_note}"
 
     header = st.get("header", "")
     text = build_question_text(q, header, progress)
@@ -1053,6 +1110,7 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
 
     parts = cb.data.split(":")
     # learn_start:law:<group_key>:<part>
+    # learn_start:lawrand:<group_key>
     # learn_start:ok:<module>:<level>
     kind = parts[1]
 
@@ -1061,17 +1119,41 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         part = int(parts[3])
         qids = qb.law_groups.get(group_key, [])
         if len(qids) > 50:
-            # slice by 50
             start = (part - 1) * 50
             end = start + 50
             qids = qids[start:end]
+
         title = clean_law_title(qb.law_group_title(group_key))
         header = f"📜 <b>Законодавство</b>\nПункт {group_key}: {title}"
+
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
             header=header,
             save_meta={"kind": "law", "group": group_key, "part": part},
+        )
+        await cb.answer()
+        return
+
+    if kind == "lawrand":
+        group_key = parts[2]
+        all_qids = qb.law_groups.get(group_key, [])
+
+        n = min(50, len(all_qids))
+        qids = qb.pick_random(all_qids, n)  # або qb.pick_random(all_qids, 50) якщо там вже є min()
+
+        title = clean_law_title(qb.law_group_title(group_key))
+        header = (
+            f"📜 <b>Законодавство</b>\n"
+            f"Пункт {group_key}: {title}\n"
+            f"🎲 Рандомні {n} питань"
+        )
+
+        await start_learning_session(
+            bot, store, qb, uid, cb.message.chat.id, cb.message,
+            qids=qids,
+            header=header,
+            save_meta={"kind": "lawrand", "group": group_key, "part": 0},
         )
         await cb.answer()
         return
@@ -1082,6 +1164,7 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         qids = qb.ok_modules.get(module, {}).get(level, [])
         await store.set_ok_last_level(uid, module, level)
         header = f"🧩 <b>ОК</b>\n{module} • Рівень {level}"
+
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
@@ -1092,6 +1175,7 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         return
 
     await cb.answer("Невідомий режим")
+
 
 
 @router.callback_query(F.data == "ans:0")  # placeholder; real handler below
