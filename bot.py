@@ -2146,6 +2146,7 @@ async def ok_multi_all(call: CallbackQuery, callback_data: OkAllCb) -> None:
     )
     await call.answer()
 
+
 @router.callback_query(OkDoneCb.filter())
 async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
     if not DB_POOL:
@@ -2163,7 +2164,7 @@ async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
         await call.answer("Оберіть хоча б один ОК", show_alert=True)
         return
 
-    # якщо обрано 1 ОК — лишаємо стару логіку (можна ще вибирати теми)
+    # Якщо обрано 1 ОК — лишаємо стару логіку
     if len(selected) == 1:
         ok_code = next(iter(selected))
         lvl_to_store = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
@@ -2185,16 +2186,42 @@ async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
         await call.answer()
         return
 
-    # multi-OK
+    # Multi-OK
     shown = ", ".join(sorted(selected))
+
+    # ✅ НОВА ЛОГІКА: для навчання одразу починаємо з усіх тем обраних модулів
     if mode == "train":
-        await safe_edit(
-            call,
-            f"Обрані модулі: <b>{html_escape(shown)}</b>\nОберіть як тренуватись:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_train_pick_multi("train"),
+        # Підтверджуємо callback
+        await call.answer()
+
+        # Прибираємо клавіатуру вибору
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+
+        # Отримуємо питання з усіх обраних ОК
+        pool: List[int] = []
+        for ok_code in sorted(selected):
+            lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+            pool.extend(base_qids_for_scope(ok_code, lvl))
+
+        pool_qids = effective_qids(list(dict.fromkeys(pool)))
+
+        # Стартуємо навчання
+        await start_session_for_pool(
+            call.bot,
+            tg_id,
+            call.message.chat.id,
+            user,
+            mode,
+            pool_qids,
+            edit_message=call.message,
         )
-    else:
+        return
+
+    # Для екзамену - стара логіка (вибір варіантів)
+    if mode == "exam":
         await safe_edit(
             call,
             f"Обрані модулі: <b>{html_escape(shown)}</b>\nПочати екзамен по всіх обраних модулях?",
@@ -2202,7 +2229,6 @@ async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
             reply_markup=kb_train_pick_multi("exam"),
         )
     await call.answer()
-
 
 @router.callback_query(StartMultiOkCb.filter())
 async def start_multi_ok(call: CallbackQuery, callback_data: StartMultiOkCb) -> None:
@@ -2466,28 +2492,59 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             )
             return
 
-        # TRAIN — одразу вибір модулів (ОК)
+        # TRAIN (як у текстовому хендлері "📚 Навчання")
         mode = "train"
 
         selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+        selected_ok = set(selected_ok or [])
+
         # fallback: якщо є старий single-scope — підхопимо його
         if not selected_ok and user_has_scope(user):
             ok_code, _lvl = get_user_scope(user)
             selected_ok = {ok_code}
             await db_set_ok_prefs(DB_POOL, tg_id, mode, selected_ok)
 
+        # Якщо вже є вибрані ОК - одразу починаємо навчання
+        if selected_ok:
+            try:
+                await call.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+            await call.answer()
+
+            pool: List[int] = []
+            for ok_code in sorted(selected_ok):
+                lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+                pool.extend(base_qids_for_scope(ok_code, lvl))
+
+            pool_qids = effective_qids(list(dict.fromkeys(pool)))
+
+            await start_session_for_pool(
+                call.bot,
+                tg_id,
+                call.message.chat.id,
+                user,
+                mode,
+                pool_qids,
+                edit_message=call.message,
+            )
+            return
+
+        # Якщо ОК ще не вибрані - показуємо вибір
         await safe_edit(
             call,
             "Оберіть <b>модулі</b> (ОК):\n"
             f"Обрано: <b>{len(selected_ok)}</b>",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_pick_ok_multi(mode, page=0, selected=set(selected_ok)),
+            reply_markup=kb_pick_ok_multi(mode, page=0, selected=selected_ok),
         )
         await call.answer()
         return
 
     await safe_edit(call, "🏠 Меню", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
     await call.answer()
+
 
 
 @router.callback_query(TrainModeCb.filter())
