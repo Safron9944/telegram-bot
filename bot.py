@@ -419,12 +419,18 @@ class TrainVariantBackCb(CallbackData, prefix="tback"):
     ok_code: str
     level: int
 
+class TrainOkPickCb(CallbackData, prefix="trok"):
+    ok_code: str
+
+
+class TrainLevelPickCb(CallbackData, prefix="trlv"):
+    ok_code: str
+    level: int
 
 # -------------------------
 # Клавіатури
 # -------------------------
 
-from typing import Optional
 
 def multi_topics_for_ok_set(
     ok_codes: Set[str],
@@ -520,6 +526,209 @@ def kb_multi_levels_overview(mode: str, ok_codes: Set[str], ok_levels: Dict[str,
         b.row(InlineKeyboardButton(text="✅ Почати екзамен", callback_data=StartMultiOkCb(mode=mode).pack()))
 
     return b.as_markup()
+
+def kb_operational_ok_modules() -> InlineKeyboardMarkup:
+    # тільки ОК (без LAW)
+    ok_codes = sorted([c for c in OK_CODES if c != OK_CODE_LAW], key=_ok_num)
+
+    # 2 колонки
+    half = (len(ok_codes) + 1) // 2
+    left = ok_codes[:half]
+    right = ok_codes[half:]
+
+    b = InlineKeyboardBuilder()
+    rows = max(len(left), len(right))
+    for i in range(rows):
+        row = []
+        if i < len(left):
+            row.append(
+                InlineKeyboardButton(
+                    text=left[i],
+                    callback_data=TrainOkPickCb(ok_code=left[i]).pack(),
+                )
+            )
+        else:
+            row.append(InlineKeyboardButton(text=" ", callback_data="noop"))
+
+        if i < len(right):
+            row.append(
+                InlineKeyboardButton(
+                    text=right[i],
+                    callback_data=TrainOkPickCb(ok_code=right[i]).pack(),
+                )
+            )
+        else:
+            row.append(InlineKeyboardButton(text=" ", callback_data="noop"))
+
+        b.row(*row)
+
+    b.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="tr:root"),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
+    return b.as_markup()
+
+
+def kb_operational_levels(ok_code: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for lvl in levels_for_ok(ok_code):
+        b.row(
+            InlineKeyboardButton(
+                text=f"Рівень {int(lvl)}",
+                callback_data=TrainLevelPickCb(ok_code=ok_code, level=int(lvl)).pack(),
+            )
+        )
+    b.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="tr:ok"),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
+    return b.as_markup()
+
+def kb_train_entry_menu() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📜 Законодавство", callback_data="tr:law"),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎯 Тестування рівня операційних митних компетенцій",
+                    callback_data="tr:ok",
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+            ],
+        ]
+    )
+
+@router.callback_query(F.data == "tr:root")
+async def train_root(call: CallbackQuery) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not user["phone"]:
+        await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
+        await call.answer()
+        return
+    if not await db_has_access(user):
+        await call.answer("⛔️ Доступ завершився", show_alert=True)
+        return
+
+    await safe_edit(
+        call,
+        "📚 <b>Навчання</b>\n\nОберіть напрям:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_train_entry_menu(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "tr:law")
+async def train_law(call: CallbackQuery) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not user["phone"]:
+        await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
+        await call.answer()
+        return
+    if not await db_has_access(user):
+        await call.answer("⛔️ Доступ завершився", show_alert=True)
+        return
+
+    ok_code, lvl = OK_CODE_LAW, 0
+    await db_set_ok_prefs(DB_POOL, tg_id, "train", {ok_code})
+    await db_set_scope(DB_POOL, tg_id, ok_code, lvl)
+
+    await safe_edit(
+        call,
+        f"📜 <b>Законодавство</b>\nОберіть варіант:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_train_pick(ok_code, lvl),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "tr:ok")
+async def train_operational(call: CallbackQuery) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not user["phone"]:
+        await call.message.answer("Спочатку зареєструйтесь (поділіться номером).", reply_markup=kb_request_contact())
+        await call.answer()
+        return
+    if not await db_has_access(user):
+        await call.answer("⛔️ Доступ завершився", show_alert=True)
+        return
+
+    await safe_edit(
+        call,
+        "🎯 <b>Тестування рівня операційних митних компетенцій</b>\n\nОберіть модуль ОК:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_operational_ok_modules(),
+    )
+    await call.answer()
+
+
+@router.callback_query(TrainOkPickCb.filter())
+async def train_ok_pick(call: CallbackQuery, callback_data: TrainOkPickCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not await db_has_access(user):
+        await call.answer("⛔️ Доступ завершився", show_alert=True)
+        return
+
+    ok_code = str(callback_data.ok_code)
+    await safe_edit(
+        call,
+        f"🎯 <b>{html_escape(ok_code)}</b>\nОберіть рівень:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_operational_levels(ok_code),
+    )
+    await call.answer()
+
+
+@router.callback_query(TrainLevelPickCb.filter())
+async def train_level_pick(call: CallbackQuery, callback_data: TrainLevelPickCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user or not await db_has_access(user):
+        await call.answer("⛔️ Доступ завершився", show_alert=True)
+        return
+
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+
+    await db_set_ok_prefs(DB_POOL, tg_id, "train", {ok_code})
+    await db_set_scope(DB_POOL, tg_id, ok_code, lvl)
+
+    await safe_edit(
+        call,
+        f"🎯 <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_train_pick(ok_code, lvl),
+    )
+    await call.answer()
+
+
+
+def _ok_num(code: str) -> int:
+    # "ОК-4" -> 4
+    try:
+        if code.startswith("ОК-"):
+            return int(code.split("-", 1)[1])
+    except Exception:
+        pass
+    return 999
 
 
 def kb_multi_pick_level(mode: str, ok_code: str, current_level: Optional[int]) -> InlineKeyboardMarkup:
@@ -898,11 +1107,6 @@ def kb_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
     )
 
 
-    # якщо не адмін — прибираємо заглушку (щоб не було "порожньої" кнопки)
-    if not is_admin:
-        rows[-1] = [InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings")]
-
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def kb_admin_panel() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -985,17 +1189,8 @@ def kb_pick_ok_multi(
         if c != OK_CODE_LAW:
             all_codes.append(c)
 
-    # ✅ Сортуємо ОК за номером (від 1 до 17)
-    def get_ok_number(code: str) -> int:
-        try:
-            if code.startswith("ОК-"):
-                return int(code.split("-")[1])
-            return 999  # якщо не вдалось витягти номер
-        except:
-            return 999
-
-    # Сортуємо за номером
-    all_codes_sorted = sorted(all_codes, key=get_ok_number)
+    # ✅ Сортуємо ОК за номером (від 1 до 17) — без дубля логіки
+    all_codes_sorted = sorted(all_codes, key=_ok_num)
 
     # Тепер додаємо законодавство першим, потім всі відсортовані ОК
     codes = [OK_CODE_LAW] + all_codes_sorted
@@ -1003,7 +1198,6 @@ def kb_pick_ok_multi(
     # Розділяємо на дві колонки
     # Перша колонка: законодавство + половина ОК
     # Друга колонка: друга половина ОК
-
     half_len = (len(all_codes_sorted) + 1) // 2  # +1 для законодавства
     first_column = codes[:half_len]
     second_column = codes[half_len:]
@@ -1062,6 +1256,7 @@ def kb_pick_ok_multi(
     )
 
     return b.as_markup()
+
 
 @router.callback_query(F.data == "noop")
 async def noop_callback(call: CallbackQuery) -> None:
@@ -2826,50 +3021,12 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, "train")
-        selected_ok = set(selected_ok or [])
-
-        # fallback: якщо є старий single-scope — підхопимо його
-        if not selected_ok and user_has_scope(user):
-            ok_code, _lvl = get_user_scope(user)
-            selected_ok = {ok_code}
-            await db_set_ok_prefs(DB_POOL, tg_id, "train", selected_ok)
-
-        if not selected_ok:
-            await safe_edit(
-                call,
-                "Оберіть <b>модулі</b> (ОК) для навчання:\n"
-                f"Обрано: <b>0</b>",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_pick_ok_multi("train", page=0, selected=set()),
-            )
-        else:
-            # Якщо обрано 1 модуль — лишаємо стару логіку
-            if len(selected_ok) == 1:
-                ok_code = next(iter(selected_ok))
-                lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
-                await db_set_scope(DB_POOL, tg_id, ok_code, lvl)
-                await safe_edit(
-                    call,
-                    f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=kb_train_pick(ok_code, lvl),
-                )
-            else:
-                shown = ", ".join(sorted(selected_ok))
-                available = set(multi_topics_for_ok_set(selected_ok))
-                selected = await db_get_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL)
-                selected = {t for t in selected if t in available}
-                await db_set_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL, selected)
-                await safe_edit(
-                    call,
-                    f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
-                    f"Оберіть теми для тренування:\n"
-                    f"Обрано тем: <b>{len(selected)}</b>",
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=kb_multi_topics("train", selected_ok, page=0, selected=selected),
-                )
-
+        await safe_edit(
+            call,
+            "📚 <b>Навчання</b>\n\nОберіть напрям:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_entry_menu(),
+        )
         await call.answer()
         return
 
