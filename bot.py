@@ -240,6 +240,22 @@ def effective_topics(ok_code: str, level: int) -> List[str]:
 MULTI_OK_CODE = "__MULTI_OK__"
 MULTI_OK_LEVEL = 0
 
+class MultiOkLevelsCb(CallbackData, prefix="mokl"):
+    mode: str
+
+class MultiOkLevelOpenCb(CallbackData, prefix="moko"):
+    mode: str
+    ok_code: str
+
+class MultiOkLevelPickCb(CallbackData, prefix="mokp"):
+    mode: str
+    ok_code: str
+    level: int
+
+class MultiOkLevelsDoneCb(CallbackData, prefix="mokd"):
+    mode: str
+
+
 class MultiTopicsPageCb(CallbackData, prefix="mtp"):
     mode: str
     page: int
@@ -407,40 +423,95 @@ class TrainVariantBackCb(CallbackData, prefix="tback"):
 # -------------------------
 # Клавіатури
 # -------------------------
-ALL_TOPICS = "✅ Всі теми"
 
-def multi_topics_for_ok_set(ok_codes: set[str]) -> list[str]:
-    out: list[str] = []
+def multi_topics_for_ok_set(ok_codes: Set[str], ok_levels: Dict[str, int]) -> List[str]:
+    out: List[str] = []
     ordered = sorted(ok_codes, key=lambda x: (x != OK_CODE_LAW, x))  # LAW першим
     for ok in ordered:
         if ok == OK_CODE_LAW:
-            out.append("📜 Законодавство")
+            law_topics = effective_topics(OK_CODE_LAW, 0)
+            if not law_topics:
+                out.append("📜 Законодавство")
+            else:
+                for t in law_topics:
+                    out.append(f"📜 {t}")
             continue
 
-        for lvl in levels_for_ok(ok):           # 1..3
-            out.append(f"{ok} • L{lvl} • {ALL_TOPICS}")
-            for t in effective_topics(ok, lvl): # теми тільки цього рівня
-                out.append(f"{ok} • L{lvl} • {t}")
+        lvl = ok_levels.get(ok)
+        if lvl is None:
+            continue
+
+        for t in effective_topics(ok, lvl):
+            out.append(f"{ok} • рівень {lvl} • {t}")
     return out
 
-def qids_for_multi_topic_label(label: str) -> list[int]:
-    if label == "📜 Законодавство":
-        return base_qids_for_scope(OK_CODE_LAW, 0)
 
-    parts = label.split(" • ", 2)  # ok, Lx, topic
-    if len(parts) != 3:
-        return []
+def qids_for_multi_topic_label(label: str) -> List[int]:
+    if label.startswith("📜 "):
+        topic = label[2:].strip()
+        if topic == "Законодавство":
+            return base_qids_for_scope(OK_CODE_LAW, 0)
+        return base_qids_for_topic(OK_CODE_LAW, 0, topic)
 
-    ok_code, lvl_part, topic = parts
-    if not lvl_part.startswith("L"):
-        return []
+    parts = label.split(" • ")
+    if len(parts) == 3 and parts[1].startswith("рівень "):
+        ok_code = parts[0].strip()
+        try:
+            lvl = int(parts[1].replace("рівень", "").strip())
+        except Exception:
+            return []
+        topic = parts[2].strip()
+        return base_qids_for_topic(ok_code, lvl, topic)
 
-    lvl = int(lvl_part[1:])  # "L2" -> 2
+    if len(parts) == 2:
+        ok_code, topic = parts[0].strip(), parts[1].strip()
+        return base_qids_for_topic(ok_code, LEVEL_ALL, topic)
 
-    if topic == ALL_TOPICS:
-        return base_qids_for_scope(ok_code, lvl)
+    return []
 
-    return base_qids_for_topic(ok_code, lvl, topic)
+def _missing_multi_levels(ok_codes: Set[str], ok_levels: Dict[str, int]) -> List[str]:
+    return [ok for ok in ok_codes if ok != OK_CODE_LAW and ok_levels.get(ok) is None]
+
+def kb_multi_levels_overview(mode: str, ok_codes: Set[str], ok_levels: Dict[str, int]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    ordered = sorted(ok_codes, key=lambda x: (x != OK_CODE_LAW, x))
+
+    for ok in ordered:
+        if ok == OK_CODE_LAW:
+            b.row(InlineKeyboardButton(text="📜 Законодавство (за законами)", callback_data="noop"))
+            continue
+
+        lvl = ok_levels.get(ok)
+        txt = f"🎚 {ok}: рівень {lvl}" if lvl is not None else f"🎚 {ok}: оберіть рівень"
+        b.row(InlineKeyboardButton(text=txt, callback_data=MultiOkLevelOpenCb(mode=mode, ok_code=ok).pack()))
+
+    b.row(
+        InlineKeyboardButton(text="🔁 Модулі", callback_data=OkMultiPageCb(mode=mode, page=0).pack()),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
+
+    if mode == "train":
+        b.row(InlineKeyboardButton(text="📚 Далі: теми", callback_data=MultiOkLevelsDoneCb(mode=mode).pack()))
+    else:
+        b.row(InlineKeyboardButton(text="✅ Почати екзамен", callback_data=StartMultiOkCb(mode=mode).pack()))
+
+    return b.as_markup()
+
+
+def kb_multi_pick_level(mode: str, ok_code: str, current_level: Optional[int]) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for lvl in levels_for_ok(ok_code):
+        mark = "✅" if current_level == lvl else "▫️"
+        b.button(
+            text=f"{mark} Рівень {lvl}",
+            callback_data=MultiOkLevelPickCb(mode=mode, ok_code=ok_code, level=int(lvl)).pack(),
+        )
+    b.adjust(1)
+    b.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=MultiOkLevelsCb(mode=mode).pack()),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
+    return b.as_markup()
 
 
 def kb_multi_topics(
@@ -793,7 +864,7 @@ def kb_main_menu(is_admin: bool = False) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="ℹ️ Доступ", callback_data="mm:access"),
             ],
             [
-                InlineKeyboardButton(text="⚙️ Налаштування", callback_data="mm:settings"),
+
                 InlineKeyboardButton(
                     text=("🛠 Адмін" if is_admin else "🏠 Меню"),
                     callback_data=("mm:admin" if is_admin else "menu"),
@@ -1235,6 +1306,15 @@ CREATE TABLE IF NOT EXISTS ok_prefs (
   updated_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (tg_id, mode)
 );
+
+CREATE TABLE IF NOT EXISTS ok_level_prefs (
+  tg_id BIGINT NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
+  mode TEXT NOT NULL,
+  ok_levels JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (tg_id, mode)
+);
+
 
 """
 
@@ -1803,6 +1883,45 @@ async def db_clear_ok_prefs(pool: asyncpg.Pool, tg_id: int, mode: str) -> None:
     async with pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM ok_prefs WHERE tg_id=$1 AND mode=$2",
+            tg_id, mode
+        )
+
+async def db_get_ok_level_prefs(pool: asyncpg.Pool, tg_id: int, mode: str) -> Dict[str, int]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ok_levels FROM ok_level_prefs WHERE tg_id=$1 AND mode=$2",
+            tg_id, mode
+        )
+        if not row:
+            return {}
+        try:
+            payload = row["ok_levels"] or {}
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            out: Dict[str, int] = {}
+            for k, v in (payload or {}).items():
+                try:
+                    out[str(k)] = int(v)
+                except Exception:
+                    continue
+            return out
+        except Exception:
+            return {}
+
+async def db_set_ok_level_prefs(pool: asyncpg.Pool, tg_id: int, mode: str, ok_levels: Dict[str, int]) -> None:
+    now = utcnow()
+    payload = json.dumps({str(k): int(v) for k, v in (ok_levels or {}).items()})
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO ok_level_prefs(tg_id, mode, ok_levels, updated_at) VALUES($1, $2, $3::jsonb, $4) "
+            "ON CONFLICT (tg_id, mode) DO UPDATE SET ok_levels=EXCLUDED.ok_levels, updated_at=EXCLUDED.updated_at",
+            tg_id, mode, payload, now
+        )
+
+async def db_clear_ok_level_prefs(pool: asyncpg.Pool, tg_id: int, mode: str) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM ok_level_prefs WHERE tg_id=$1 AND mode=$2",
             tg_id, mode
         )
 
