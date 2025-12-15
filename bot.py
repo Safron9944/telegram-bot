@@ -454,13 +454,10 @@ def kb_multi_topics(
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
     b.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=OkMultiPageCb(mode=mode, page=0).pack()),
-        InlineKeyboardButton(text="🎯 Всі теми", callback_data=MultiTopicAllCb(mode=mode).pack()),
         InlineKeyboardButton(text=start_label, callback_data=MultiTopicDoneCb(mode=mode).pack()),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     )
     b.row(
-        InlineKeyboardButton(text="🧹 Очистити", callback_data=MultiTopicClearCb(mode=mode, page=page).pack()),
         InlineKeyboardButton(text="🔁 Змінити модулі", callback_data=OkMultiPageCb(mode=mode, page=0).pack()),
     )
 
@@ -914,10 +911,6 @@ def kb_train_pick_multi(mode: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
     if mode == "train":
-        b.button(
-            text="✅ Всі теми (по всіх модулях)",
-            callback_data=StartMultiOkCb(mode=mode).pack(),
-        )
         b.button(
             text="📚 Обрати теми",
             callback_data=MultiTopicsPageCb(mode=mode, page=0).pack(),
@@ -2550,15 +2543,31 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 reply_markup=kb_pick_ok_multi("train", page=0, selected=set()),
             )
         else:
-            shown = ", ".join(sorted(selected_ok))
-            await safe_edit(
-                call,
-                "📚 <b>Навчання</b>\n\n"
-                f"Обрані модулі: <b>{html_escape(shown)}</b>\n\n"
-                "Оберіть варіант:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=kb_train_pick_multi("train"),
-            )
+            # Якщо обрано 1 модуль — лишаємо стару логіку
+            if len(selected_ok) == 1:
+                ok_code = next(iter(selected_ok))
+                lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+                await db_set_scope(DB_POOL, tg_id, ok_code, lvl)
+                await safe_edit(
+                    call,
+                    f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb_train_pick(ok_code, lvl),
+                )
+            else:
+                shown = ", ".join(sorted(selected_ok))
+                available = set(multi_topics_for_ok_set(selected_ok))
+                selected = await db_get_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL)
+                selected = {t for t in selected if t in available}
+                await db_set_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL, selected)
+                await safe_edit(
+                    call,
+                    f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
+                    f"Оберіть теми для тренування:\n"
+                    f"Обрано тем: <b>{len(selected)}</b>",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=kb_multi_topics("train", selected_ok, page=0, selected=selected),
+                )
 
         await call.answer()
         return
