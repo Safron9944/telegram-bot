@@ -2354,57 +2354,122 @@ async def pick_ok_from_anywhere(call: CallbackQuery) -> None:
     await call.answer()
 
 
-@router.message(F.text.in_({"📚 Навчання", "📝 Екзамен", "📊 Статистика", "ℹ️ Доступ", "⚙️ Налаштування"}))
-async def menu_actions(message: Message) -> None:
+@router.callback_query(F.data.startswith("mm:"))
+async def menu_actions_inline(call: CallbackQuery) -> None:
     if not DB_POOL:
         return
 
-    tg_id = message.from_user.id
+    tg_id = call.from_user.id
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
 
+    # Не зареєстрований
     if not user or not user["phone"]:
-        await message.answer(
+        await call.message.answer(
             "Спочатку зареєструйтесь (поділіться номером).",
             reply_markup=kb_request_contact(),
         )
+        await call.answer()
         return
 
-    text = (message.text or "").strip()
+    _, action = call.data.split(":", 1)
 
-    if text == "⚙️ Налаштування":
+    # SETTINGS
+    if action == "settings":
         if user_has_scope(user):
             ok_code, lvl = get_user_scope(user)
-            await message.answer(
+            out = (
                 f"⚙️ Ваш поточний набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
-                "Натисніть нижче, щоб змінити:",
-                parse_mode=ParseMode.HTML,
-                reply_markup=ReplyKeyboardRemove(),
+                "Натисніть нижче, щоб змінити:"
             )
         else:
-            await message.answer(
-                "⚙️ Потрібно налаштувати ОК:",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-        await message.answer("ОК:", reply_markup=kb_pick_ok(page=0))
+            out = "⚙️ Потрібно налаштувати ОК:"
+        await safe_edit(call, out, parse_mode=ParseMode.HTML, reply_markup=kb_pick_ok(page=0))
+        await call.answer()
         return
 
-    # для навчання/екзамену потрібен доступ, а scope потрібен тільки для екзамену (у твоїй логіці лишаємо як було)
-    if text in ("📚 Навчання", "📝 Екзамен"):
-        if text == "📝 Екзамен" and not user_has_scope(user):
-            await ensure_profile(message, user)
-            return
-
-        if not await db_has_access(user):
-            await message.answer(
-                "⛔️ Доступ завершився.\n"
-                "Підписку додамо далі. Напишіть адміну для доступу.",
+    # STATS
+    if action == "stats":
+        rows = await db_stats_get(DB_POOL, tg_id)
+        if not rows:
+            await safe_edit(
+                call,
+                "Статистики поки нема.",
                 reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
             )
+            await call.answer()
             return
 
-    # 📚 TRAIN: показуємо вибрані модулі + варіанти, або вибір модулів
-    if text == "📚 Навчання":
+        out = "<b>📊 Ваша статистика</b>\n\n"
+        for r in rows:
+            out += (
+                f"<b>{'Навчання' if r['mode'] == 'train' else 'Екзамен'}</b>\n"
+                f"Відповіли: {r['answered']}\n"
+                f"✅ Правильно: {r['correct']}\n"
+                f"❌ Невірно: {r['wrong']}\n"
+            )
+            if r["mode"] == "train":
+                out += f"⏭ Пропущено: {r['skipped']}\n"
+            out += "\n"
+
+        await safe_edit(
+            call,
+            out,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        )
+        await call.answer()
+        return
+
+    # ACCESS
+    if action == "access":
+        now = utcnow()
+        tu = user["trial_until"]
+        su = user["sub_until"]
+        has = await db_has_access(user)
+
+        out = "<b>ℹ️ Доступ</b>\n\n"
+        out += f"Статус: {'✅ активний' if has else '⛔️ неактивний'}\n"
+        if tu:
+            out += f"Тріал до: <b>{tu.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n"
+        if su:
+            out += f"Підписка до: <b>{su.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n"
+        if user_has_scope(user):
+            ok_code, lvl = get_user_scope(user)
+            out += f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+        else:
+            out += "Набір: <i>не вибрано</i>\n"
+        out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
+
+        await safe_edit(
+            call,
+            out,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        )
+        await call.answer()
+        return
+
+    # ADMIN
+    if action == "admin":
+        if not user.get("is_admin"):
+            await call.answer("Тільки для адміна", show_alert=True)
+            return
+        await safe_edit(call, "🛠 Адмін-панель", reply_markup=kb_admin_panel())
+        await call.answer()
+        return
+
+    # TRAIN
+    if action == "train":
+        if not await db_has_access(user):
+            await safe_edit(
+                call,
+                "⛔️ Доступ завершився.\nНапишіть адміну для доступу.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
+            await call.answer()
+            return
+
         selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, "train")
         selected_ok = set(selected_ok or [])
 
@@ -2415,30 +2480,42 @@ async def menu_actions(message: Message) -> None:
             await db_set_ok_prefs(DB_POOL, tg_id, "train", selected_ok)
 
         if not selected_ok:
-            await message.answer(
+            await safe_edit(
+                call,
                 "Оберіть <b>модулі</b> (ОК) для навчання:\n"
-                "Обрано: <b>0</b>",
+                f"Обрано: <b>0</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb_pick_ok_multi("train", page=0, selected=set()),
             )
-            return
+        else:
+            shown = ", ".join(sorted(selected_ok))
+            await safe_edit(
+                call,
+                "📚 <b>Навчання</b>\n\n"
+                f"Обрані модулі: <b>{html_escape(shown)}</b>\n\n"
+                "Оберіть варіант:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_train_pick_multi("train"),
+            )
 
-        shown = ", ".join(sorted(selected_ok))
-        await message.answer(
-            f"📚 <b>Навчання</b>\n\n"
-            f"Обрані модулі: <b>{html_escape(shown)}</b>\n\n"
-            "Оберіть варіант:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_train_pick_multi("train"),
-        )
+        await call.answer()
         return
 
-    # 📝 EXAM: показуємо вибрані модулі + варіанти, або вибір модулів
-    if text == "📝 Екзамен":
+    # EXAM
+    if action == "exam":
+        if not await db_has_access(user):
+            await safe_edit(
+                call,
+                "⛔️ Доступ завершився.\nНапишіть адміну для доступу.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
+            await call.answer()
+            return
+
         selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, "exam")
         selected_ok = set(selected_ok or [])
 
-        # fallback: якщо для екзамену немає, беремо з train
+        # fallback: якщо для екзамену немає, беремо з тренування
         if not selected_ok:
             train_ok = await db_get_ok_prefs(DB_POOL, tg_id, "train")
             train_ok = set(train_ok or [])
@@ -2447,78 +2524,29 @@ async def menu_actions(message: Message) -> None:
                 await db_set_ok_prefs(DB_POOL, tg_id, "exam", selected_ok)
 
         if not selected_ok:
-            await message.answer(
+            await safe_edit(
+                call,
                 "Оберіть <b>модулі</b> (ОК) для екзамену:\n"
-                "Обрано: <b>0</b>",
+                f"Обрано: <b>0</b>",
                 parse_mode=ParseMode.HTML,
                 reply_markup=kb_pick_ok_multi("exam", page=0, selected=set()),
             )
-            return
-
-        shown = ", ".join(sorted(selected_ok))
-        await message.answer(
-            f"📝 <b>Екзамен</b>\n\n"
-            f"Обрані модулі: <b>{html_escape(shown)}</b>\n\n"
-            "Оберіть варіант:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_train_pick_multi("exam"),
-        )
-        return
-
-    if text == "📊 Статистика":
-        rows = await db_stats_get(DB_POOL, tg_id)
-        if not rows:
-            await message.answer(
-                "Поки що статистики немає.",
-                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
-            )
-            return
-
-        out = "<b>📊 Ваша статистика</b>\n\n"
-        for r in rows:
-            out += (
-                f"<b>{'Навчання' if r['mode']=='train' else 'Екзамен'}</b>\n"
-                f"Відповіли: {r['answered']}\n"
-                f"✅ Правильно: {r['correct']}\n"
-                f"❌ Невірно: {r['wrong']}\n"
-            )
-            if r["mode"] == "train":
-                out += f"⏭ Пропущено: {r['skipped']}\n"
-            out += "\n"
-
-        await message.answer(
-            out,
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
-        )
-        return
-
-    if text == "ℹ️ Доступ":
-        now = utcnow()
-        tu = user["trial_until"]
-        su = user["sub_until"]
-        has = await db_has_access(user)
-
-        out = "<b>ℹ️ Доступ</b>\n\n"
-        out += f"Статус: {'✅ активний' if has else '⛔️ неактивний'}\n"
-        if tu:
-            out += f"Trial до: <b>{tu.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n"
-        if su:
-            out += f"Підписка до: <b>{su.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n"
-        if user_has_scope(user):
-            ok_code, lvl = get_user_scope(user)
-            out += f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
         else:
-            out += "Набір: <i>не вибрано</i>\n"
-        out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
+            shown = ", ".join(sorted(selected_ok))
+            await safe_edit(
+                call,
+                "📝 <b>Екзамен</b>\n\n"
+                f"Обрані модулі: <b>{html_escape(shown)}</b>\n\n"
+                "Оберіть варіант:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_train_pick_multi("exam"),
+            )
 
-        await message.answer(
-            out,
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
-        )
+        await call.answer()
         return
 
+    await safe_edit(call, "🏠 Меню", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+    await call.answer()
 
 
 
