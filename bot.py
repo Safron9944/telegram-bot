@@ -31,6 +31,47 @@ except Exception:
     # Fallback for environments without tzdata
     TZ = timezone.utc
 
+def normalize_tme_url(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if s.startswith(("http://", "https://", "tg://")):
+        return s
+    if s.startswith("t.me/"):
+        return "https://" + s
+    if s.startswith("@"):
+        return "https://t.me/" + s.lstrip("@")
+    return s
+
+
+# Links (can be overridden via env vars)
+GROUP_URL = normalize_tme_url(os.getenv("GROUP_URL", "t.me/mytnytsia_tests"))
+
+
+def get_admin_contact_url(admin_ids: set[int]) -> str:
+    """URL for 'contact admin' button.
+
+    Priority:
+    1) ADMIN_CONTACT_URL (full URL, 't.me/...', or '@username')
+    2) ADMIN_USERNAME (username only or '@username')
+    3) fallback to tg://user?id=<admin_id> (works in most Telegram clients)
+    """
+    url = normalize_tme_url(os.getenv("ADMIN_CONTACT_URL", ""))
+    if url:
+        return url
+
+    username = (os.getenv("ADMIN_USERNAME", "") or "").strip().lstrip("@")
+    if username:
+        return f"https://t.me/{username}"
+
+    if admin_ids:
+        # Telegram deep link by numeric user id (client-side)
+        admin_id = next(iter(admin_ids))
+        return f"tg://user?id={admin_id}"
+
+    return ""
+
+
 
 def now() -> datetime:
     return datetime.now(TZ)
@@ -481,23 +522,38 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
     return text, kb
 
 
-def screen_help() -> Tuple[str, InlineKeyboardMarkup]:
+def screen_help(admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "❓ <b>Допомога</b>\n\n"
-        "Тимчасово заглушка."
+        "Тут ви можете:\n"
+        "▪ приєднатися до Telegram-групи\n"
+        "▪ звернутися до адміністратора для продовження підписки"
     )
-    kb = kb_inline([("⬅️ Меню", "nav:menu")], row=1)
-    return text, kb
+
+    b = InlineKeyboardBuilder()
+    if GROUP_URL:
+        b.button(text="🔗 Telegram-група", url=GROUP_URL)
+    if admin_url:
+        b.button(text="📩 Написати адміну", url=admin_url)
+    b.button(text="⬅️ Меню", callback_data="nav:menu")
+    b.adjust(1)
+    return text, b.as_markup()
 
 
-def screen_no_access(user: Dict[str, Any]) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
-        "⛔️ <b>Доступ обмежено</b>\n"
+        "⛔️ <b>Підписка неактивна</b>\n"
         f"{fmt_access_line(user)}\n\n"
-        "Навчання та тестування недоступні."
+        "Термін дії підписки завершився.\n"
+        "Для продовження вам надано доступ лише для звернення до адміністратора."
     )
-    kb = kb_inline([("⬅️ Меню", "nav:menu")], row=1)
-    return text, kb
+
+    b = InlineKeyboardBuilder()
+    if admin_url:
+        b.button(text="📩 Написати адміну", url=admin_url)
+    b.button(text="⬅️ Меню", callback_data="nav:menu")
+    b.adjust(1)
+    return text, b.as_markup()
 
 
 def screen_learning_menu() -> Tuple[str, InlineKeyboardMarkup]:
@@ -752,19 +808,21 @@ async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
 
 
 @router.callback_query(F.data == "nav:help")
-async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage):
-    text, kb = screen_help()
+async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+    admin_url = get_admin_contact_url(admin_ids)
+    text, kb = screen_help(admin_url)
     await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
 
 @router.callback_query(F.data == "nav:learn")
-async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
     ok_access, _ = access_status(user)
     if not ok_access:
-        text, kb = screen_no_access(user)
+        admin_url = get_admin_contact_url(admin_ids)
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
@@ -1098,12 +1156,13 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
 
 
 @router.callback_query(F.data.startswith("learn_start:"))
-async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
     ok_access, _ = access_status(user)
     if not ok_access:
-        text, kb = screen_no_access(user)
+        admin_url = get_admin_contact_url(admin_ids)
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
@@ -1313,12 +1372,13 @@ async def leave_yes(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[
 # -------- Mistakes --------
 
 @router.callback_query(F.data == "learn:mistakes")
-async def learn_mistakes(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def learn_mistakes(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
     ok_access, _ = access_status(user)
     if not ok_access:
-        text, kb = screen_no_access(user)
+        admin_url = get_admin_contact_url(admin_ids)
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
@@ -1352,12 +1412,13 @@ async def learn_mistakes(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
 # -------- Testing --------
 
 @router.callback_query(F.data == "nav:test")
-async def nav_test(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def nav_test(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
     ok_access, _ = access_status(user)
     if not ok_access:
-        text, kb = screen_no_access(user)
+        admin_url = get_admin_contact_url(admin_ids)
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
