@@ -1231,8 +1231,14 @@ def build_position_exam_qids(position_name: str, topics: Optional[Set[str]] = No
     random.shuffle(exam_qids)
     return exam_qids
 
-
-async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.Record, qids: List[int]) -> None:
+async def start_exam_session(
+    bot: Bot,
+    tg_id: int,
+    chat_id: int,
+    user: asyncpg.Record,
+    qids: List[int],
+    edit_message: Optional[Message] = None,  # ✅ Додано параметр
+) -> None:
     qids = list(dict.fromkeys(qids))
     if not qids:
         await bot.send_message(chat_id, "Немає доступних питань для екзамену.")
@@ -1241,8 +1247,10 @@ async def start_exam_session(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.R
     expires = utcnow() + timedelta(minutes=EXAM_DURATION_MINUTES)
     await db_create_session(DB_POOL, tg_id, "exam", qids, expires_at=expires)
 
-    # ✅ одразу питання, без стартового повідомлення
-    await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
+    # ✅ Виклик питання з можливістю редагування повідомлення
+    await send_current_question(
+        bot, DB_POOL, chat_id, tg_id, "exam", edit_message=edit_message
+    )
 
 
 def kb_position_start(mode: str, position: str, back_to: str = "auto") -> InlineKeyboardMarkup:
@@ -2442,8 +2450,15 @@ async def menu_actions(message: Message) -> None:
 # -------------------------
 # Старт навчання/екзамену + вибір блоку
 # -------------------------
-
-async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: asyncpg.Record, mode: str, pool_qids: List[int]) -> None:
+async def start_session_for_pool(
+    bot: Bot,
+    tg_id: int,
+    chat_id: int,
+    user: asyncpg.Record,
+    mode: str,
+    pool_qids: List[int],
+    edit_message: Optional[Message] = None,  # ✅ Додано параметр
+) -> None:
     if mode == "train":
         if not pool_qids:
             await bot.send_message(chat_id, "Немає доступних питань для навчання.")
@@ -2453,7 +2468,11 @@ async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: async
         random.shuffle(qids)
 
         await db_create_session(DB_POOL, tg_id, "train", qids, expires_at=None)
-        await send_current_question(bot, DB_POOL, chat_id, tg_id, "train")
+
+        # ✅ Додано edit_message
+        await send_current_question(
+            bot, DB_POOL, chat_id, tg_id, "train", edit_message=edit_message
+        )
         return
 
     if mode == "exam":
@@ -2471,7 +2490,10 @@ async def start_session_for_pool(bot: Bot, tg_id: int, chat_id: int, user: async
         expires = utcnow() + timedelta(minutes=EXAM_DURATION_MINUTES)
         await db_create_session(DB_POOL, tg_id, "exam", qids, expires_at=expires)
 
-        await send_current_question(bot, DB_POOL, chat_id, tg_id, "exam")
+        # ✅ Додано edit_message
+        await send_current_question(
+            bot, DB_POOL, chat_id, tg_id, "exam", edit_message=edit_message
+        )
         return
 
 
@@ -2656,20 +2678,42 @@ async def topic_all(call: CallbackQuery, callback_data: TopicAllCb) -> None:
 
     await call.answer()
 
-    # ✅ прибрати кнопки вибору без "Стартуємо..."
+    # ✅ Прибрати старі кнопки (щоб не залишалися після натискання)
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    await start_session_for_pool(
-        call.bot,
-        tg_id,
-        call.message.chat.id,
-        user,
-        mode,
-        pool_qids,
-    )
+    if mode == "train":
+        await start_session_for_pool(
+            call.bot,
+            tg_id,
+            call.message.chat.id,
+            user,
+            "train",
+            pool_qids,
+            edit_message=call.message  # ✅ передано edit_message
+        )
+    elif mode == "exam":
+        if len(pool_qids) < EXAM_QUESTIONS:
+            await call.message.answer(
+                f"Для цього набору доступно лише <b>{len(pool_qids)}</b> питань.\n"
+                f"Екзамен потребує <b>{EXAM_QUESTIONS}</b>.\n"
+                "Оберіть інший блок/рівень або додайте питання.",
+                parse_mode=ParseMode.HTML
+            )
+            return
+
+        exam_qids = random.sample(pool_qids, EXAM_QUESTIONS)
+        await start_exam_session(
+            call.bot,
+            tg_id,
+            call.message.chat.id,
+            user,
+            exam_qids,
+            edit_message=call.message  # ✅ передано edit_message
+        )
+
 
 
 # Назад до екрану старту (Навчання/Екзамен) з inline-вибору тем
@@ -2770,7 +2814,11 @@ async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
     except Exception:
         pass
 
-    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+    await start_session_for_pool(
+        call.bot, tg_id, call.message.chat.id, user, mode, pool_qids,
+        edit_message=call.message,
+    )
+
 
 @router.callback_query(StartScopeCb.filter())
 async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
@@ -2812,7 +2860,9 @@ async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
         user,
         mode,
         pool_qids,
+        edit_message=call.message,
     )
+
 
 # -------------------------
 # Навчання/екзамен: відповіді
