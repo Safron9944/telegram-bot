@@ -535,11 +535,12 @@ def screen_law_groups(qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
 def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     qids = qb.law_groups.get(group_key, [])
     total = len(qids)
-    title = clean_law_title(qb.law_group_title(group_key))
+    # Видалити показ пункту
+    # title = clean_law_title(qb.law_group_title(group_key))
 
     if total <= 50:
-        # start directly
-        text = f"Пункт {group_key}: {title}\n\nПитань: {total}\nПочати?"
+        # Видалити показ пункту
+        text = f"📜 <b>Законодавство</b>\n\nПитань: {total}\nПочати?"
         kb = kb_inline([
             ("▶️ Почати", f"learn_start:law:{group_key}:1"),
             ("⬅️ Назад", "learn:law"),
@@ -556,7 +557,7 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
         parts.append((p, a, b))
         p += 1
 
-    text = f"Пункт {group_key}: {title}\n\nОберіть частину:"
+    text = f"📜 <b>Законодавство</b>\n\nОберіть частину:"
     buttons = []
     for p, a, b in parts:
         buttons.append((f"{a}–{b}", f"learn_start:law:{group_key}:{p}"))
@@ -623,10 +624,10 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
         lines.append(progress)
 
     lines += [
-        "━━━━━━━━━━━━━━━━",
         "❓ <b>Питання</b>",
         question,
         "",
+        "━━━━━━━━━━━━━━━━",
         "📝 <b>Варіанти відповіді</b>",
     ]
 
@@ -639,7 +640,7 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
 def kb_answers(n: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
 
-    # Варіанти відповіді — 1 кнопка в ряд
+    # Варіанти відповіді — по 4 в рядку
     for i in range(n):
         b.button(text=str(i + 1), callback_data=clamp_callback(f"ans:{i}"))
 
@@ -647,8 +648,15 @@ def kb_answers(n: int) -> InlineKeyboardMarkup:
     b.button(text="⏭ Пропустити", callback_data="skip")
     b.button(text="⏹ Вийти", callback_data="leave:confirm")
 
-    # Розкладка: n рядків по 1 кнопці + останній ряд на 2 кнопки
-    b.adjust(*([1] * n + [2]))
+    # Розкладка: варіанти по 4 в рядку, потім рядок з двома кнопками
+    full_rows = n // 4
+    remainder = n % 4
+    adjust_list = [4] * full_rows
+    if remainder:
+        adjust_list.append(remainder)
+    adjust_list.append(2)  # для "Пропустити" та "Вийти"
+
+    b.adjust(*adjust_list)
 
     return b.as_markup()
 
