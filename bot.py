@@ -2287,11 +2287,16 @@ def kb_topics(
 # -------------------------
 # База даних
 # -------------------------
+# -------------------------
+# База даних
+# -------------------------
 
 DDL_CREATE = """
 CREATE TABLE IF NOT EXISTS users (
   tg_id BIGINT PRIMARY KEY,
   phone TEXT,
+  first_name TEXT,
+  last_name TEXT,
   created_at TIMESTAMPTZ NOT NULL,
   trial_until TIMESTAMPTZ,
   sub_until TIMESTAMPTZ,
@@ -2368,8 +2373,9 @@ DDL_MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS ok_level INT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS train_mode TEXT",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS position TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT",
 ]
-
 
 async def db_init(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
@@ -2414,7 +2420,6 @@ async def db_upsert_user(pool: asyncpg.Pool, tg_id: int, phone: Optional[str],
                 tg_id, phone, first_name, last_name, is_admin, now
             )
         return await conn.fetchrow("SELECT * FROM users WHERE tg_id=$1", tg_id)
-
 async def db_set_position(pool: asyncpg.Pool, tg_id: int, position: Optional[str]) -> asyncpg.Record:
     async with pool.acquire() as conn:
         await conn.execute(
@@ -3366,8 +3371,10 @@ async def on_contact(message: Message) -> None:
         return
 
     phone = c.phone_number
+    first_name = c.first_name
+    last_name = c.last_name
     is_admin = tg_id in ADMIN_IDS
-    user = await db_upsert_user(DB_POOL, tg_id, phone, is_admin)
+    user = await db_upsert_user(DB_POOL, tg_id, phone, first_name, last_name, is_admin)
 
     # прибираємо reply-клавіатуру (кнопку контакту)
     tmp = await message.answer("✅", reply_markup=ReplyKeyboardRemove())
@@ -3383,7 +3390,6 @@ async def on_contact(message: Message) -> None:
         pass
 
     await show_main_menu(message, is_admin=bool(user["is_admin"]))
-
 
 @router.callback_query(OkPageCb.filter())
 async def ok_page(call: CallbackQuery, callback_data: OkPageCb) -> None:
