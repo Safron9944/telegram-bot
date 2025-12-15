@@ -157,7 +157,11 @@ def is_question_valid(q: Dict[str, Any]) -> bool:
 def scope_title(ok_code: str, level: int | None = None) -> str:
     if ok_code == OK_CODE_LAW:
         return "📜 Законодавство"
-    return ok_code if level is None else f"{ok_code} • рівень {level}"
+    if level is None:
+        return ok_code
+    if int(level) == LEVEL_ALL:
+        return f"{ok_code} • всі рівні"
+    return f"{ok_code} • рівень {int(level)}"
 
 def truncate_button(text: str, max_len: int = 44) -> str:
     t = (text or "").strip()
@@ -1430,11 +1434,16 @@ def user_has_scope(user: asyncpg.Record) -> bool:
 
 def get_user_scope(user: asyncpg.Record) -> tuple[str, int]:
     ok_code = str(user["ok_code"])
+    # для LAW рівень завжди 0
+    if ok_code == OK_CODE_LAW:
+        return ok_code, 0
+
     lvl = user["ok_level"]
-    # якщо рівень більше “не має значення”, тримаємо 0 як дефолт
+    # якщо рівень не вказаний — трактуємо як «всі рівні»
     if lvl is None:
-        lvl = 0
+        lvl = LEVEL_ALL
     return ok_code, int(lvl)
+
 
 async def ensure_profile(message: Message, user: asyncpg.Record, next_mode: str | None = None) -> bool:
     if user_has_scope(user):
@@ -1667,24 +1676,26 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     user = await db_get_user(DB_POOL, tg_id)
 
     if not user or not user["phone"]:
-        # reply keyboard (контакт) не редагується через edit_text — тут OK робити answer
         await call.message.answer("Спочатку зареєструйтесь.", reply_markup=kb_request_contact())
         await call.answer()
         return
 
     ok_code = str(callback_data.ok_code)
 
-    # рівень більше не має значення
-    user = await db_set_scope(DB_POOL, tg_id, ok_code, None)
+    # якщо рівень не обираємо — беремо «всі рівні» (для LAW завжди 0)
+    lvl_to_store = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+
+    # зберігаємо напрям + рівень
+    user = await db_set_scope(DB_POOL, tg_id, ok_code, lvl_to_store)
 
     next_mode = PENDING_AFTER_OK.pop(tg_id, None)
 
     if next_mode == "train":
         await safe_edit(
             call,
-            f"Навчання для: <b>{html_escape(scope_title(ok_code))}</b>\nОберіть варіант:",
+            f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl_to_store))}</b>\nОберіть варіант:",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_train_pick(ok_code, 0),
+            reply_markup=kb_train_pick(ok_code, lvl_to_store),
         )
         await call.answer()
         return
@@ -1692,17 +1703,16 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     if next_mode == "exam":
         await safe_edit(
             call,
-            f"Екзамен для: <b>{html_escape(scope_title(ok_code))}</b>\nОберіть варіант:",
+            f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl_to_store))}</b>\nОберіть варіант:",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_exam_pick(ok_code, 0),
+            reply_markup=kb_exam_pick(ok_code, lvl_to_store),
         )
         await call.answer()
         return
 
-    # дефолт: підтвердження + меню (в тому ж повідомленні)
     await safe_edit(
         call,
-        f"✅ Встановлено: <b>{html_escape(scope_title(ok_code))}</b>",
+        f"✅ Встановлено: <b>{html_escape(scope_title(ok_code, lvl_to_store))}</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
     )
