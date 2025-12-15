@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from html import escape as hescape
 from aiogram.client.default import DefaultBotProperties
 
 from aiogram import Bot, Dispatcher, Router, F
@@ -395,6 +396,21 @@ def fmt_access_line(user: Dict[str, Any]) -> str:
     return "Статус: 🔴 доступ завершився"
 
 
+def clean_law_title(title: str) -> str:
+    """Remove boilerplate from law group titles (UI only)."""
+    t = (title or "").strip()
+    prefixes = [
+        "Питання на перевірку знання ",
+        "Питання на перевірку знань ",
+        "Питання на перевірку знання",
+        "Питання на перевірку знань",
+    ]
+    for p in prefixes:
+        if t.startswith(p):
+            t = t[len(p):].strip()
+    return t
+
+
 async def render_main(
     bot: Bot,
     store: Storage,
@@ -507,7 +523,7 @@ def screen_law_groups(qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     shown = keys[:4]
     buttons = []
     for k in shown:
-        title = qb.law_group_title(k)
+        title = clean_law_title(qb.law_group_title(k))
         buttons.append((f"{k}. {title}" if k.isdigit() else title, f"lawgrp:{k}"))
 
     text = "📜 <b>Законодавство</b>\n\nОберіть пункт:"
@@ -519,9 +535,11 @@ def screen_law_groups(qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
 def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     qids = qb.law_groups.get(group_key, [])
     total = len(qids)
+    title = clean_law_title(qb.law_group_title(group_key))
+
     if total <= 50:
         # start directly
-        text = f"Пункт {group_key}: {qb.law_group_title(group_key)}\n\nПитань: {total}\nПочати?"
+        text = f"Пункт {group_key}: {title}\n\nПитань: {total}\nПочати?"
         kb = kb_inline([
             ("▶️ Почати", f"learn_start:law:{group_key}:1"),
             ("⬅️ Назад", "learn:law"),
@@ -538,7 +556,7 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
         parts.append((p, a, b))
         p += 1
 
-    text = f"Пункт {group_key}: {qb.law_group_title(group_key)}\n\nОберіть частину:"
+    text = f"Пункт {group_key}: {title}\n\nОберіть частину:"
     buttons = []
     for p, a, b in parts:
         buttons.append((f"{a}–{b}", f"learn_start:law:{group_key}:{p}"))
@@ -595,27 +613,45 @@ def screen_ok_levels(module: str, qb: QuestionBank) -> Tuple[str, InlineKeyboard
 # -------------------- Session rendering --------------------
 
 def build_question_text(q: Q, header: str, progress: str) -> str:
-    lines = [
-        header,
-        progress,
+    question = hescape(q.question or "")
+    choices = [hescape(ch or "") for ch in (q.choices or [])]
+
+    lines: List[str] = []
+    if header:
+        lines.append(header)
+    if progress:
+        lines.append(progress)
+
+    lines += [
+        "━━━━━━━━━━━━━━━━",
+        "❓ <b>Питання</b>",
+        question,
         "",
-        f"<b>{q.question}</b>",
-        "",
+        "📝 <b>Варіанти відповіді</b>",
     ]
-    for i, ch in enumerate(q.choices):
-        lines.append(f"{i+1}) {ch}")
+
+    for i, ch in enumerate(choices):
+        lines.append(f"<b>{i+1})</b> {ch}")
+
     return "\n".join(lines)
 
 
 def kb_answers(n: int) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+
+    # Варіанти відповіді — 1 кнопка в ряд
     for i in range(n):
         b.button(text=str(i + 1), callback_data=clamp_callback(f"ans:{i}"))
-    b.adjust(4)
-    b.row()
+
+    # Нижній ряд: Пропустити + Вийти
     b.button(text="⏭ Пропустити", callback_data="skip")
     b.button(text="⏹ Вийти", callback_data="leave:confirm")
+
+    # Розкладка: n рядків по 1 кнопці + останній ряд на 2 кнопки
+    b.adjust(*([1] * n + [2]))
+
     return b.as_markup()
+
 
 
 def kb_feedback() -> InlineKeyboardMarkup:
@@ -989,7 +1025,7 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
     total = int(st.get("total", 0)) or (len(pending) + len(skipped))
     done = total - len(pending) - len(skipped)
     phase_note = " (пропущені)" if phase == "skipped" else ""
-    progress = f"Прогрес: {done+1}/{total}{phase_note}"
+    progress = f"Питань: <b>{total}</b> • Відповів: <b>{done}</b>{phase_note}"
 
     header = st.get("header", "")
     text = build_question_text(q, header, progress)
@@ -1021,7 +1057,8 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
             start = (part - 1) * 50
             end = start + 50
             qids = qids[start:end]
-        header = f"📜 <b>Законодавство</b>\nПункт {group_key}: {qb.law_group_title(group_key)}"
+        title = clean_law_title(qb.law_group_title(group_key))
+        header = f"📜 <b>Законодавство</b>\nПункт {group_key}: {title}"
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
@@ -1085,7 +1122,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         else:
             # bump wrong counter -> move into mistakes after 5 wrong
             wc, im = await store.bump_wrong(uid, int(qid))
-            corr = ", ".join(q.correct_texts) if q.correct_texts else "—"
+            corr = hescape(", ".join(q.correct_texts)) if q.correct_texts else "—"
             st["feedback"] = {"correct_text": corr}
         await store.set_state(uid, st)
         await cb.answer("✅" if is_correct else "❌")
