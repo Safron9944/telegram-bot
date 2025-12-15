@@ -424,8 +424,27 @@ class TrainVariantBackCb(CallbackData, prefix="tback"):
 # Клавіатури
 # -------------------------
 
-def multi_topics_for_ok_set(ok_codes: Set[str], ok_levels: Dict[str, int]) -> List[str]:
+from typing import Optional
+
+def multi_topics_for_ok_set(
+    ok_codes: Set[str],
+    ok_levels: Optional[Dict[str, int]] = None,
+    *,
+    include_missing_as_all: bool = False,
+) -> List[str]:
+    """
+    Повертає список "лейблів" тем для multi-OK.
+
+    - Законодавство: по topic (без рівнів), префікс "📜 "
+    - Інші ОК: по вибраному рівню, формат: "{OK} • рівень {lvl} • {topic}"
+
+    Якщо для ОК рівень не заданий:
+      - за замовчуванням ОК пропускається
+      - якщо include_missing_as_all=True -> використовується LEVEL_ALL
+    """
+    ok_levels = ok_levels or {}
     out: List[str] = []
+
     ordered = sorted(ok_codes, key=lambda x: (x != OK_CODE_LAW, x))  # LAW першим
     for ok in ordered:
         if ok == OK_CODE_LAW:
@@ -439,11 +458,16 @@ def multi_topics_for_ok_set(ok_codes: Set[str], ok_levels: Dict[str, int]) -> Li
 
         lvl = ok_levels.get(ok)
         if lvl is None:
-            continue
+            if include_missing_as_all:
+                lvl = LEVEL_ALL
+            else:
+                continue
 
-        for t in effective_topics(ok, lvl):
-            out.append(f"{ok} • рівень {lvl} • {t}")
+        for t in effective_topics(ok, int(lvl)):
+            out.append(f"{ok} • рівень {int(lvl)} • {t}")
+
     return out
+
 
 
 def qids_for_multi_topic_label(label: str) -> List[int]:
@@ -2363,18 +2387,31 @@ async def ok_multi_page(call: CallbackQuery, callback_data: OkMultiPageCb) -> No
 async def ok_multi_toggle(call: CallbackQuery, callback_data: OkToggleCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
     ok_code = str(callback_data.ok_code)
     page = int(callback_data.page)
 
     selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+    selected = set(selected or [])
+
+    removed = False
     if ok_code in selected:
         selected.remove(ok_code)
+        removed = True
     else:
         selected.add(ok_code)
 
     await db_set_ok_prefs(DB_POOL, tg_id, mode, selected)
+
+    # ✅ якщо зняли галочку — прибираємо його рівень із мапи
+    if removed and ok_code != OK_CODE_LAW:
+        ok_levels = await db_get_ok_level_prefs(DB_POOL, tg_id, mode)
+        ok_levels = dict(ok_levels or {})
+        if ok_code in ok_levels:
+            del ok_levels[ok_code]
+            await db_set_ok_level_prefs(DB_POOL, tg_id, mode, ok_levels)
 
     await safe_edit(
         call,
@@ -2384,14 +2421,19 @@ async def ok_multi_toggle(call: CallbackQuery, callback_data: OkToggleCb) -> Non
     )
     await call.answer()
 
+
 @router.callback_query(OkClearCb.filter())
 async def ok_multi_clear(call: CallbackQuery, callback_data: OkClearCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
     page = int(callback_data.page)
+
     await db_clear_ok_prefs(DB_POOL, tg_id, mode)
+    await db_clear_ok_level_prefs(DB_POOL, tg_id, mode)  # ✅ додано
+
     await safe_edit(
         call,
         "Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>0</b>",
@@ -2400,14 +2442,19 @@ async def ok_multi_clear(call: CallbackQuery, callback_data: OkClearCb) -> None:
     )
     await call.answer()
 
+
 @router.callback_query(OkAllCb.filter())
 async def ok_multi_all(call: CallbackQuery, callback_data: OkAllCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
+
     codes = {OK_CODE_LAW} | {c for c in OK_CODES if c != OK_CODE_LAW}
     await db_set_ok_prefs(DB_POOL, tg_id, mode, codes)
+    await db_clear_ok_level_prefs(DB_POOL, tg_id, mode)  # ✅ додано
+
     await safe_edit(
         call,
         f"Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>{len(codes)}</b>",
@@ -2417,28 +2464,32 @@ async def ok_multi_all(call: CallbackQuery, callback_data: OkAllCb) -> None:
     await call.answer()
 
 
+
 @router.callback_query(OkDoneCb.filter())
 async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
+
     user = await db_get_user(DB_POOL, tg_id)
     if not user:
         await call.answer("Немає профілю", show_alert=True)
         return
 
     selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
-    selected = {c for c in selected if c}  # sanitize
+    selected = {c for c in (selected or set()) if c}
     if not selected:
         await call.answer("Оберіть хоча б один ОК", show_alert=True)
         return
 
-    # Якщо обрано 1 ОК — лишаємо стару логіку
+    # Якщо обрано 1 ОК — стара логіка без змін
     if len(selected) == 1:
         ok_code = next(iter(selected))
         lvl_to_store = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
         await db_set_scope(DB_POOL, tg_id, ok_code, lvl_to_store)
+
         if mode == "train":
             await safe_edit(
                 call,
@@ -2456,39 +2507,58 @@ async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
         await call.answer()
         return
 
-    # Multi-OK
+    # ===== Multi-OK: спочатку вибір рівнів по кожному ОК (крім LAW) =====
+    ok_levels = await db_get_ok_level_prefs(DB_POOL, tg_id, mode)
+    ok_levels = {k: v for k, v in (ok_levels or {}).items() if k in selected and k != OK_CODE_LAW}
+    await db_set_ok_level_prefs(DB_POOL, tg_id, mode, ok_levels)
+
+    missing = sorted([ok for ok in selected if ok != OK_CODE_LAW and ok not in ok_levels])
     shown = ", ".join(sorted(selected))
 
-    # ✅ НОВА ЛОГІКА: для навчання переходимо до вибору тем в межах вибраних модулів
-    if mode == "train":
-        # Зберігаємо вибрані ОК
-        await db_set_ok_prefs(DB_POOL, tg_id, mode, selected)
-
-        # Переходимо до вибору тем для multi-OK
+    if missing:
         await safe_edit(
             call,
             f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
-            f"Тепер оберіть теми для тренування в межах цих модулів:",
+            f"Оберіть рівень для кожного модуля (Законодавство — без рівня):",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_multi_topics(mode, selected, page=0, selected=set()),
+            reply_markup=kb_multi_levels_overview(mode, selected, ok_levels),
         )
         await call.answer()
         return
 
-    # Для екзамену - стара логіка (вибір варіантів)
-    if mode == "exam":
+    # ===== Рівні вже вибрані для всіх ОК =====
+    if mode == "train":
+        available = set(multi_topics_for_ok_set(selected, ok_levels))
+        chosen_topics = await db_get_topic_prefs(DB_POOL, tg_id, mode, MULTI_OK_CODE, MULTI_OK_LEVEL)
+        chosen_topics = {t for t in (chosen_topics or set()) if t in available}
+        await db_set_topic_prefs(DB_POOL, tg_id, mode, MULTI_OK_CODE, MULTI_OK_LEVEL, chosen_topics)
+
         await safe_edit(
             call,
-            f"Обрані модулі: <b>{html_escape(shown)}</b>\nПочати екзамен по всіх обраних модулях?",
+            f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
+            f"Тепер оберіть теми для тренування:\n"
+            f"Обрано тем: <b>{len(chosen_topics)}</b>",
             parse_mode=ParseMode.HTML,
-            reply_markup=kb_train_pick_multi("exam"),
+            reply_markup=kb_multi_topics(mode, selected, ok_levels, page=0, selected=chosen_topics),
         )
+        await call.answer()
+        return
+
+    # exam: підтвердження старту (як було), але вже з рівнями
+    await safe_edit(
+        call,
+        f"Обрані модулі: <b>{html_escape(shown)}</b>\nПочати екзамен по всіх обраних модулях?",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_train_pick_multi("exam"),
+    )
     await call.answer()
+
 
 @router.callback_query(StartMultiOkCb.filter())
 async def start_multi_ok(call: CallbackQuery, callback_data: StartMultiOkCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
 
@@ -2501,19 +2571,37 @@ async def start_multi_ok(call: CallbackQuery, callback_data: StartMultiOkCb) -> 
         return
 
     selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
-    selected = {c for c in selected if c}
+    selected = {c for c in (selected or set()) if c}
     if not selected:
         await call.answer("Оберіть ОК", show_alert=True)
         return
 
+    ok_levels = await db_get_ok_level_prefs(DB_POOL, tg_id, mode)
+    ok_levels = {k: v for k, v in (ok_levels or {}).items() if k in selected and k != OK_CODE_LAW}
+    await db_set_ok_level_prefs(DB_POOL, tg_id, mode, ok_levels)
+
+    missing = sorted([ok for ok in selected if ok != OK_CODE_LAW and ok not in ok_levels])
+    if missing:
+        shown = ", ".join(sorted(selected))
+        await safe_edit(
+            call,
+            f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
+            f"Спочатку оберіть рівні (Законодавство — без рівня):",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_multi_levels_overview(mode, selected, ok_levels),
+        )
+        await call.answer()
+        return
+
     pool: List[int] = []
     for ok_code in sorted(selected):
-        lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
-        pool.extend(base_qids_for_scope(ok_code, lvl))
+        if ok_code == OK_CODE_LAW:
+            pool.extend(base_qids_for_scope(OK_CODE_LAW, 0))
+        else:
+            pool.extend(base_qids_for_scope(ok_code, int(ok_levels[ok_code])))
 
     pool_qids = effective_qids(list(dict.fromkeys(pool)))
 
-    # підтверджуємо callback одразу і “замикаємо” клавіатуру
     await call.answer()
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -2529,6 +2617,7 @@ async def start_multi_ok(call: CallbackQuery, callback_data: StartMultiOkCb) -> 
         pool_qids,
         edit_message=call.message,
     )
+
 
 @router.callback_query(OkPickCb.filter())
 async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
