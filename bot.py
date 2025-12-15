@@ -260,6 +260,28 @@ class OkPickCb(CallbackData, prefix="ok"):
 class OkPageCb(CallbackData, prefix="okp"):
     page: int
 
+class OkMultiPageCb(CallbackData, prefix="okmp"):
+    mode: str   # train | exam
+    page: int
+
+class OkToggleCb(CallbackData, prefix="okt"):
+    mode: str
+    ok_code: str
+    page: int
+
+class OkDoneCb(CallbackData, prefix="okd"):
+    mode: str
+
+class OkClearCb(CallbackData, prefix="okc"):
+    mode: str
+    page: int
+
+class OkAllCb(CallbackData, prefix="oka"):
+    mode: str
+
+class StartMultiOkCb(CallbackData, prefix="stmok"):
+    mode: str   # train | exam
+
 class LevelPickCb(CallbackData, prefix="lvl"):
     ok_code: str
     level: int
@@ -516,6 +538,65 @@ def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def kb_pick_ok_multi(
+    mode: str,
+    page: int = 0,
+    *,
+    selected: Optional[Set[str]] = None,
+    per_page: int = 9,
+) -> InlineKeyboardMarkup:
+    selected_set: Set[str] = set(selected or [])
+    codes = [OK_CODE_LAW] + [c for c in OK_CODES if c != OK_CODE_LAW]
+    pages: List[List[str]] = [codes[i:i + per_page] for i in range(0, len(codes), per_page)]
+    if not pages:
+        pages = [[]]
+    page = max(0, min(page, len(pages) - 1))
+    current = pages[page]
+
+    b = InlineKeyboardBuilder()
+    for c in current:
+        label = "📜 Законодавство" if c == OK_CODE_LAW else c
+        mark = "☑️" if c in selected_set else "⬜️"
+        b.button(
+            text=f"{mark} {label}",
+            callback_data=OkToggleCb(mode=mode, ok_code=c, page=page).pack(),
+        )
+    b.adjust(1)
+
+    nav: List[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=OkMultiPageCb(mode=mode, page=page - 1).pack()))
+    if page < len(pages) - 1:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=OkMultiPageCb(mode=mode, page=page + 1).pack()))
+    if nav:
+        b.row(*nav)
+
+    b.row(
+        InlineKeyboardButton(text="🧹 Очистити", callback_data=OkClearCb(mode=mode, page=page).pack()),
+        InlineKeyboardButton(text="🎯 Всі ОК", callback_data=OkAllCb(mode=mode).pack()),
+    )
+    b.row(
+        InlineKeyboardButton(text="✅ Готово", callback_data=OkDoneCb(mode=mode).pack()),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
+    return b.as_markup()
+
+
+def kb_train_pick_multi(mode: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    start_label = "✅ Почати тренування" if mode == "train" else "✅ Почати екзамен"
+    b.button(
+        text=start_label,
+        callback_data=StartMultiOkCb(mode=mode).pack(),
+    )
+    b.button(
+        text="🔁 Змінити блоки",
+        callback_data=OkMultiPageCb(mode=mode, page=0).pack(),
+    )
+    b.button(text="🏠 Меню", callback_data="menu")
+    b.adjust(1)
+    return b.as_markup()
+
 def kb_pick_level(ok_code: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for lvl in sorted(LEVELS_BY_OK.get(ok_code, [1, 2, 3])):
@@ -543,7 +624,10 @@ def kb_train_mode(mode: str) -> InlineKeyboardMarkup:
 
 
 def kb_train_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
-    level = 0 if level is None else int(level)
+    if level is None:
+        level = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+    else:
+        level = int(level)
 
     b = InlineKeyboardBuilder()
     b.button(
@@ -560,7 +644,10 @@ def kb_train_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
 
 
 def kb_exam_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
-    level = 0 if level is None else int(level)
+    if level is None:
+        level = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+    else:
+        level = int(level)
 
     b = InlineKeyboardBuilder()
     b.button(
@@ -713,6 +800,15 @@ CREATE TABLE IF NOT EXISTS topic_prefs (
   updated_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (tg_id, mode, ok_code, ok_level)
 );
+
+CREATE TABLE IF NOT EXISTS ok_prefs (
+  tg_id BIGINT NOT NULL REFERENCES users(tg_id) ON DELETE CASCADE,
+  mode TEXT NOT NULL,
+  ok_codes JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (tg_id, mode)
+);
+
 """
 
 DDL_MIGRATIONS = [
@@ -1250,6 +1346,39 @@ def build_position_exam_qids(position_name: str, topics: Optional[Set[str]] = No
     exam_qids = law_qids + block_qids
     random.shuffle(exam_qids)
     return exam_qids
+async def db_get_ok_prefs(pool: asyncpg.Pool, tg_id: int, mode: str) -> Set[str]:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT ok_codes FROM ok_prefs WHERE tg_id=$1 AND mode=$2",
+            tg_id, mode
+        )
+        if not row:
+            return set()
+        try:
+            payload = row["ok_codes"] or []
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            return {str(x) for x in (payload or [])}
+        except Exception:
+            return set()
+
+async def db_set_ok_prefs(pool: asyncpg.Pool, tg_id: int, mode: str, ok_codes: Set[str]) -> None:
+    now = utcnow()
+    payload = json.dumps(sorted({str(x) for x in ok_codes}))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO ok_prefs(tg_id, mode, ok_codes, updated_at) VALUES($1, $2, $3::jsonb, $4) "
+            "ON CONFLICT (tg_id, mode) DO UPDATE SET ok_codes=EXCLUDED.ok_codes, updated_at=EXCLUDED.updated_at",
+            tg_id, mode, payload, now
+        )
+
+async def db_clear_ok_prefs(pool: asyncpg.Pool, tg_id: int, mode: str) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM ok_prefs WHERE tg_id=$1 AND mode=$2",
+            tg_id, mode
+        )
+
 
 async def start_exam_session(
     bot: Bot,
@@ -1443,7 +1572,6 @@ def get_user_scope(user: asyncpg.Record) -> tuple[str, int]:
     if lvl is None:
         lvl = LEVEL_ALL
     return ok_code, int(lvl)
-
 
 async def ensure_profile(message: Message, user: asyncpg.Record, next_mode: str | None = None) -> bool:
     if user_has_scope(user):
@@ -1667,6 +1795,182 @@ async def ok_page(call: CallbackQuery, callback_data: OkPageCb) -> None:
     await call.message.edit_text("Оберіть ОК:", reply_markup=kb_pick_ok(page=int(callback_data.page)))
     await call.answer()
 
+@router.callback_query(OkMultiPageCb.filter())
+async def ok_multi_page(call: CallbackQuery, callback_data: OkMultiPageCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+    selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+    await safe_edit(
+        call,
+        f"Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>{len(selected)}</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pick_ok_multi(mode, page=int(callback_data.page), selected=selected),
+    )
+    await call.answer()
+
+@router.callback_query(OkToggleCb.filter())
+async def ok_multi_toggle(call: CallbackQuery, callback_data: OkToggleCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+    ok_code = str(callback_data.ok_code)
+    page = int(callback_data.page)
+
+    selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+    if ok_code in selected:
+        selected.remove(ok_code)
+    else:
+        selected.add(ok_code)
+
+    await db_set_ok_prefs(DB_POOL, tg_id, mode, selected)
+
+    await safe_edit(
+        call,
+        f"Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>{len(selected)}</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pick_ok_multi(mode, page=page, selected=selected),
+    )
+    await call.answer()
+
+@router.callback_query(OkClearCb.filter())
+async def ok_multi_clear(call: CallbackQuery, callback_data: OkClearCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+    page = int(callback_data.page)
+    await db_clear_ok_prefs(DB_POOL, tg_id, mode)
+    await safe_edit(
+        call,
+        "Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>0</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pick_ok_multi(mode, page=page, selected=set()),
+    )
+    await call.answer()
+
+@router.callback_query(OkAllCb.filter())
+async def ok_multi_all(call: CallbackQuery, callback_data: OkAllCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+    codes = {OK_CODE_LAW} | {c for c in OK_CODES if c != OK_CODE_LAW}
+    await db_set_ok_prefs(DB_POOL, tg_id, mode, codes)
+    await safe_edit(
+        call,
+        f"Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>{len(codes)}</b>",
+        parse_mode=ParseMode.HTML,
+        reply_markup=kb_pick_ok_multi(mode, page=0, selected=codes),
+    )
+    await call.answer()
+
+@router.callback_query(OkDoneCb.filter())
+async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+
+    selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+    selected = {c for c in selected if c}  # sanitize
+    if not selected:
+        await call.answer("Оберіть хоча б один ОК", show_alert=True)
+        return
+
+    # якщо обрано 1 ОК — лишаємо стару логіку (можна ще вибирати теми)
+    if len(selected) == 1:
+        ok_code = next(iter(selected))
+        lvl_to_store = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+        await db_set_scope(DB_POOL, tg_id, ok_code, lvl_to_store)
+        if mode == "train":
+            await safe_edit(
+                call,
+                f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl_to_store))}</b>\nОберіть варіант:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_train_pick(ok_code, lvl_to_store),
+            )
+        else:
+            await safe_edit(
+                call,
+                f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl_to_store))}</b>\nОберіть варіант:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_exam_pick(ok_code, lvl_to_store),
+            )
+        await call.answer()
+        return
+
+    # multi-OK: стартуємо тренування по всіх обраних блоках
+    shown = ", ".join(sorted(selected))
+    if mode == "train":
+        await safe_edit(
+            call,
+            f"Обрано ОК: <b>{html_escape(shown)}</b>\n"
+            "Почати тренування по <b>всіх</b> обраних блоках?",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick_multi("train"),
+        )
+    else:
+        await safe_edit(
+            call,
+            f"Обрано ОК: <b>{html_escape(shown)}</b>\n"
+            "Почати екзамен по <b>всіх</b> обраних блоках?",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick_multi("exam"),
+        )
+    await call.answer()
+
+@router.callback_query(StartMultiOkCb.filter())
+async def start_multi_ok(call: CallbackQuery, callback_data: StartMultiOkCb) -> None:
+    if not DB_POOL:
+        return
+    tg_id = call.from_user.id
+    mode = str(callback_data.mode)
+
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+    if not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+    selected = {c for c in selected if c}
+    if not selected:
+        await call.answer("Оберіть ОК", show_alert=True)
+        return
+
+    pool: List[int] = []
+    for ok_code in sorted(selected):
+        lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+        pool.extend(base_qids_for_scope(ok_code, lvl))
+
+    pool_qids = effective_qids(list(dict.fromkeys(pool)))
+
+    # підтверджуємо callback одразу і “замикаємо” клавіатуру
+    await call.answer()
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await start_session_for_pool(
+        call.bot,
+        tg_id,
+        call.message.chat.id,
+        user,
+        mode,
+        pool_qids,
+        edit_message=call.message,
+    )
+
 @router.callback_query(OkPickCb.filter())
 async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     if not DB_POOL:
@@ -1676,17 +1980,21 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
     user = await db_get_user(DB_POOL, tg_id)
 
     if not user or not user["phone"]:
+        # reply keyboard (контакт) не редагується через edit_text — тут OK робити answer
         await call.message.answer("Спочатку зареєструйтесь.", reply_markup=kb_request_contact())
         await call.answer()
         return
 
     ok_code = str(callback_data.ok_code)
 
-    # якщо рівень не обираємо — беремо «всі рівні» (для LAW завжди 0)
+    # рівень більше не має значення
     lvl_to_store = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
-
-    # зберігаємо напрям + рівень
     user = await db_set_scope(DB_POOL, tg_id, ok_code, lvl_to_store)
+    # синхронізуємо manual multi-select (за замовчуванням один блок)
+    try:
+        await db_set_ok_prefs(DB_POOL, tg_id, "train", {ok_code})
+    except Exception:
+        pass
 
     next_mode = PENDING_AFTER_OK.pop(tg_id, None)
 
@@ -1710,6 +2018,7 @@ async def ok_pick(call: CallbackQuery, callback_data: OkPickCb):
         await call.answer()
         return
 
+    # дефолт: підтвердження + меню (в тому ж повідомленні)
     await safe_edit(
         call,
         f"✅ Встановлено: <b>{html_escape(scope_title(ok_code, lvl_to_store))}</b>",
@@ -1927,18 +2236,29 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        if train_mode == "manual":
-            if not user_has_scope(user):
-                PENDING_AFTER_OK[tg_id] = mode
-                await safe_edit(
-                    call,
-                    "⚙️ Для режиму «вручну» потрібно обрати ОК.\nОберіть ОК:",
-                    reply_markup=kb_pick_ok(page=0),
-                )
-                await call.answer()
-                return
+    if train_mode == "manual":
+        selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, "train")
+        # fallback: якщо є старий single-scope — підхопимо його
+        if not selected_ok and user_has_scope(user):
+            ok_code, _lvl = get_user_scope(user)
+            selected_ok = {ok_code}
+            await db_set_ok_prefs(DB_POOL, tg_id, "train", selected_ok)
 
-            ok_code, lvl = get_user_scope(user)
+        if not selected_ok:
+            await safe_edit(
+                call,
+                "⚙️ Для режиму «вручну» потрібно обрати ОК (можна декілька).\nОберіть ОК:",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_pick_ok_multi("train", page=0, selected=set()),
+            )
+            await call.answer()
+            return
+
+        # 1 ОК → стара логіка (є вибір тем)
+        if len(selected_ok) == 1:
+            ok_code = next(iter(selected_ok))
+            lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+            await db_set_scope(DB_POOL, tg_id, ok_code, lvl)
             await safe_edit(
                 call,
                 f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
@@ -1948,13 +2268,21 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             await call.answer()
             return
 
-        await safe_edit(call, "Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
+        # multi-OK → старт по всіх обраних блоках
+        shown = ", ".join(sorted(selected_ok))
+        await safe_edit(
+            call,
+            f"Обрано ОК: <b>{html_escape(shown)}</b>\n"
+            "Почати тренування по <b>всіх</b> обраних блоках?",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick_multi("train"),
+        )
         await call.answer()
         return
 
+    await safe_edit(call, "Як ви хочете навчатись?", reply_markup=kb_train_mode(mode))
     await call.answer()
-
-
+    return
 
 @router.callback_query(TrainModeCb.filter())
 async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
@@ -1976,9 +2304,18 @@ async def train_mode_pick(call: CallbackQuery, callback_data: TrainModeCb):
         return
 
     if kind == "manual":
+        # показуємо multi-select ОК
+        selected = await db_get_ok_prefs(DB_POOL, call.from_user.id, "train")
+        # якщо ще нічого не збережено — підхопимо старий single-scope
+        if not selected:
+            u = await db_get_user(DB_POOL, call.from_user.id)
+            if u and u.get("ok_code"):
+                selected = {str(u["ok_code"])}
+                await db_set_ok_prefs(DB_POOL, call.from_user.id, "train", selected)
         await call.message.edit_text(
-            "Оберіть ОК:",
-            reply_markup=kb_pick_ok(page=0),
+            "Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>%d</b>" % (len(selected) if selected else 0),
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_pick_ok_multi("train", page=0, selected=selected),
         )
         await call.answer()
         return
