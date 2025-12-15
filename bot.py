@@ -43,7 +43,7 @@ if os.getenv("ADMIN_IDS"):
         if x.isdigit():
             ADMIN_IDS.add(int(x))
 
-TRAIN_QUESTIONS = int(os.getenv("TRAIN_QUESTIONS", "20"))
+TRAIN_QUESTIONS = int(os.getenv("TRAIN_QUESTIONS", "50"))
 EXAM_QUESTIONS = int(os.getenv("EXAM_QUESTIONS", "100"))
 EXAM_DURATION_MINUTES = int(os.getenv("EXAM_DURATION_MINUTES", "90"))
 
@@ -390,6 +390,19 @@ class TopicBackCb(CallbackData, prefix="tbk"):
     ok_code: str
     level: int
 
+class TrainVariantCb(CallbackData, prefix="tvar"):
+    # kind: "scope" | "topics" | "multi"
+    kind: str
+    ok_code: str
+    level: int
+    # variant: "all" | "rand"
+    variant: str
+
+class TrainVariantBackCb(CallbackData, prefix="tback"):
+    kind: str
+    ok_code: str
+    level: int
+
 
 # -------------------------
 # Клавіатури
@@ -413,12 +426,13 @@ def qids_for_multi_topic_label(label: str) -> List[int]:
     ok_code, topic = label.split(" • ", 1)
     return base_qids_for_topic(ok_code, LEVEL_ALL, topic)
 
+
 def kb_multi_topics(
-    mode: str,
-    ok_codes: Set[str],
-    page: int = 0,
-    selected: Optional[Set[str]] = None,
-    per_page: int = 8,
+        mode: str,
+        ok_codes: Set[str],
+        page: int = 0,
+        selected: Optional[Set[str]] = None,
+        per_page: int = 8,
 ) -> InlineKeyboardMarkup:
     selected_set: Set[str] = set(selected or [])
     topics = multi_topics_for_ok_set(ok_codes)
@@ -453,15 +467,19 @@ def kb_multi_topics(
 
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
-    b.row(
-        InlineKeyboardButton(text=start_label, callback_data=MultiTopicDoneCb(mode=mode).pack()),
-        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
-    )
+    # Рядок: [ "Змінити модулі ", "Меню" ]
     b.row(
         InlineKeyboardButton(text="🔁 Змінити модулі", callback_data=OkMultiPageCb(mode=mode, page=0).pack()),
+        InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
+    )
+
+    # Рядок: [ "Почати" ]
+    b.row(
+        InlineKeyboardButton(text=start_label, callback_data=MultiTopicDoneCb(mode=mode).pack()),
     )
 
     return b.as_markup()
+
 
 
 @router.callback_query(MultiTopicsPageCb.filter())
@@ -592,6 +610,7 @@ async def multi_topic_all(call: CallbackQuery, callback_data: MultiTopicAllCb) -
 async def multi_topic_done(call: CallbackQuery, callback_data: MultiTopicDoneCb) -> None:
     if not DB_POOL:
         return
+
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
 
@@ -599,6 +618,7 @@ async def multi_topic_done(call: CallbackQuery, callback_data: MultiTopicDoneCb)
     if not user:
         await call.answer("Немає профілю", show_alert=True)
         return
+
     if not await db_has_access(user):
         await call.answer("Доступ завершився", show_alert=True)
         return
@@ -610,17 +630,30 @@ async def multi_topic_done(call: CallbackQuery, callback_data: MultiTopicDoneCb)
         return
 
     available = set(multi_topics_for_ok_set(ok_codes))
-    selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, MULTI_OK_CODE, MULTI_OK_LEVEL)
+    selected = await db_get_topic_prefs(
+        DB_POOL,
+        tg_id,
+        mode,
+        MULTI_OK_CODE,
+        MULTI_OK_LEVEL,
+    )
     selected = {t for t in selected if t in available}
     if not selected:
         await call.answer("Оберіть хоча б одну тему", show_alert=True)
         return
 
-    pool: List[int] = []
+    pool: list[int] = []
     for label in selected:
         pool.extend(qids_for_multi_topic_label(label))
-    pool_qids = effective_qids(list(dict.fromkeys(pool)))
 
+    pool_qids = effective_qids(list(dict.fromkeys(pool)))
+    if not pool_qids:
+        await call.answer("У вибраних темах немає питань", show_alert=True)
+        return
+
+    await call.answer()
+
+    # прибираємо клавіатуру
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -635,6 +668,26 @@ async def multi_topic_done(call: CallbackQuery, callback_data: MultiTopicDoneCb)
         pool_qids,
         edit_message=call.message,
     )
+
+    if mode == "train":
+        pool_size = len(pool_qids)
+        title = (
+            "Навчання • <b>декілька модулів</b>\n"
+            f"Обрано тем: <b>{len(selected)}</b>\n"
+            "Як сформувати питання?"
+        )
+        await call.message.edit_text(
+            title,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_question_set(
+                "multi",
+                MULTI_OK_CODE,
+                MULTI_OK_LEVEL,
+                pool_size,
+            ),
+        )
+        return
+
 
 
 
@@ -955,6 +1008,32 @@ def kb_train_mode(mode: str) -> InlineKeyboardMarkup:
     b.adjust(1)
     return b.as_markup()
 
+
+def kb_train_question_set(kind: str, ok_code: str, level: int, pool_size: int) -> InlineKeyboardMarkup:
+    pool_size = int(pool_size or 0)
+    rand_n = min(TRAIN_QUESTIONS, pool_size) if pool_size > 0 else 0
+
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(
+            text=f"📋 Всі питання ({pool_size})",
+            callback_data=TrainVariantCb(kind=kind, ok_code=ok_code, level=level, variant="all").pack(),
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text=f"🎲 Рандомні ({rand_n})",
+            callback_data=TrainVariantCb(kind=kind, ok_code=ok_code, level=level, variant="rand").pack(),
+        )
+    )
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=TrainVariantBackCb(kind=kind, ok_code=ok_code, level=level).pack(),
+        )
+    )
+    b.row(InlineKeyboardButton(text="🏠 Меню", callback_data="menu"))
+    return b.as_markup()
 
 
 def kb_train_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
@@ -2968,22 +3047,28 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
 
     selected = await db_get_topic_prefs(DB_POOL, tg_id, mode, ok_code, lvl)
     if not selected:
-        await call.answer("Оберіть хоча б 1 блок або натисніть «Всі блоки».", show_alert=True)
+        await call.answer(
+            "Оберіть хоча б 1 блок або натисніть «Всі блоки».",
+            show_alert=True,
+        )
         return
 
-    pool_set: Set[int] = set()
+    pool_set: set[int] = set()
     for t in selected:
         base = base_qids_for_topic(ok_code, lvl, t)
         pool_set.update(base)
 
     pool_qids = effective_qids(list(pool_set))
     if not pool_qids:
-        await call.answer("У вибраних блоках немає питань.", show_alert=True)
+        await call.answer(
+            "У вибраних блоках немає питань.",
+            show_alert=True,
+        )
         return
 
     await call.answer()
 
-    # ✅ прибираємо клавіатуру під повідомленням (без нового тексту)
+    # прибираємо клавіатуру під повідомленням
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -2996,8 +3081,28 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
         user,
         mode,
         pool_qids,
-        edit_message=call.message,  # ← додано
+        edit_message=call.message,
     )
+
+    if mode == "train":
+        pool_size = len(pool_qids)
+        title = (
+            f"Навчання • <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+            f"Обрано блоків: <b>{len(selected)}</b>\n"
+            "Як сформувати питання?"
+        )
+        await call.message.edit_text(
+            title,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_question_set(
+                "topics",
+                ok_code,
+                lvl,
+                pool_size,
+            ),
+        )
+        return
+
 
 
 def kb_pick_position(mode: str, back_to: str = "auto") -> InlineKeyboardMarkup:
@@ -3275,6 +3380,147 @@ async def start_session_for_pool(
             bot, DB_POOL, chat_id, tg_id, "exam", edit_message=edit_message
         )
         return
+
+@router.callback_query(TrainVariantCb.filter())
+async def train_variant_start(call: CallbackQuery, callback_data: TrainVariantCb) -> None:
+    if not DB_POOL:
+        await call.answer()
+        return
+
+    tg_id = call.from_user.id
+    user = await db_get_user(DB_POOL, tg_id)
+    if not user:
+        await call.answer("Немає профілю", show_alert=True)
+        return
+    if not await db_has_access(user):
+        await call.answer("Доступ завершився", show_alert=True)
+        return
+
+    kind = str(callback_data.kind)
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+    variant = str(callback_data.variant)
+
+    pool_qids: List[int] = []
+
+    if kind == "scope":
+        pool_qids = effective_qids(base_qids_for_scope(ok_code, lvl))
+
+    elif kind == "topics":
+        selected = await db_get_topic_prefs(DB_POOL, tg_id, "train", ok_code, lvl)
+        if not selected:
+            await call.answer("Спочатку оберіть хоча б 1 блок.", show_alert=True)
+            return
+        pool_set: Set[int] = set()
+        for t in selected:
+            pool_set.update(base_qids_for_topic(ok_code, lvl, t))
+        pool_qids = effective_qids(list(pool_set))
+
+    elif kind == "multi":
+        ok_codes = await db_get_ok_prefs(DB_POOL, tg_id, "train")
+        ok_codes = {c for c in ok_codes if c}
+        if not ok_codes:
+            await call.answer("Оберіть модулі (ОК) спочатку.", show_alert=True)
+            return
+
+        available = set(multi_topics_for_ok_set(ok_codes))
+        selected = await db_get_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL)
+        selected = {t for t in selected if t in available}
+        if not selected:
+            await call.answer("Спочатку оберіть хоча б 1 тему.", show_alert=True)
+            return
+
+        pool: List[int] = []
+        for label in selected:
+            pool.extend(qids_for_multi_topic_label(label))
+        pool_qids = effective_qids(list(dict.fromkeys(pool)))
+
+    else:
+        await call.answer("Невідомий режим.", show_alert=True)
+        return
+
+    if not pool_qids:
+        await call.answer("Немає доступних питань.", show_alert=True)
+        return
+
+    qids = list(dict.fromkeys(pool_qids))
+
+    if variant == "rand":
+        k = min(TRAIN_QUESTIONS, len(qids))
+        qids = random.sample(qids, k)
+
+    await call.answer()
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await start_session_for_pool(
+        call.bot, tg_id, call.message.chat.id, user, "train", qids, edit_message=call.message
+    )
+
+
+@router.callback_query(TrainVariantBackCb.filter())
+async def train_variant_back(call: CallbackQuery, callback_data: TrainVariantBackCb) -> None:
+    if not DB_POOL:
+        await call.answer()
+        return
+
+    tg_id = call.from_user.id
+    kind = str(callback_data.kind)
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+
+    if kind == "scope":
+        await call.message.edit_text(
+            f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick(ok_code, lvl),
+        )
+        await call.answer()
+        return
+
+    if kind == "topics":
+        selected = await db_get_topic_prefs(DB_POOL, tg_id, "train", ok_code, lvl)
+        title = (
+            f"Оберіть <b>декілька</b> блоків для <b>навчання</b>\n"
+            f"Набір: <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+            f"Обрано блоків: <b>{len(selected)}</b>\n\n"
+            "Натискайте блоки (⬜️/☑️), потім — <b>✅ Почати</b>."
+        )
+        await call.message.edit_text(
+            title,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_topics("train", ok_code, lvl, page=0, selected=selected),
+        )
+        await call.answer()
+        return
+
+    if kind == "multi":
+        ok_codes = await db_get_ok_prefs(DB_POOL, tg_id, "train")
+        ok_codes = {c for c in ok_codes if c}
+        if not ok_codes:
+            await call.answer("Оберіть модулі (ОК) спочатку.", show_alert=True)
+            return
+
+        available = set(multi_topics_for_ok_set(ok_codes))
+        selected = await db_get_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL)
+        selected = {t for t in selected if t in available}
+        await db_set_topic_prefs(DB_POOL, tg_id, "train", MULTI_OK_CODE, MULTI_OK_LEVEL, selected)
+
+        shown = ", ".join(sorted(ok_codes))
+        await call.message.edit_text(
+            f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
+            f"Оберіть теми для тренування:\n"
+            f"Обрано тем: <b>{len(selected)}</b>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_multi_topics("train", ok_codes, page=0, selected=selected),
+        )
+        await call.answer()
+        return
+
+    await call.answer()
+
 
 
 @router.callback_query(TopicPageCb.filter())
@@ -3586,18 +3832,33 @@ async def topic_pick(call: CallbackQuery, callback_data: TopicPickCb) -> None:
     base = base_qids_for_topic(ok_code, lvl, topic)
     pool_qids = effective_qids(base)
 
-    await call.answer()
-
     # ✅ прибрати кнопки вибору (без нового повідомлення)
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    await start_session_for_pool(
-        call.bot, tg_id, call.message.chat.id, user, mode, pool_qids,
-        edit_message=call.message,
-    )
+    await call.answer()
+
+    if mode == "train":
+        pool_size = len(pool_qids)
+        title = (
+            f"Навчання • <b>{html_escape(scope_title(ok_code, lvl))}</b>\n"
+            f"Блок: <b>{html_escape(topic)}</b>\n"
+            "Як сформувати питання?"
+        )
+        await call.message.edit_text(
+            title,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_question_set("topics", ok_code, lvl, pool_size),
+        )
+        return
+    else:
+        await start_session_for_pool(
+            call.bot, tg_id, call.message.chat.id, user, mode, pool_qids,
+            edit_message=call.message,
+        )
+
 
 
 @router.callback_query(StartScopeCb.filter())
@@ -3620,28 +3881,27 @@ async def start_scope(call: CallbackQuery, callback_data: StartScopeCb) -> None:
     lvl = int(callback_data.level)
     mode = str(callback_data.mode)
 
-    base = base_qids_for_scope(ok_code, lvl)
-    pool_qids = effective_qids(base)
-
-    # підтверджуємо callback одразу
+    pool_qids = effective_qids(base_qids_for_scope(ok_code, lvl))
     await call.answer()
 
-    # "замикаємо" попередню клавіатуру (щоб не було повторних натискань)
-    if call.message:
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+    if mode == "train":
+        pool_size = len(pool_qids)
+        title = f"Навчання • <b>{html_escape(scope_title(ok_code, lvl))}</b>\nЯк сформувати питання?"
+        await call.message.edit_text(
+            title,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_question_set("scope", ok_code, lvl, pool_size),
+        )
+        return
 
-    await start_session_for_pool(
-        call.bot,
-        tg_id,
-        call.message.chat.id,
-        user,
-        mode,
-        pool_qids,
-        edit_message=call.message,
-    )
+    # exam як було
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids, edit_message=call.message)
+
 
 
 # -------------------------
