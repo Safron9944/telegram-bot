@@ -407,24 +407,40 @@ class TrainVariantBackCb(CallbackData, prefix="tback"):
 # -------------------------
 # Клавіатури
 # -------------------------
-def multi_topics_for_ok_set(ok_codes: Set[str]) -> List[str]:
-    out: List[str] = []
+ALL_TOPICS = "✅ Всі теми"
+
+def multi_topics_for_ok_set(ok_codes: set[str]) -> list[str]:
+    out: list[str] = []
     ordered = sorted(ok_codes, key=lambda x: (x != OK_CODE_LAW, x))  # LAW першим
     for ok in ordered:
         if ok == OK_CODE_LAW:
             out.append("📜 Законодавство")
             continue
-        for t in effective_topics(ok, LEVEL_ALL):
-            out.append(f"{ok} • {t}")
+
+        for lvl in levels_for_ok(ok):           # 1..3
+            out.append(f"{ok} • L{lvl} • {ALL_TOPICS}")
+            for t in effective_topics(ok, lvl): # теми тільки цього рівня
+                out.append(f"{ok} • L{lvl} • {t}")
     return out
 
-def qids_for_multi_topic_label(label: str) -> List[int]:
+def qids_for_multi_topic_label(label: str) -> list[int]:
     if label == "📜 Законодавство":
         return base_qids_for_scope(OK_CODE_LAW, 0)
-    if " • " not in label:
+
+    parts = label.split(" • ", 2)  # ok, Lx, topic
+    if len(parts) != 3:
         return []
-    ok_code, topic = label.split(" • ", 1)
-    return base_qids_for_topic(ok_code, LEVEL_ALL, topic)
+
+    ok_code, lvl_part, topic = parts
+    if not lvl_part.startswith("L"):
+        return []
+
+    lvl = int(lvl_part[1:])  # "L2" -> 2
+
+    if topic == ALL_TOPICS:
+        return base_qids_for_scope(ok_code, lvl)
+
+    return base_qids_for_topic(ok_code, lvl, topic)
 
 
 def kb_multi_topics(
@@ -687,8 +703,6 @@ async def multi_topic_done(call: CallbackQuery, callback_data: MultiTopicDoneCb)
             ),
         )
         return
-
-
 
 
 MAIN_MENU_TEXT = (
