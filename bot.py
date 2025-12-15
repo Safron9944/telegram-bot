@@ -59,6 +59,7 @@ OK_CODE_LAW = "LAW"  # внутрішній код для "законодавс�
 LEVEL_ALL = -1  # спеціальне значення: всі рівні для обраного ОК
 
 PENDING_AFTER_OK: dict[int, str] = {}  # tg_id -> "train" | "exam"
+REG_PROMPT_MSG_ID: dict[int, int] = {}  # tg_id -> message_id (реєстраційний текст)
 
 POSITION_OK_MAP: Dict[str, Dict[str, int]] = {
     "Начальник відділу": {
@@ -334,6 +335,10 @@ class PosTopicAllCb(CallbackData, prefix="pta"):
     mode: str
     pid: int
 
+class TopicBackCb(CallbackData, prefix="tbk"):
+    mode: str
+    ok_code: str
+    level: int
 
 
 # -------------------------
@@ -354,7 +359,29 @@ async def show_main_menu(message: Message, *, is_admin: bool) -> None:
         parse_mode="HTML",
     )
 
-from aiogram.enums import ParseMode
+@router.callback_query(TopicBackCb.filter())
+async def topic_back(call: CallbackQuery, callback_data: TopicBackCb) -> None:
+    mode = str(callback_data.mode)
+    ok_code = str(callback_data.ok_code)
+    lvl = int(callback_data.level)
+
+    if mode == "train":
+        await safe_edit(
+            call,
+            f"Навчання для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_train_pick(ok_code, lvl),
+        )
+    else:
+        await safe_edit(
+            call,
+            f"Екзамен для: <b>{html_escape(scope_title(ok_code, lvl))}</b>\nОберіть варіант:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_exam_pick(ok_code, lvl),
+        )
+
+    await call.answer()
+
 
 async def safe_edit(
     call,
@@ -460,7 +487,6 @@ def kb_after_feedback(mode: str, expected_index: int) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
-    # LAW першим
     codes = [OK_CODE_LAW] + [c for c in OK_CODES if c != OK_CODE_LAW]
     pages: List[List[str]] = [codes[i:i+per_page] for i in range(0, len(codes), per_page)]
     if not pages:
@@ -481,7 +507,10 @@ def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
         nav.append(InlineKeyboardButton(text="➡️", callback_data=OkPageCb(page=page+1).pack()))
     if nav:
         b.row(*nav)
+
+    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data="menu"))
     return b.as_markup()
+
 
 def kb_pick_level(ok_code: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -542,7 +571,6 @@ def kb_exam_pick(ok_code: str, level: int | None) -> InlineKeyboardMarkup:
     b.adjust(1)
     return b.as_markup()
 
-
 def kb_topics(
     mode: str,
     ok_code: str,
@@ -551,11 +579,6 @@ def kb_topics(
     selected: Optional[Set[str]] = None,
     per_page: int = 8,
 ) -> InlineKeyboardMarkup:
-    """
-    Multi-select тем (блоків).
-    - Клік по темі: вмикає/вимикає.
-
-    """
     selected_set: Set[str] = set(selected or [])
     topics = effective_topics(ok_code, level)
 
@@ -568,7 +591,6 @@ def kb_topics(
 
     b = InlineKeyboardBuilder()
 
-    # список тем
     for i, t in enumerate(current):
         idx = start_idx + i
         checked = "☑️" if t in selected_set else "⬜️"
@@ -586,50 +608,44 @@ def kb_topics(
             )
         )
 
-    # пагінація
     nav = []
     if page > 0:
         nav.append(
             InlineKeyboardButton(
                 text="⬅️",
-                callback_data=TopicPageCb(
-                    mode=mode, ok_code=ok_code, level=level, page=page - 1
-                ).pack(),
+                callback_data=TopicPageCb(mode=mode, ok_code=ok_code, level=level, page=page - 1).pack(),
             )
         )
     if page < len(pages) - 1:
         nav.append(
             InlineKeyboardButton(
                 text="➡️",
-                callback_data=TopicPageCb(
-                    mode=mode, ok_code=ok_code, level=level, page=page + 1
-                ).pack(),
+                callback_data=TopicPageCb(mode=mode, ok_code=ok_code, level=level, page=page + 1).pack(),
             )
         )
     if nav:
         b.row(*nav)
 
-    # нижній блок навігації
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
     b.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back:{mode}"),
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=TopicBackCb(mode=mode, ok_code=ok_code, level=level).pack(),
+        ),
         InlineKeyboardButton(
             text="🎯 Всі блоки",
             callback_data=TopicAllCb(mode=mode, ok_code=ok_code, level=level).pack(),
         ),
         InlineKeyboardButton(
             text=start_label,
-            callback_data=TopicDoneCb(
-                mode=mode,
-                ok_code=ok_code,
-                level=level,
-            ).pack(),
+            callback_data=TopicDoneCb(mode=mode, ok_code=ok_code, level=level).pack(),
         ),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     )
 
     return b.as_markup()
+
 
 
 
@@ -1297,8 +1313,6 @@ def kb_pos_topics(
 ) -> InlineKeyboardMarkup:
     selected_set: Set[str] = set(selected or [])
     topics = topics_for_position(position)
-
-    # PosTopic* CallbackData очікують pid (int), не назву посади
     pid = pos_id(position)
 
     pages: List[List[str]] = [topics[i:i + per_page] for i in range(0, len(topics), per_page)]
@@ -1310,11 +1324,9 @@ def kb_pos_topics(
 
     b = InlineKeyboardBuilder()
 
-    # кнопки тем
     for i, t in enumerate(current):
         idx = start_idx + i
-        checked = (t in selected_set)
-        icon = "☑️" if checked else "⬜️"
+        icon = "☑️" if (t in selected_set) else "⬜️"
         b.button(
             text=f"{icon} {t}",
             callback_data=PosTopicToggleCb(mode=mode, pid=pid, topic_idx=idx, page=page).pack(),
@@ -1322,13 +1334,13 @@ def kb_pos_topics(
 
     b.adjust(1)
 
-    # нижній ряд: Назад (в меню) + (⬅️/➡️) + Всі блоки + Почати
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
     bottom: List[InlineKeyboardButton] = [
-        InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")
-        # якщо хочеш назад саме в меню посади, заміни на:
-        # InlineKeyboardButton(text="⬅️ Назад", callback_data=PosMenuCb(mode=_short_mode(mode), pid=pid, action="m").pack())
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=PosMenuCb(mode=_short_mode(mode), pid=pid, action="m").pack(),
+        )
     ]
 
     if page > 0:
@@ -1347,18 +1359,13 @@ def kb_pos_topics(
         )
 
     bottom += [
-        InlineKeyboardButton(
-            text="🎯 Всі блоки",
-            callback_data=PosTopicAllCb(mode=mode, pid=pid).pack(),
-        ),
-        InlineKeyboardButton(
-            text=start_label,
-            callback_data=PosTopicDoneCb(mode=mode, pid=pid).pack(),
-        ),
+        InlineKeyboardButton(text="🎯 Всі блоки", callback_data=PosTopicAllCb(mode=mode, pid=pid).pack()),
+        InlineKeyboardButton(text=start_label, callback_data=PosTopicDoneCb(mode=mode, pid=pid).pack()),
     ]
 
     b.row(*bottom)
     return b.as_markup()
+
 
 @router.callback_query(PosTopicDoneCb.filter())
 async def pos_topic_done(call: CallbackQuery, callback_data: PosTopicDoneCb):
@@ -1582,25 +1589,23 @@ async def cmd_start(message: Message) -> None:
     await db_touch_user(DB_POOL, tg_id)
     user = await db_get_user(DB_POOL, tg_id)
 
-    # якщо не зареєстрований — показуємо кнопку контакту (reply-клавіатура)
     if not user or not user["phone"]:
-        await message.answer(
+        reg_msg = await message.answer(
             "Привіт! Щоб почати, потрібна реєстрація.\n\n"
             "1) Натисніть кнопку <b>«📞 Поділитись номером»</b>\n"
             "2) Ви отримаєте <b>3 дні безкоштовного тестування</b>\n",
             parse_mode=ParseMode.HTML,
             reply_markup=kb_request_contact(),
         )
+        REG_PROMPT_MSG_ID[tg_id] = reg_msg.message_id
         return
 
-    # 1) прибираємо нижню reply-клавіатуру (потрібен НЕ порожній текст)
     tmp = await message.answer("✅", reply_markup=ReplyKeyboardRemove())
     try:
         await tmp.delete()
     except Exception:
         pass
 
-    # 2) ОДРАЗУ показуємо головне меню (без "Готово ✅ ...")
     await show_main_menu(message, is_admin=bool(user["is_admin"]))
 
 
@@ -1611,6 +1616,15 @@ async def on_contact(message: Message) -> None:
         return
 
     tg_id = message.from_user.id
+
+    # прибираємо попередній реєстраційний текст (якщо був)
+    msg_id = REG_PROMPT_MSG_ID.pop(tg_id, None)
+    if msg_id:
+        try:
+            await message.bot.delete_message(chat_id=message.chat.id, message_id=msg_id)
+        except Exception:
+            pass
+
     c = message.contact
     if c.user_id and c.user_id != tg_id:
         await message.answer(
@@ -1623,14 +1637,18 @@ async def on_contact(message: Message) -> None:
     is_admin = tg_id in ADMIN_IDS
     user = await db_upsert_user(DB_POOL, tg_id, phone, is_admin)
 
-    await message.answer(
-        "Дякую! Реєстрацію завершено ✅\n\n"
-        f"Безкоштовний доступ до: <b>{user['trial_until'].astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</b>\n\n"
-        "Натисніть <b>📚 Навчання</b> або <b>📝 Екзамен</b>.\n"
-        "Якщо набір (ОК/рівень) ще не вибрано — бот запропонує вибір під час старту або в <b>⚙️ Налаштуваннях</b>.",
-        parse_mode=ParseMode.HTML,
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    # прибираємо reply-клавіатуру (кнопку контакту)
+    tmp = await message.answer("✅", reply_markup=ReplyKeyboardRemove())
+    try:
+        await tmp.delete()
+    except Exception:
+        pass
+
+    # (опційно) пробуємо прибрати повідомлення з контактом
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
     await show_main_menu(message, is_admin=bool(user["is_admin"]))
 
