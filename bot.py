@@ -1844,7 +1844,14 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
 
             await call.answer()
             exam_qids = build_position_exam_qids(position)
-            await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
+            await start_exam_session(
+                call.bot,
+                tg_id,
+                call.message.chat.id,
+                user,
+                exam_qids,
+                edit_message=call.message,  # ← додано
+            )
             return
 
         # TRAIN
@@ -1918,7 +1925,6 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
         return
 
     await call.answer()
-
 
 
 
@@ -2220,17 +2226,23 @@ async def pos_topic_all(call: CallbackQuery, callback_data: PosTopicAllCb):
 
     await call.answer()
 
-
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
     if mode == "train":
-        await start_session_for_pool(call.bot, tg_id, call.message.chat.id, user, mode, pool_qids)
+        await start_session_for_pool(
+            call.bot, tg_id, call.message.chat.id, user, mode, pool_qids,
+            edit_message=call.message,
+        )
     else:
         exam_qids = build_position_exam_qids(position)
-        await start_exam_session(call.bot, tg_id, call.message.chat.id, user, exam_qids)
+        await start_exam_session(
+            call.bot, tg_id, call.message.chat.id, user, exam_qids,
+            edit_message=call.message,
+        )
+
 
 @router.callback_query(TopicDoneCb.filter())
 async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
@@ -2282,7 +2294,9 @@ async def topic_done(call: CallbackQuery, callback_data: TopicDoneCb) -> None:
         user,
         mode,
         pool_qids,
+        edit_message=call.message,  # ← додано
     )
+
 
 def kb_pick_position(mode: str, back_to: str = "auto") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
