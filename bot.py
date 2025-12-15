@@ -809,47 +809,106 @@ def kb_pick_ok(page: int = 0, per_page: int = 9) -> InlineKeyboardMarkup:
 
 
 def kb_pick_ok_multi(
-    mode: str,
-    page: int = 0,
-    *,
-    selected: Optional[Set[str]] = None,
-    per_page: int = 9,
+        mode: str,
+        page: int = 0,
+        *,
+        selected: Optional[Set[str]] = None,
+        per_page: int = 18,  # Збільшуємо, щоб показати всі ОК
 ) -> InlineKeyboardMarkup:
     selected_set: Set[str] = set(selected or [])
-    codes = [OK_CODE_LAW] + [c for c in OK_CODES if c != OK_CODE_LAW]
-    pages: List[List[str]] = [codes[i:i + per_page] for i in range(0, len(codes), per_page)]
-    if not pages:
-        pages = [[]]
-    page = max(0, min(page, len(pages) - 1))
-    current = pages[page]
+
+    # ✅ СПОЧАТКУ: Законодавство окремо
+    # ✅ ПОТІМ: Всі ОК відсортовані від ОК-1 до ОК-17
+
+    # Створюємо список з усіма ОК крім законодавства
+    all_codes = []
+    for c in OK_CODES:
+        if c != OK_CODE_LAW:
+            all_codes.append(c)
+
+    # ✅ Сортуємо ОК за номером (від 1 до 17)
+    def get_ok_number(code: str) -> int:
+        try:
+            if code.startswith("ОК-"):
+                return int(code.split("-")[1])
+            return 999  # якщо не вдалось витягти номер
+        except:
+            return 999
+
+    # Сортуємо за номером
+    all_codes_sorted = sorted(all_codes, key=get_ok_number)
+
+    # Тепер додаємо законодавство першим, потім всі відсортовані ОК
+    codes = [OK_CODE_LAW] + all_codes_sorted
+
+    # Розділяємо на дві колонки
+    # Перша колонка: законодавство + половина ОК
+    # Друга колонка: друга половина ОК
+
+    half_len = (len(all_codes_sorted) + 1) // 2  # +1 для законодавства
+    first_column = codes[:half_len]
+    second_column = codes[half_len:]
 
     b = InlineKeyboardBuilder()
-    for c in current:
-        label = "📜 Законодавство" if c == OK_CODE_LAW else c
-        mark = "☑️" if c in selected_set else "⬜️"
-        b.button(
-            text=f"{mark} {label}",
-            callback_data=OkToggleCb(mode=mode, ok_code=c, page=page).pack(),
-        )
-    b.adjust(1)
 
-    nav: List[InlineKeyboardButton] = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅️", callback_data=OkMultiPageCb(mode=mode, page=page - 1).pack()))
-    if page < len(pages) - 1:
-        nav.append(InlineKeyboardButton(text="➡️", callback_data=OkMultiPageCb(mode=mode, page=page + 1).pack()))
-    if nav:
-        b.row(*nav)
+    # ✅ Додаємо кнопки в 2 колонки
+    max_rows = max(len(first_column), len(second_column))
 
-    b.row(
-        InlineKeyboardButton(text="🧹 Очистити", callback_data=OkClearCb(mode=mode, page=page).pack()),
-        InlineKeyboardButton(text="🎯 Всі ОК", callback_data=OkAllCb(mode=mode).pack()),
-    )
+    for i in range(max_rows):
+        row_buttons = []
+
+        # Перша колонка
+        if i < len(first_column):
+            c = first_column[i]
+            if c == OK_CODE_LAW:
+                label = "📜 Законодавство"
+            else:
+                label = c
+            mark = "☑️" if c in selected_set else "⬜️"
+            row_buttons.append(
+                InlineKeyboardButton(
+                    text=f"{mark} {label}",
+                    callback_data=OkToggleCb(mode=mode, ok_code=c, page=page).pack(),
+                )
+            )
+        else:
+            # Пуста кнопка для вирівнювання
+            row_buttons.append(
+                InlineKeyboardButton(text=" ", callback_data="noop")
+            )
+
+        # Друга колонка
+        if i < len(second_column):
+            c = second_column[i]
+            label = c
+            mark = "☑️" if c in selected_set else "⬜️"
+            row_buttons.append(
+                InlineKeyboardButton(
+                    text=f"{mark} {label}",
+                    callback_data=OkToggleCb(mode=mode, ok_code=c, page=page).pack(),
+                )
+            )
+        else:
+            # Пуста кнопка для вирівнювання
+            row_buttons.append(
+                InlineKeyboardButton(text=" ", callback_data="noop")
+            )
+
+        b.row(*row_buttons)
+
+    # ✅ Прибираємо "Всі ОК" і "Очистити", залишаємо тільки "Готово" і "Меню"
     b.row(
         InlineKeyboardButton(text="✅ Готово", callback_data=OkDoneCb(mode=mode).pack()),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
     )
+
     return b.as_markup()
+
+@router.callback_query(F.data == "noop")
+async def noop_callback(call: CallbackQuery) -> None:
+    """Обробник для порожніх кнопок (заглушок)."""
+    await call.answer()
+
 
 def kb_train_pick_multi(mode: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
@@ -2077,6 +2136,7 @@ async def ok_page(call: CallbackQuery, callback_data: OkPageCb) -> None:
     await call.message.edit_text("Оберіть ОК:", reply_markup=kb_pick_ok(page=int(callback_data.page)))
     await call.answer()
 
+
 @router.callback_query(OkMultiPageCb.filter())
 async def ok_multi_page(call: CallbackQuery, callback_data: OkMultiPageCb) -> None:
     if not DB_POOL:
@@ -2084,11 +2144,13 @@ async def ok_multi_page(call: CallbackQuery, callback_data: OkMultiPageCb) -> No
     tg_id = call.from_user.id
     mode = str(callback_data.mode)
     selected = await db_get_ok_prefs(DB_POOL, tg_id, mode)
+
+    # Просто показуємо ту ж саму клавіатуру без пагінації
     await safe_edit(
         call,
         f"Оберіть <b>декілька</b> ОК (блоків):\nОбрано: <b>{len(selected)}</b>",
         parse_mode=ParseMode.HTML,
-        reply_markup=kb_pick_ok_multi(mode, page=int(callback_data.page), selected=selected),
+        reply_markup=kb_pick_ok_multi(mode, page=0, selected=selected),
     )
     await call.answer()
 
