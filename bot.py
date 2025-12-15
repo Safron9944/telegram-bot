@@ -454,7 +454,7 @@ def kb_multi_topics(
     start_label = f"✅ Почати ({len(selected_set)})" if selected_set else "✅ Почати"
 
     b.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=OkDoneCb(mode=mode).pack()),
+        InlineKeyboardButton(text="⬅️ Назад", callback_data=OkMultiPageCb(mode=mode, page=0).pack()),
         InlineKeyboardButton(text="🎯 Всі теми", callback_data=MultiTopicAllCb(mode=mode).pack()),
         InlineKeyboardButton(text=start_label, callback_data=MultiTopicDoneCb(mode=mode).pack()),
         InlineKeyboardButton(text="🏠 Меню", callback_data="menu"),
@@ -465,6 +465,7 @@ def kb_multi_topics(
     )
 
     return b.as_markup()
+
 
 @router.callback_query(MultiTopicsPageCb.filter())
 async def multi_topics_page(call: CallbackQuery, callback_data: MultiTopicsPageCb) -> None:
@@ -2189,35 +2190,20 @@ async def ok_multi_done(call: CallbackQuery, callback_data: OkDoneCb) -> None:
     # Multi-OK
     shown = ", ".join(sorted(selected))
 
-    # ✅ НОВА ЛОГІКА: для навчання одразу починаємо з усіх тем обраних модулів
+    # ✅ НОВА ЛОГІКА: для навчання переходимо до вибору тем в межах вибраних модулів
     if mode == "train":
-        # Підтверджуємо callback
-        await call.answer()
+        # Зберігаємо вибрані ОК
+        await db_set_ok_prefs(DB_POOL, tg_id, mode, selected)
 
-        # Прибираємо клавіатуру вибору
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
-        # Отримуємо питання з усіх обраних ОК
-        pool: List[int] = []
-        for ok_code in sorted(selected):
-            lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
-            pool.extend(base_qids_for_scope(ok_code, lvl))
-
-        pool_qids = effective_qids(list(dict.fromkeys(pool)))
-
-        # Стартуємо навчання
-        await start_session_for_pool(
-            call.bot,
-            tg_id,
-            call.message.chat.id,
-            user,
-            mode,
-            pool_qids,
-            edit_message=call.message,
+        # Переходимо до вибору тем для multi-OK
+        await safe_edit(
+            call,
+            f"Обрані модулі: <b>{html_escape(shown)}</b>\n"
+            f"Тепер оберіть теми для тренування в межах цих модулів:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_multi_topics(mode, selected, page=0, selected=set()),
         )
+        await call.answer()
         return
 
     # Для екзамену - стара логіка (вибір варіантів)
@@ -2365,6 +2351,7 @@ async def pick_ok_from_anywhere(call: CallbackQuery) -> None:
     await safe_edit(call, "Оберіть ОК:", reply_markup=kb_pick_ok(page=0))
     await call.answer()
 
+
 @router.callback_query(F.data.startswith("mm:"))
 async def menu_actions_inline(call: CallbackQuery) -> None:
     if not DB_POOL:
@@ -2403,7 +2390,11 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
     if action == "stats":
         rows = await db_stats_get(DB_POOL, tg_id)
         if not rows:
-            await safe_edit(call, "Статистики поки нема.", reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+            await safe_edit(
+                call,
+                "Статистики поки нема.",
+                reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+            )
             await call.answer()
             return
 
@@ -2419,7 +2410,12 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
                 out += f"⏭ Пропущено: {r['skipped']}\n"
             out += "\n"
 
-        await safe_edit(call, out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await safe_edit(
+            call,
+            out,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        )
         await call.answer()
         return
 
@@ -2443,7 +2439,12 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             out += "Набір: <i>не вибрано</i>\n"
         out += f"Зараз: <code>{now.astimezone(KYIV_TZ).strftime('%Y-%m-%d %H:%M Kyiv')}</code>\n"
 
-        await safe_edit(call, out, parse_mode=ParseMode.HTML, reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])))
+        await safe_edit(
+            call,
+            out,
+            parse_mode=ParseMode.HTML,
+            reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
+        )
         await call.answer()
         return
 
@@ -2492,9 +2493,8 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             )
             return
 
-        # TRAIN (як у текстовому хендлері "📚 Навчання")
+        # TRAIN — якщо ОК вже вибрані -> одразу стартуємо, інакше показуємо вибір ОК
         mode = "train"
-
         selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, mode)
         selected_ok = set(selected_ok or [])
 
@@ -2531,7 +2531,7 @@ async def menu_actions_inline(call: CallbackQuery) -> None:
             )
             return
 
-        # Якщо ОК ще не вибрані - показуємо вибір
+        # Якщо ОК ще не вибрані - показуємо вибір ОК
         await safe_edit(
             call,
             "Оберіть <b>модулі</b> (ОК):\n"
@@ -3013,6 +3013,7 @@ async def menu_actions(message: Message) -> None:
             )
             return
 
+    # ✅ UPDATED: TRAIN
     if text == "📚 Навчання":
         selected_ok = await db_get_ok_prefs(DB_POOL, tg_id, "train")
         selected_ok = set(selected_ok or [])
@@ -3023,6 +3024,26 @@ async def menu_actions(message: Message) -> None:
             selected_ok = {ok_code}
             await db_set_ok_prefs(DB_POOL, tg_id, "train", selected_ok)
 
+        # Якщо вже є вибрані ОК - одразу починаємо навчання
+        if selected_ok:
+            pool: List[int] = []
+            for ok_code in sorted(selected_ok):
+                lvl = 0 if ok_code == OK_CODE_LAW else LEVEL_ALL
+                pool.extend(base_qids_for_scope(ok_code, lvl))
+
+            pool_qids = effective_qids(list(dict.fromkeys(pool)))
+
+            await start_session_for_pool(
+                message.bot,
+                tg_id,
+                message.chat.id,
+                user,
+                "train",
+                pool_qids,
+            )
+            return
+
+        # Якщо ОК ще не вибрані - показуємо вибір ОК
         await message.answer(
             "Оберіть <b>модулі</b> (ОК):\n"
             f"Обрано: <b>{len(selected_ok)}</b>",
@@ -3129,6 +3150,7 @@ async def menu_actions(message: Message) -> None:
             reply_markup=kb_main_menu(is_admin=bool(user["is_admin"])),
         )
         return
+
 
 
 # -------------------------
