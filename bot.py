@@ -27,6 +27,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
+
 try:
     TZ = ZoneInfo("Europe/Kyiv")
 except Exception:
@@ -352,30 +353,99 @@ class QuestionBank:
         with open(self.path, "r", encoding="utf-8") as f:
             raw = json.load(f)
 
+        def parse_qid(item, fallback: int) -> int:
+            # 1) question_number
+            if item.get("question_number") is not None:
+                try:
+                    return int(item["question_number"])
+                except Exception:
+                    pass
+
+            # 2) id (може бути "Q1")
+            v = item.get("id")
+            if isinstance(v, int):
+                return v
+            s = str(v or "").strip()
+            if s.lower().startswith("q") and s[1:].isdigit():
+                return int(s[1:])
+            if s.isdigit():
+                return int(s)
+
+            # 3) fallback
+            return fallback
+
+        self.by_id.clear()
+        self.law.clear()
+        self.law_groups.clear()
+        self.ok_modules.clear()
+
+        fallback_id = 1
+
         for item in raw:
+            qid = parse_qid(item, fallback_id)
+            fallback_id += 1
+
+            # якщо раптом дубль id — зміщуємо
+            while qid in self.by_id:
+                qid += 1
+
+            section = str(item.get("section") or "")
+            topic = str(item.get("topic") or section)  # якщо topic нема — групуємо по section
+
+            ok = item.get("ok")
+            if ok is None:
+                ok = item.get("ok_name") or item.get("ok_code")  # на випадок якщо в тебе так буде
+
+            level = item.get("level")
+            level = None if level is None else int(level)
+
+            question = str(item.get("question") or item.get("question_text") or "")
+
+            # choices: старий "choices" або новий "answers"
+            if item.get("choices"):
+                choices = list(item.get("choices") or [])
+                answers = []
+            else:
+                answers = item.get("answers") or []
+                choices = [str(a.get("text", "")) for a in answers]
+
+            # correct: старий "correct" (вже 1-based) або новий формат
+            correct = list(item.get("correct") or [])
+            if not correct:
+                # 1) якщо є answers з is_correct
+                if answers:
+                    correct = [i + 1 for i, a in enumerate(answers) if a.get("is_correct") is True]
+                # 2) якщо є correct_answer_index (0-based) -> робимо 1-based
+                elif item.get("correct_answer_index") is not None:
+                    correct = [int(item["correct_answer_index"]) + 1]
+
+            correct_texts = list(item.get("correct_texts") or [])
+            if not correct_texts and choices and correct:
+                correct_texts = [choices[i - 1] for i in correct if 1 <= i <= len(choices)]
+
             q = Q(
-                id=int(item.get("id")),
-                section=str(item.get("section") or ""),
-                topic=str(item.get("topic") or ""),
-                ok=item.get("ok"),
-                level=item.get("level") if item.get("level") is None else int(item.get("level")),
-                question=str(item.get("question") or ""),
-                choices=list(item.get("choices") or []),
-                correct=list(item.get("correct") or []),
-                correct_texts=list(item.get("correct_texts") or []),
+                id=int(qid),
+                section=section,
+                topic=topic,
+                ok=ok,
+                level=level,
+                question=question,
+                choices=choices,
+                correct=[int(x) for x in correct],
+                correct_texts=correct_texts,
             )
             self.by_id[q.id] = q
 
-        # Index: law questions
+        # Index: Законодавство = ВСЕ без ok
         for qid, q in self.by_id.items():
             if not q.is_valid_mcq:
                 continue
-            if "законодавств" in q.section.lower():
+            if not q.ok:
                 self.law.append(qid)
                 key = self._law_group_key(q.topic)
                 self.law_groups.setdefault(key, []).append(qid)
 
-        # Index: OK questions
+        # Index: OK = ВСЕ з ok
         for qid, q in self.by_id.items():
             if not q.is_valid_mcq:
                 continue
@@ -1672,6 +1742,9 @@ def fmt_user_row(u: Dict[str, Any]) -> str:
     phone = u.get("phone") or "без номера"
     return f"{_admin_user_icon(u)} {phone} • {uid}"
 
+def _is_not_modified_error(e: TelegramBadRequest) -> bool:
+    return "message is not modified" in (str(e) or "").lower()
+
 
 async def render_admin_view(
     bot: Bot,
@@ -1683,55 +1756,52 @@ async def render_admin_view(
     message: Optional[Message] = None,
 ):
     """
-    Гарантія: редагуємо ОДНЕ адмін-повідомлення.
-    - якщо є message (callback) -> редагуємо його і запамʼятовуємо id
-    - якщо message=None (ввід тексту) -> редагуємо збережений admin_panel_msg_id
-    - якщо не вийшло -> створюємо 1 нове і запамʼятовуємо його id
+    Редагуємо ОДНЕ адмін-повідомлення.
+    Важливо: якщо Telegram каже "message is not modified" — це НЕ помилка,
+    нові повідомлення НЕ створюємо.
     """
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
 
+    async def _try_edit(c_id: int, m_id: int) -> bool:
+        try:
+            await bot.edit_message_text(
+                chat_id=c_id,
+                message_id=m_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+            return True
+        except TelegramBadRequest as e:
+            if _is_not_modified_error(e):
+                return True  # нічого не змінилось — але це ок, НЕ шлемо нове
+            return False
+        except Exception:
+            return False
+
+    # 1) Якщо є message з callback — редагуємо його і запамʼятовуємо
     if message:
         st[ADMIN_PANEL_MSG_ID] = message.message_id
         st[ADMIN_PANEL_CHAT_ID] = message.chat.id
         await store.set_state(uid, st)
 
-        # редагуємо саме це повідомлення
-        try:
-            await bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=message.message_id,
-                text=text,
-                reply_markup=kb,
-                parse_mode="HTML",
-            )
+        if await _try_edit(message.chat.id, message.message_id):
             return
-        except TelegramBadRequest:
-            # fallback нижче
-            pass
 
-    # message=None -> редагуємо останнє адмін меню зі state
+    # 2) Якщо message=None — редагуємо останнє адмін-меню зі state
     msg_id = st.get(ADMIN_PANEL_MSG_ID)
-    chat_id = st.get(ADMIN_PANEL_CHAT_ID) or chat_id
+    c_id = st.get(ADMIN_PANEL_CHAT_ID) or chat_id
 
-    if msg_id:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=msg_id,
-                text=text,
-                reply_markup=kb,
-                parse_mode="HTML",
-            )
-            return
-        except TelegramBadRequest:
-            pass
+    if msg_id and await _try_edit(c_id, msg_id):
+        return
 
-    # якщо редагувати нічого — створюємо 1 нове
+    # 3) Якщо реально нема що редагувати — тоді створюємо 1 нове
     sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
     st[ADMIN_PANEL_MSG_ID] = sent.message_id
     st[ADMIN_PANEL_CHAT_ID] = chat_id
     await store.set_state(uid, st)
+
 
 
 # --- renders ---
@@ -1874,7 +1944,6 @@ async def render_admin_user_detail(
     user = await store.get_user(target_id)
 
     phone_html = hescape(user.get("phone") or "—")
-
     text = (
         "👤 <b>Користувач</b>\n\n"
         f"ID: <b>{target_id}</b>\n"
@@ -1882,13 +1951,32 @@ async def render_admin_user_detail(
         f"{fmt_access_line(user)}"
     )
 
+    ok, stt = access_status(user)
+    is_inf = (stt == "sub_infinite")
+
     b = InlineKeyboardBuilder()
 
-    # одноразова підписка -> тільки "безкінечно"
-    b.button(text="✅ Дати доступ (безкінечно)", callback_data=clamp_callback(f"admin:subinf:{target_id}:{back_offset}"))
-    b.button(text="🚫 Забрати доступ", callback_data=clamp_callback(f"admin:subcancel:{target_id}:{back_offset}"))
-    b.adjust(1)
+    # Кнопка "дати безкінечно" змінює іконку:
+    if is_inf:
+        b.button(
+            text="🟢 Доступ безкінечно (активний)",
+            callback_data="noop",
+        )
+        b.button(
+            text="🔴 Завершити доступ",
+            callback_data=clamp_callback(f"admin:subcancel:{target_id}:{back_offset}"),
+        )
+    else:
+        b.button(
+            text="🔴 Дати доступ (безкінечно)",
+            callback_data=clamp_callback(f"admin:subinf:{target_id}:{back_offset}"),
+        )
+        b.button(
+            text="🚫 Забрати доступ",
+            callback_data=clamp_callback(f"admin:subcancel:{target_id}:{back_offset}"),
+        )
 
+    b.adjust(1)
     b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"admin:users:{back_offset}")))
 
     await render_admin_view(bot, store, admin_uid, chat_id, text, b.as_markup(), message=message)
@@ -2041,11 +2129,9 @@ async def admin_sub_inf(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids
         await cb.answer("Помилка")
         return
 
-    # одноразова підписка -> доступ безкінечно
     await store.set_subscription(target_id, None, infinite=True)
-
     await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
-    await cb.answer("Ок")
+    await cb.answer()
 
 
 @router.callback_query(F.data.startswith("admin:subcancel:"))
@@ -2063,11 +2149,9 @@ async def admin_sub_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", admin_
         await cb.answer("Помилка")
         return
 
-    # забрати доступ
     await store.set_subscription(target_id, None, infinite=False)
-
     await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
-    await cb.answer("Ок")
+    await cb.answer()
 
 
 # -------------------- Bootstrap --------------------
