@@ -1225,8 +1225,8 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
             end = start + 50
             qids = qids[start:end]
 
-        title = clean_law_title(qb.law_group_title(group_key))
-        header = f"📜 <b>Законодавство</b>\nПункт {group_key}: {title}"
+        # прибрали показ "Законодавство / Пункт ..."
+        header = ""
 
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
@@ -1242,14 +1242,10 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         all_qids = qb.law_groups.get(group_key, [])
 
         n = min(50, len(all_qids))
-        qids = qb.pick_random(all_qids, n)  # або qb.pick_random(all_qids, 50) якщо там вже є min()
+        qids = qb.pick_random(all_qids, n)
 
-        title = clean_law_title(qb.law_group_title(group_key))
-        header = (
-            f"📜 <b>Законодавство</b>\n"
-            f"Пункт {group_key}: {title}\n"
-            f"🎲 Рандомні {n} питань"
-        )
+        # прибрали показ "Законодавство / Пункт ... / Рандомні ..."
+        header = ""
 
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
@@ -1277,7 +1273,6 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         return
 
     await cb.answer("Невідомий режим")
-
 
 
 @router.callback_query(F.data == "ans:0")  # placeholder; real handler below
