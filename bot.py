@@ -841,13 +841,17 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
     inf: bool = bool(user.get("sub_infinite"))
 
     n = now()
-    if t_end and n <= t_end:
-        return True, "trial"
+
+    # ✅ ПІДПИСКА має пріоритет над тріалом
     if inf:
         return True, "sub_infinite"
     if s_end and n <= s_end:
         return True, "sub_active"
+    if t_end and n <= t_end:
+        return True, "trial"
+
     return False, "expired"
+
 
 
 # -------------------- UI helpers --------------------
@@ -2153,11 +2157,13 @@ def _admin_user_icon(u: Dict[str, Any]) -> str:
     inf = bool(u.get("sub_infinite"))
     n = now()
 
-    if t_end and n <= t_end:
-        return "🟡"
+    # ✅ ПІДПИСКА має пріоритет над тріалом
     if inf or (s_end and n <= s_end):
         return "🟢"
+    if t_end and n <= t_end:
+        return "🟡"
     return "🔴"
+
 
 
 def fmt_user_row(u: Dict[str, Any]) -> str:
