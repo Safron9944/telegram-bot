@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from html import escape as hescape
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
+
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.enums import ParseMode
@@ -47,6 +50,13 @@ def normalize_tme_url(s: str) -> str:
 # Links (can be overridden via env vars)
 GROUP_URL = normalize_tme_url(os.getenv("GROUP_URL", "t.me/mytnytsia_tests"))
 
+# --- keys у state ---
+ADMIN_PANEL_MSG_ID = "admin_panel_msg_id"
+ADMIN_PANEL_CHAT_ID = "admin_panel_chat_id"
+
+ADMIN_USERS_QUERY = "admin_users_query"
+ADMIN_USERS_AWAITING = "awaiting"
+ADMIN_USERS_BACK_OFFSET = "admin_users_back_offset"
 
 def get_admin_contact_url(admin_ids: set[int]) -> str:
     """URL for 'contact admin' button.
@@ -296,6 +306,21 @@ class Storage:
             FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
         """, limit, offset)
         return [dict(r) for r in rows]
+
+    async def search_users_by_phone(self, phone_digits: str, offset: int, limit: int) -> list[dict]:
+        q = "".join(ch for ch in (phone_digits or "").strip() if ch.isdigit())
+        if not q:
+            return []
+        rows = await self._fetch("""
+            SELECT user_id, phone, trial_end, sub_end, sub_infinite, created_at
+            FROM users
+            WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%' || $1 || '%'
+            ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
+        """, q, limit, offset)
+        return [dict(r) for r in rows]
+
+
 
 # -------------------- Question bank --------------------
 
@@ -756,7 +781,7 @@ def build_feedback_text(q: Q, header: str, chosen: int) -> str:
     ]
 
     for i, ch in enumerate(choices):
-        if i in correct_set:
+        if (i + 1) in correct_set:
             mark = "✅"
             note = " <i>(правильно)</i>"
         elif i == chosen:
@@ -1298,7 +1323,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         await cb.answer("Питання недоступне")
         return
 
-    is_correct = choice in set(int(x) for x in q.correct)
+    is_correct = (choice + 1) in set(int(x) for x in q.correct)
 
     pending = list(st.get("pending", []))
     if pending and int(pending[0]) == int(qid):
@@ -1625,129 +1650,425 @@ async def nav_stats(cb: CallbackQuery, bot: Bot, store: Storage):
 
 # -------- Admin: users --------
 
+def _admin_user_icon(u: Dict[str, Any]) -> str:
+    # 🟢 активна підписка | 🟡 тріал | 🔴 без доступу | ⚪️ без номера
+    phone = u.get("phone")
+    if not phone:
+        return "⚪️"
+
+    t_end = u.get("trial_end")
+    s_end = u.get("sub_end")
+    inf = bool(u.get("sub_infinite"))
+    n = now()
+
+    if t_end and n <= t_end:
+        return "🟡"
+    if inf or (s_end and n <= s_end):
+        return "🟢"
+    return "🔴"
+
+
 def fmt_user_row(u: Dict[str, Any]) -> str:
     uid = u["user_id"]
-    phone = u.get("phone") or "—"
-    return f"{uid} • {phone}"
+    phone = u.get("phone") or "без номера"
+    return f"{_admin_user_icon(u)} {phone} • {uid}"
+
+
+async def render_admin_view(
+    bot: Bot,
+    store: "Storage",
+    uid: int,
+    chat_id: int,
+    text: str,
+    kb: InlineKeyboardMarkup,
+    message: Optional[Message] = None,
+):
+    """
+    Гарантія: редагуємо ОДНЕ адмін-повідомлення.
+    - якщо є message (callback) -> редагуємо його і запамʼятовуємо id
+    - якщо message=None (ввід тексту) -> редагуємо збережений admin_panel_msg_id
+    - якщо не вийшло -> створюємо 1 нове і запамʼятовуємо його id
+    """
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    if message:
+        st[ADMIN_PANEL_MSG_ID] = message.message_id
+        st[ADMIN_PANEL_CHAT_ID] = message.chat.id
+        await store.set_state(uid, st)
+
+        # редагуємо саме це повідомлення
+        try:
+            await bot.edit_message_text(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+            return
+        except TelegramBadRequest:
+            # fallback нижче
+            pass
+
+    # message=None -> редагуємо останнє адмін меню зі state
+    msg_id = st.get(ADMIN_PANEL_MSG_ID)
+    chat_id = st.get(ADMIN_PANEL_CHAT_ID) or chat_id
+
+    if msg_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=text,
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+            return
+        except TelegramBadRequest:
+            pass
+
+    # якщо редагувати нічого — створюємо 1 нове
+    sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+    st[ADMIN_PANEL_MSG_ID] = sent.message_id
+    st[ADMIN_PANEL_CHAT_ID] = chat_id
+    await store.set_state(uid, st)
+
+
+# --- renders ---
+async def render_admin_users_list(
+    bot: Bot,
+    store: "Storage",
+    admin_uid: int,
+    chat_id: int,
+    offset: int,
+    message: Optional[Message] = None,
+):
+    ui = await store.get_ui(admin_uid)
+    st = ui.get("state", {}) or {}
+    query_digits = (st.get(ADMIN_USERS_QUERY) or "").strip()
+
+    limit = 10
+
+    # беремо limit+1 щоб визначити чи є "next"
+    if query_digits:
+        items = await store.search_users_by_phone(query_digits, offset, limit + 1)
+        search_line = f"\n🔎 Пошук: <code>{hescape(query_digits)}</code>\n"
+    else:
+        items = await store.list_users(offset, limit + 1)
+        search_line = ""
+
+    has_next = len(items) > limit
+    users = items[:limit]
+
+    c_green = c_yellow = c_red = c_white = 0
+    for u in users:
+        ic = _admin_user_icon(u)
+        if ic == "🟢":
+            c_green += 1
+        elif ic == "🟡":
+            c_yellow += 1
+        elif ic == "🔴":
+            c_red += 1
+        else:
+            c_white += 1
+
+    text = (
+        "🛠 <b>Користувачі</b>\n"
+        "🟢 підписка | 🟡 тріал | 🔴 без доступу | ⚪️ без номера\n"
+        f"У цьому списку: 🟢{c_green} 🟡{c_yellow} 🔴{c_red} ⚪️{c_white}"
+        f"{search_line}\n"
+        "Оберіть користувача:"
+    )
+
+    rows: list[list[InlineKeyboardButton]] = []
+
+    # пошук
+    top = [
+        InlineKeyboardButton(
+            text="🔎 Пошук по номеру",
+            callback_data=clamp_callback(f"admin:users_search:{offset}"),
+        )
+    ]
+    if query_digits:
+        top.append(
+            InlineKeyboardButton(
+                text="❌ Очистити",
+                callback_data=clamp_callback(f"admin:users_clear:{offset}"),
+            )
+        )
+    rows.append(top)
+
+    # користувачі
+    if users:
+        for u in users:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=fmt_user_row(u),
+                        callback_data=clamp_callback(f"admin:user:{u['user_id']}:{offset}"),
+                    )
+                ]
+            )
+    else:
+        rows.append([InlineKeyboardButton(text="— Нічого не знайдено —", callback_data="noop")])
+
+    # навігація
+    nav_row: list[InlineKeyboardButton] = []
+    if offset > 0:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=clamp_callback(f"admin:users:{max(0, offset - limit)}"),
+            )
+        )
+    if has_next:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=clamp_callback(f"admin:users:{offset + limit}"),
+            )
+        )
+    if nav_row:
+        rows.append(nav_row)
+
+    # меню
+    rows.append([InlineKeyboardButton(text="⬅️ Меню", callback_data=clamp_callback("nav:menu"))])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    await render_admin_view(bot, store, admin_uid, chat_id, text, kb, message=message)
+
+
+async def render_admin_users_search_prompt(
+    bot: Bot,
+    store: "Storage",
+    uid: int,
+    chat_id: int,
+    back_offset: int,
+    message: Optional[Message] = None,
+    error: Optional[str] = None,
+):
+    err = f"\n\n⚠️ {hescape(error)}" if error else ""
+    text = (
+        "🔎 <b>Пошук по номеру</b>\n\n"
+        "Надішли номер (можна частину).\n"
+        "Я шукаю по цифрах, наприклад: <code>38067</code> або <code>067</code>."
+        f"{err}"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"admin:users:{back_offset}"))]
+        ]
+    )
+    await render_admin_view(bot, store, uid, chat_id, text, kb, message=message)
+
+
+async def render_admin_user_detail(
+    bot: Bot,
+    store: "Storage",
+    admin_uid: int,
+    chat_id: int,
+    target_id: int,
+    back_offset: int,
+    message: Optional[Message] = None,
+):
+    user = await store.get_user(target_id)
+
+    phone_html = hescape(user.get("phone") or "—")
+
+    text = (
+        "👤 <b>Користувач</b>\n\n"
+        f"ID: <b>{target_id}</b>\n"
+        f"Телефон: <b>{phone_html}</b>\n"
+        f"{fmt_access_line(user)}"
+    )
+
+    b = InlineKeyboardBuilder()
+
+    # одноразова підписка -> тільки "безкінечно"
+    b.button(text="✅ Дати доступ (безкінечно)", callback_data=clamp_callback(f"admin:subinf:{target_id}:{back_offset}"))
+    b.button(text="🚫 Забрати доступ", callback_data=clamp_callback(f"admin:subcancel:{target_id}:{back_offset}"))
+    b.adjust(1)
+
+    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"admin:users:{back_offset}")))
+
+    await render_admin_view(bot, store, admin_uid, chat_id, text, b.as_markup(), message=message)
+
+
+# --- handlers ---
+@router.callback_query(F.data == "noop")
+async def noop(cb: CallbackQuery):
+    await cb.answer()
 
 
 @router.callback_query(F.data.startswith("admin:users:"))
-async def admin_users(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+async def admin_users(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
     uid = cb.from_user.id
     if uid not in admin_ids:
         await cb.answer("Немає доступу")
         return
 
-    offset = int(cb.data.split(":")[2])
-    limit = 10
-    users = await store.list_users(offset, limit)
+    try:
+        offset = int(cb.data.split(":")[2])
+    except Exception:
+        await cb.answer("Помилка")
+        return
 
-    text = "🛠 <b>Користувачі</b>\n\nОберіть користувача:"
-    b = InlineKeyboardBuilder()
-    for u in users:
-        b.button(text=fmt_user_row(u), callback_data=clamp_callback(f"admin:user:{u['user_id']}:{offset}"))
-    b.adjust(1)
-    b.row()
-    if offset > 0:
-        b.button(text="⬅️", callback_data=f"admin:users:{max(0, offset-limit)}")
-    b.button(text="➡️", callback_data=f"admin:users:{offset+limit}")
-    b.row()
-    b.button(text="⬅️ Меню", callback_data="nav:menu")
-
-    await render_main(bot, store, uid, cb.message.chat.id, text, b.as_markup(), message=cb.message)
+    await render_admin_users_list(bot, store, uid, cb.message.chat.id, offset, message=cb.message)
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin:users_search:"))
+async def admin_users_search_prompt(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    try:
+        back_offset = int(cb.data.split(":")[2])
+    except Exception:
+        await cb.answer("Помилка")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    st[ADMIN_USERS_AWAITING] = "admin_users_phone"
+    st[ADMIN_USERS_BACK_OFFSET] = back_offset
+    await store.set_state(uid, st)
+
+    await render_admin_users_search_prompt(bot, store, uid, cb.message.chat.id, back_offset, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin:users_clear:"))
+async def admin_users_clear(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    try:
+        back_offset = int(cb.data.split(":")[2])
+    except Exception:
+        await cb.answer("Помилка")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    st.pop(ADMIN_USERS_QUERY, None)
+    st.pop(ADMIN_USERS_AWAITING, None)
+    st.pop(ADMIN_USERS_BACK_OFFSET, None)
+    await store.set_state(uid, st)
+
+    await render_admin_users_list(bot, store, uid, cb.message.chat.id, back_offset, message=cb.message)
+    await cb.answer("Очищено")
+
+
+@router.message(F.text)
+async def admin_users_search_input(message: Message, bot: Bot, store: "Storage", admin_ids: set[int]):
+    uid = message.from_user.id
+    if uid not in admin_ids:
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    if st.get(ADMIN_USERS_AWAITING) != "admin_users_phone":
+        return
+
+    back_offset = int(st.get(ADMIN_USERS_BACK_OFFSET) or 0)
+
+    digits = "".join(ch for ch in (message.text or "").strip() if ch.isdigit())
+
+    # прибрати повідомлення з номером (щоб не світити)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if not digits:
+        # не створюємо нових повідомлень — просто міняємо те саме меню з помилкою
+        await render_admin_users_search_prompt(
+            bot, store, uid, st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id, back_offset,
+            message=None, error="Введи хоча б одну цифру"
+        )
+        return
+
+    st[ADMIN_USERS_QUERY] = digits
+    st.pop(ADMIN_USERS_AWAITING, None)
+    st.pop(ADMIN_USERS_BACK_OFFSET, None)
+    await store.set_state(uid, st)
+
+    # важливо: message=None -> редагуємо збережене адмін-меню
+    await render_admin_users_list(
+        bot, store, uid,
+        st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
+        0,
+        message=None
+    )
 
 
 @router.callback_query(F.data.startswith("admin:user:"))
-async def admin_user_detail(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+async def admin_user_detail(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
     admin_uid = cb.from_user.id
     if admin_uid not in admin_ids:
         await cb.answer("Немає доступу")
         return
 
-    _, _, target_id, back_offset = cb.data.split(":")
-    target_id = int(target_id)
-    back_offset = int(back_offset)
+    try:
+        _, _, target_id, back_offset = cb.data.split(":")
+        target_id = int(target_id)
+        back_offset = int(back_offset)
+    except Exception:
+        await cb.answer("Помилка")
+        return
 
-    user = await store.get_user(target_id)
-
-    text = (
-        "👤 <b>Користувач</b>\n\n"
-        f"ID: <b>{target_id}</b>\n"
-        f"Телефон: <b>{user.get('phone') or '—'}</b>\n"
-        f"{fmt_access_line(user)}"
-    )
-
-    b = InlineKeyboardBuilder()
-    b.button(text="+30 днів", callback_data=clamp_callback(f"admin:sub:{target_id}:{back_offset}:30"))
-    b.button(text="+90 днів", callback_data=clamp_callback(f"admin:sub:{target_id}:{back_offset}:90"))
-    b.adjust(2)
-    b.row()
-    b.button(text="Безкінечно", callback_data=clamp_callback(f"admin:subinf:{target_id}:{back_offset}"))
-    b.button(text="Скасувати", callback_data=clamp_callback(f"admin:subcancel:{target_id}:{back_offset}"))
-    b.row()
-    b.button(text="⬅️ Назад", callback_data=f"admin:users:{back_offset}")
-
-    await render_main(bot, store, admin_uid, cb.message.chat.id, text, b.as_markup(), message=cb.message)
+    await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("admin:sub:"))
-async def admin_sub_add(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    admin_uid = cb.from_user.id
-    if admin_uid not in admin_ids:
-        await cb.answer("Немає доступу")
-        return
-
-    _, _, target_id, back_offset, days = cb.data.split(":")
-    target_id = int(target_id)
-    back_offset = int(back_offset)
-    days = int(days)
-
-    user = await store.get_user(target_id)
-    base = now()
-    if user.get("sub_end") and user["sub_end"] > base:
-        base = user["sub_end"]
-    new_end = base + timedelta(days=days)
-    await store.set_subscription(target_id, new_end, infinite=False)
-    await cb.answer("Ок")
-    # refresh
-    cb.data = f"admin:user:{target_id}:{back_offset}"
-    await admin_user_detail(cb, bot, store, admin_ids)
-
-
 @router.callback_query(F.data.startswith("admin:subinf:"))
-async def admin_sub_inf(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+async def admin_sub_inf(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
     admin_uid = cb.from_user.id
     if admin_uid not in admin_ids:
         await cb.answer("Немає доступу")
         return
 
-    _, _, target_id, back_offset = cb.data.split(":")
-    target_id = int(target_id)
-    back_offset = int(back_offset)
+    try:
+        _, _, target_id, back_offset = cb.data.split(":")
+        target_id = int(target_id)
+        back_offset = int(back_offset)
+    except Exception:
+        await cb.answer("Помилка")
+        return
 
+    # одноразова підписка -> доступ безкінечно
     await store.set_subscription(target_id, None, infinite=True)
+
+    await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
     await cb.answer("Ок")
-    cb.data = f"admin:user:{target_id}:{back_offset}"
-    await admin_user_detail(cb, bot, store, admin_ids)
 
 
 @router.callback_query(F.data.startswith("admin:subcancel:"))
-async def admin_sub_cancel(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+async def admin_sub_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
     admin_uid = cb.from_user.id
     if admin_uid not in admin_ids:
         await cb.answer("Немає доступу")
         return
 
-    _, _, target_id, back_offset = cb.data.split(":")
-    target_id = int(target_id)
-    back_offset = int(back_offset)
+    try:
+        _, _, target_id, back_offset = cb.data.split(":")
+        target_id = int(target_id)
+        back_offset = int(back_offset)
+    except Exception:
+        await cb.answer("Помилка")
+        return
 
+    # забрати доступ
     await store.set_subscription(target_id, None, infinite=False)
+
+    await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
     await cb.answer("Ок")
-    cb.data = f"admin:user:{target_id}:{back_offset}"
-    await admin_user_detail(cb, bot, store, admin_ids)
 
 
 # -------------------- Bootstrap --------------------
