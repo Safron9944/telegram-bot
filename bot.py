@@ -2160,18 +2160,33 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
 async def nav_stats(cb: CallbackQuery, bot: Bot, store: Storage):
     uid = cb.from_user.id
     s = await store.stats(uid)
+
     if s["count"] == 0:
         text = "📊 <b>Статистика</b>\n\nЩе немає завершених тестів."
     else:
         last = s["last"]
+
+        dt = last.get("finished_at")
+        if isinstance(dt, str):
+            dt = iso_to_dt(dt)  # твоя функція
+        # якщо dt вже datetime — залишаємо як є
+        finished = dt.strftime("%d.%m.%Y %H:%M") if isinstance(dt, datetime) else "—"
+
+        percent = last.get("percent")
+        try:
+            percent_f = float(percent)
+        except (TypeError, ValueError):
+            percent_f = 0.0
+
         text = (
             "📊 <b>Статистика</b>\n\n"
             f"Тестів (останні 50): <b>{s['count']}</b>\n"
             f"Середній результат: <b>{s['avg']:.1f}%</b>\n\n"
             f"Останній тест:\n"
-            f"• {iso_to_dt(last['finished_at']).strftime('%d.%m.%Y %H:%M')}\n"
-            f"• {last['correct']}/{last['total']} = {float(last['percent']):.1f}%"
+            f"• {finished}\n"
+            f"• {last['correct']}/{last['total']} = {percent_f:.1f}%"
         )
+
     await render_main(
         bot, store, uid, cb.message.chat.id,
         text,
