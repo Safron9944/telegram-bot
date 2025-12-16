@@ -474,7 +474,9 @@ class QuestionBank:
                 if isinstance(it, dict):
                     yield it
 
-        # 3) {"law": [...], "ok": ...}
+        # 3) law / legislation
+        # - list: [{"question":...}, ...]
+        # - dict (new flat): {"<group title>": [ ... ], ...}
         law = raw.get("law") or raw.get("laws") or raw.get("legislation")
         if isinstance(law, list):
             for it in law:
@@ -483,7 +485,27 @@ class QuestionBank:
                     it.setdefault("section", "Законодавство")
                     yield it
 
-        ok = raw.get("ok") or raw.get("ok_questions") or raw.get("ok_modules")
+        if isinstance(law, dict):
+            for law_title, arr in law.items():
+                if not isinstance(arr, list):
+                    continue
+                for it in arr:
+                    if not isinstance(it, dict):
+                        continue
+                    it = dict(it)
+                    it.setdefault("section", "Законодавство")
+                    it.setdefault("topic", str(law_title))
+                    yield it
+
+        # 4) OK / operational competencies
+        ok = (
+            raw.get("ok")
+            or raw.get("ok_questions")
+            or raw.get("ok_modules")
+            or raw.get("operational_competencies")
+            or raw.get("operationalCompetencies")
+        )
+
         if isinstance(ok, list):
             for it in ok:
                 if isinstance(it, dict):
@@ -491,9 +513,31 @@ class QuestionBank:
                     it.setdefault("section", "ОК")
                     yield it
 
-        # ok як dict: module -> (dict level->list | list)
+        # ok як dict:
+        # A) module -> (dict level->list | list)  [old]
+        # B) module -> {"name": "...", "levels": {level->list}} [new]
         if isinstance(ok, dict):
             for module_name, v in ok.items():
+                # new structure: {"name": "...", "levels": {...}}
+                if isinstance(v, dict) and isinstance(v.get("levels"), dict):
+                    module_title = v.get("name") or v.get("title") or v.get("module_name") or ""
+                    levels_dict = v.get("levels") or {}
+                    for lvl, arr in levels_dict.items():
+                        if not isinstance(arr, list):
+                            continue
+                        for it in arr:
+                            if not isinstance(it, dict):
+                                continue
+                            it = dict(it)
+                            it.setdefault("section", "ОК")
+                            it.setdefault("ok", str(module_name))
+                            it.setdefault("level", lvl)
+                            if module_title:
+                                it.setdefault("topic", str(module_title))
+                            yield it
+                    continue
+
+                # old structure: module -> dict(level -> list[dict])
                 if isinstance(v, dict):
                     for lvl, arr in v.items():
                         if not isinstance(arr, list):
@@ -515,14 +559,13 @@ class QuestionBank:
                         it.setdefault("ok", str(module_name))
                         yield it
 
-        # 4) {"sections": [...]}
-        sections = raw.get("sections")
-        if isinstance(sections, list):
-            for sec in sections:
+        # 5) {"sections": [...]} (примітивна підтримка вкладених секцій)
+        secs = raw.get("sections")
+        if isinstance(secs, list):
+            for sec in secs:
                 if not isinstance(sec, dict):
                     continue
-                sec_name = sec.get("name") or sec.get("title") or sec.get("section") or ""
-                # може бути: {"questions":[...]}
+                sec_name = sec.get("name") or sec.get("title") or sec.get("section") or "Секція"
                 sec_q = sec.get("questions") or sec.get("items")
                 if isinstance(sec_q, list):
                     for it in sec_q:
@@ -547,6 +590,7 @@ class QuestionBank:
                                 it.setdefault("section", str(sec_name))
                                 it.setdefault("topic", str(topic_name))
                                 yield it
+
 
     def _normalize_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
@@ -737,7 +781,7 @@ class QuestionBank:
             correct_texts = [choices[i - 1] for i in correct if 1 <= i <= len(choices)]
 
         # ---- ids ----
-        raw_id = item.get("id") or item.get("qid") or item.get("question_id")
+        raw_id = item.get("id") or item.get("uid") or item.get("qid") or item.get("question_id")
         qid = self._make_int_id(raw_id, fallback=(raw_id, section, topic, item.get("question_number"), qtext))
 
         return {
