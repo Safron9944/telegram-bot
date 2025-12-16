@@ -1824,9 +1824,9 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
 
     if mode == "learn":
         if is_correct:
+            st["correct_count"] = int(st.get("correct_count", 0)) + 1
             st["feedback"] = None
         else:
-            # bump wrong counter -> move into mistakes after 5 wrong
             wc, im = await store.bump_wrong(uid, int(qid))
             st["feedback"] = {"qid": int(qid), "chosen": int(choice)}
         await store.set_state(uid, st)
