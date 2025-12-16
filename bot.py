@@ -407,21 +407,27 @@ class QuestionBank:
             self.by_id[q.id] = q
 
         # ---- indexes ----
+
         for qid, q in self.by_id.items():
             if not q.is_valid_mcq:
                 continue
 
+            # New flat DB logic:
+            # - If there is an OK module -> it's an OK question
+            # - Otherwise -> legislation ("Законодавство")
             sec = (q.section or "").lower()
-            is_law = ("законодав" in sec) or (sec in {"law", "legislation"}) or (q.section == "Законодавство")
-            if is_law and not q.ok:
+            is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
+
+            if not is_ok:
                 self.law.append(qid)
-                key = self._law_group_key(q.topic)
+                key = self._law_group_key(q.topic or q.section)
                 self.law_groups.setdefault(key, []).append(qid)
 
-            if q.ok:
-                self.ok_modules.setdefault(q.ok, {})
+            if is_ok:
+                mod = q.ok or "ОК"
+                self.ok_modules.setdefault(mod, {})
                 lvl = int(q.level or 1)
-                self.ok_modules[q.ok].setdefault(lvl, []).append(qid)
+                self.ok_modules[mod].setdefault(lvl, []).append(qid)
 
         # stable order
         for k in self.law_groups:
@@ -546,110 +552,193 @@ class QuestionBank:
         if not isinstance(item, dict):
             return None
 
-        # ---- question text ----
-        qtext = item.get("question") or item.get("q") or item.get("text") or item.get("title") or ""
+        # ---- question text (supports new flat DB: question_text) ----
+        qtext = (
+            item.get("question_text")
+            or item.get("questionText")
+            or item.get("question")
+            or item.get("q")
+            or item.get("text")
+            or item.get("title")
+            or ""
+        )
         qtext = str(qtext).strip()
 
+        # ---- meta (section/topic/ok/level) ----
+        section = str(item.get("section") or item.get("category") or item.get("type") or "").strip()
+
+        topic = str(item.get("topic") or item.get("group") or item.get("chapter") or "").strip()
+        if not topic:
+            # In the new DB, "section" is effectively the topic for legislation
+            topic = section
+
+        # OK module (supports new flat DB: ok_code/ok_name)
+        ok = item.get("ok") or item.get("module") or item.get("ok_module") or item.get("okModule")
+        ok = str(ok).strip() if ok is not None else None
+        if ok == "":
+            ok = None
+
+        ok_code = item.get("ok_code") or item.get("okCode")
+        ok_name = item.get("ok_name") or item.get("okName")
+
+        def _clean_ok_name(name: Any) -> str:
+            s = str(name or "").strip()
+            # remove trailing "Рівень N" to avoid duplicates with levels menu
+            s = re.sub(r"\s*Рівень\s*\d+\s*$", "", s, flags=re.IGNORECASE).strip()
+            return s
+
+        if ok is None and (ok_code or ok_name):
+            code = str(ok_code or "").strip()
+            name = _clean_ok_name(ok_name)
+            if code and name:
+                ok = f"{code} — {name}"
+            elif code:
+                ok = code
+            elif name:
+                ok = name
+
+        lvl_raw = item.get("level") or item.get("lvl") or item.get("difficulty")
+        level: Optional[int] = None
+        try:
+            if lvl_raw is not None and str(lvl_raw).strip() != "":
+                level = int(lvl_raw)
+        except Exception:
+            level = None
+
         # ---- choices/answers ----
-        choices = item.get("choices") or item.get("answers") or item.get("options") or item.get("variants") or []
-        if isinstance(choices, dict):
-            choices = list(choices.values())
-        if not isinstance(choices, list):
-            choices = []
-        choices = [str(x).strip() for x in choices if str(x).strip()]
+        choices_raw = item.get("choices") or item.get("answers") or item.get("options") or item.get("variants") or []
+        if isinstance(choices_raw, dict):
+            choices_raw = list(choices_raw.values())
+
+        choices: List[str] = []
+        inferred_correct: List[int] = []
+
+        if isinstance(choices_raw, list) and choices_raw and all(isinstance(x, dict) for x in choices_raw):
+            # new format: [{"text": "...", "is_correct": true}, ...]
+            for d in choices_raw:
+                t = str(d.get("text") or d.get("answer") or d.get("value") or "").strip()
+                if not t:
+                    continue
+                choices.append(t)
+                flag = d.get("is_correct")
+                if isinstance(flag, bool) and flag:
+                    inferred_correct.append(len(choices))  # 1-based index after append
+        else:
+            if not isinstance(choices_raw, list):
+                choices_raw = []
+            choices = [str(x).strip() for x in choices_raw if str(x).strip()]
 
         # ---- correct ----
-        correct_raw = (
-            item.get("correct")
-            or item.get("correct_answers")
-            or item.get("correctAnswers")
-            or item.get("right")
-            or item.get("right_answers")
-            or item.get("answer")
-        )
         correct_texts = item.get("correct_texts") or item.get("correctTexts") or []
-
         correct: List[int] = []
-        inferred_texts: List[str] = []
 
-        def _as_int_list(v: Any) -> List[int]:
-            if v is None:
-                return []
-            if isinstance(v, int):
-                return [v]
-            if isinstance(v, str):
-                # "1,3" / "1 3" / "1;3"
-                nums = re.findall(r"\d+", v)
-                return [int(x) for x in nums] if nums else []
-            if isinstance(v, list):
-                # [1,3] or ["1","3"]
-                nums: List[int] = []
-                for x in v:
-                    if isinstance(x, bool):
-                        # handle later
+        # 1) from answers[].is_correct
+        if inferred_correct:
+            correct = inferred_correct[:]
+
+        # 2) from correct_answer_index (0-based in the new DB)
+        if not correct:
+            idx0 = (
+                item.get("correct_answer_index")
+                or item.get("correctAnswerIndex")
+                or item.get("correct_index")
+                or item.get("correctIndex")
+            )
+            try:
+                if idx0 is not None and str(idx0).strip() != "":
+                    i0 = int(idx0)
+                    if 0 <= i0 < len(choices):
+                        correct = [i0 + 1]
+            except Exception:
+                pass
+
+        # 3) from correct_answer_indices (0-based list)
+        if not correct:
+            idxs0 = item.get("correct_answer_indices") or item.get("correctAnswerIndices")
+            if isinstance(idxs0, list):
+                tmp: List[int] = []
+                for v in idxs0:
+                    try:
+                        i0 = int(v)
+                        if 0 <= i0 < len(choices):
+                            tmp.append(i0 + 1)
+                    except Exception:
                         continue
-                    if isinstance(x, int):
-                        nums.append(x)
-                    elif isinstance(x, str) and x.strip().isdigit():
-                        nums.append(int(x.strip()))
-                return nums
-            return []
+                if tmp:
+                    correct = sorted(set(tmp))
 
-        # bool-mask: [false,true,false,true]
-        if isinstance(correct_raw, list) and correct_raw and all(isinstance(x, bool) for x in correct_raw):
-            correct = [i + 1 for i, flag in enumerate(correct_raw) if flag]
-        else:
-            correct = _as_int_list(correct_raw)
+        # 4) legacy formats: correct / answer / right / bool-mask / text match
+        if not correct:
+            correct_raw = (
+                item.get("correct")
+                or item.get("correct_answers")
+                or item.get("correctAnswers")
+                or item.get("right")
+                or item.get("right_answers")
+                or item.get("answer")
+            )
 
-        # якщо correct заданий текстом/текстами
-        if (not correct) and isinstance(correct_raw, (str, list)) and choices:
-            cand_texts: List[str] = []
-            if isinstance(correct_raw, str):
-                cand_texts = [correct_raw]
-            elif isinstance(correct_raw, list):
-                cand_texts = [str(x) for x in correct_raw if x is not None]
+            def _as_int_list(v: Any) -> List[int]:
+                if v is None:
+                    return []
+                if isinstance(v, int):
+                    return [v]
+                if isinstance(v, str):
+                    nums = re.findall(r"\d+", v)
+                    return [int(x) for x in nums] if nums else []
+                if isinstance(v, list):
+                    nums: List[int] = []
+                    for x in v:
+                        if isinstance(x, bool):
+                            continue
+                        if isinstance(x, int):
+                            nums.append(x)
+                        elif isinstance(x, str) and x.strip().isdigit():
+                            nums.append(int(x.strip()))
+                    return nums
+                return []
 
-            # якщо там не цифри — шукаємо індекси по тексту
-            for t in cand_texts:
-                t = str(t).strip()
-                if not t or t.isdigit():
-                    continue
-                for i, ch in enumerate(choices):
-                    if ch.strip() == t:
-                        correct.append(i + 1)
-                        inferred_texts.append(t)
-                        break
+            if isinstance(correct_raw, list) and correct_raw and all(isinstance(x, bool) for x in correct_raw):
+                correct = [i + 1 for i, flag in enumerate(correct_raw) if flag]
+            else:
+                correct = _as_int_list(correct_raw)
 
-        # correct_texts (якщо є або якщо інфернули)
+            # if correct заданий текстом/текстами
+            if (not correct) and isinstance(correct_raw, (str, list)) and choices:
+                cand_texts: List[str] = []
+                if isinstance(correct_raw, str):
+                    cand_texts = [correct_raw]
+                elif isinstance(correct_raw, list):
+                    cand_texts = [str(x) for x in correct_raw if x is not None]
+
+                inferred_texts: List[str] = []
+                for t in cand_texts:
+                    t = str(t).strip()
+                    if not t or t.isdigit():
+                        continue
+                    for i, ch in enumerate(choices):
+                        if ch.strip() == t:
+                            correct.append(i + 1)
+                            inferred_texts.append(t)
+                            break
+
+                if inferred_texts and not correct_texts:
+                    correct_texts = inferred_texts
+
+        # correct_texts normalization / inference
         if isinstance(correct_texts, str):
             correct_texts = [correct_texts]
         if isinstance(correct_texts, list):
             correct_texts = [str(x).strip() for x in correct_texts if str(x).strip()]
         else:
             correct_texts = []
-        if inferred_texts and not correct_texts:
-            correct_texts = inferred_texts
+
+        if not correct_texts and correct and choices:
+            correct_texts = [choices[i - 1] for i in correct if 1 <= i <= len(choices)]
 
         # ---- ids ----
         raw_id = item.get("id") or item.get("qid") or item.get("question_id")
-        qid = self._make_int_id(raw_id, fallback=(item.get("section"), item.get("topic"), qtext))
-
-        # ---- meta ----
-        section = str(item.get("section") or item.get("category") or item.get("type") or "").strip()
-        topic = str(item.get("topic") or item.get("group") or item.get("chapter") or "").strip()
-
-        ok = item.get("ok") or item.get("module") or item.get("ok_module") or item.get("okModule")
-        ok = str(ok).strip() if ok is not None else None
-        if ok == "":
-            ok = None
-
-        lvl_raw = item.get("level") or item.get("lvl") or item.get("difficulty")
-        level = None
-        try:
-            if lvl_raw is not None and str(lvl_raw).strip() != "":
-                level = int(lvl_raw)
-        except Exception:
-            level = None
+        qid = self._make_int_id(raw_id, fallback=(raw_id, section, topic, item.get("question_number"), qtext))
 
         return {
             "id": int(qid),
@@ -675,17 +764,26 @@ class QuestionBank:
         return key
 
     def _make_int_id(self, raw_id: Any, fallback: Any) -> int:
-        # якщо в файлі є числовий id — використовуємо
+        """Return a deterministic INT32-safe id for a question.
+
+        Postgres column `errors.qid` is INT (int4), so we must keep ids within
+        [-2147483648..2147483647]. For non-numeric ids we use a SHA1-based hash
+        truncated to 31 bits (positive).
+        """
+        # if the file contains a numeric id — use it (only if it fits int32)
         try:
             if raw_id is not None and str(raw_id).strip().lstrip("-").isdigit():
-                return int(raw_id)
+                v = int(str(raw_id).strip())
+                if -2147483648 <= v <= 2147483647:
+                    return v
         except Exception:
             pass
 
-        # інакше — детермінований хеш
+        # otherwise — deterministic 31-bit hash
         s = json.dumps(fallback, ensure_ascii=False, sort_keys=True)
-        h = hashlib.sha1(s.encode("utf-8")).hexdigest()[:10]
-        return int(h, 16)
+        digest = hashlib.sha1(s.encode("utf-8")).digest()
+        v = int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
+        return v or 1
 
 # -------------------- Access --------------------
 
@@ -863,8 +961,7 @@ def screen_learning_menu() -> Tuple[str, InlineKeyboardMarkup]:
     return text, kb
 
 
-def screen_law_groups(qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
-    # show up to 4 groups, but will work with any amount
+def screen_law_groups(qb: QuestionBank, page: int = 0, per_page: int = 8) -> Tuple[str, InlineKeyboardMarkup]:
     keys = list(qb.law_groups.keys())
 
     def key_sort(k: str):
@@ -872,13 +969,28 @@ def screen_law_groups(qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
 
     keys.sort(key=key_sort)
 
-    shown = keys[:4]
-    buttons = []
+    total_pages = max(1, (len(keys) + per_page - 1) // per_page)
+    try:
+        page = int(page)
+    except Exception:
+        page = 0
+    page = max(0, min(page, total_pages - 1))
+
+    start = page * per_page
+    shown = keys[start:start + per_page]
+
+    buttons: List[Tuple[str, str]] = []
     for k in shown:
         title = clean_law_title(qb.law_group_title(k))
         buttons.append((f"{k}. {title}" if k.isdigit() else title, f"lawgrp:{k}"))
 
-    text = "📜 <b>Законодавство</b>\n\nОберіть пункт:"
+    if total_pages > 1:
+        if page > 0:
+            buttons.append(("◀️ Попередні", f"lawpg:{page - 1}"))
+        if page < total_pages - 1:
+            buttons.append(("▶️ Наступні", f"lawpg:{page + 1}"))
+
+    text = "📜 <b>Законодавство</b>\n\nОберіть розділ:"
     buttons.append(("⬅️ Назад", "nav:learn"))
     kb = kb_inline(buttons, row=1)
     return text, kb
@@ -890,7 +1002,7 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
 
     header = "📜 <b>Законодавство</b>"
 
-    if total <= 50:
+    if total <= 5:
         text = f"{header}\n\nПитань: {total}\nПочати?"
         kb = kb_inline([
             ("▶️ Почати", f"learn_start:law:{group_key}:1"),
@@ -1167,6 +1279,17 @@ async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
 @router.callback_query(F.data == "learn:law")
 async def learn_law(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
     text, kb = screen_law_groups(qb)
+    await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("lawpg:"))
+async def law_page(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+    try:
+        page = int(cb.data.split(":", 1)[1])
+    except Exception:
+        page = 0
+    text, kb = screen_law_groups(qb, page=page)
     await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
