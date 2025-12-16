@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 import random
+import hashlib
+import re
 import asyncpg
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -97,9 +99,15 @@ def iso_to_dt(s: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(s)
 
 
-def clamp_callback(s: str) -> str:
-    # Telegram limit for callback_data ~64 bytes; keep short keys.
-    return s[:60]
+def clamp_callback(s: str, max_bytes: int = 64) -> str:
+    """Return callback_data within Telegram's 1..64 bytes UTF-8 limit."""
+    s = (s or "").strip()
+    if not s:
+        return "0"
+    b = s.encode("utf-8")
+    if len(b) <= max_bytes:
+        return s
+    return b[:max_bytes].decode("utf-8", errors="ignore")
 
 
 
@@ -342,113 +350,74 @@ class Q:
 
 
 class QuestionBank:
+    """Loads a questions file and нормалізує структуру до формату Q.
+
+    Підтримує кілька форматів JSON:
+    1) Плоский список питань (старий формат)
+    2) {"questions": [...]}
+    3) {"law": [...], "ok": ...} (де ok може бути list або dict модуль->рівні->питання)
+    4) {"sections": [...]} (примітивна підтримка вкладених секцій)
+    """
+
     def __init__(self, path: str):
         self.path = path
         self.by_id: Dict[int, Q] = {}
         self.law: List[int] = []
-        self.law_groups: Dict[str, List[int]] = {}   # key -> qids
-        self.ok_modules: Dict[str, Dict[int, List[int]]] = {}  # ok -> level -> qids
+        self.law_groups: Dict[str, List[int]] = {}        # key -> qids
+        self.ok_modules: Dict[str, Dict[int, List[int]]] = {}  # ok(module name) -> level -> qids
 
+        # для UI: короткі ключі груп законодавства -> заголовок
+        self._law_group_titles: Dict[str, str] = {}
+
+    # ---------- public ----------
     def load(self):
         with open(self.path, "r", encoding="utf-8") as f:
             raw = json.load(f)
-
-        def parse_qid(item, fallback: int) -> int:
-            # 1) question_number
-            if item.get("question_number") is not None:
-                try:
-                    return int(item["question_number"])
-                except Exception:
-                    pass
-
-            # 2) id (може бути "Q1")
-            v = item.get("id")
-            if isinstance(v, int):
-                return v
-            s = str(v or "").strip()
-            if s.lower().startswith("q") and s[1:].isdigit():
-                return int(s[1:])
-            if s.isdigit():
-                return int(s)
-
-            # 3) fallback
-            return fallback
 
         self.by_id.clear()
         self.law.clear()
         self.law_groups.clear()
         self.ok_modules.clear()
+        self._law_group_titles.clear()
 
-        fallback_id = 1
-
-        for item in raw:
-            qid = parse_qid(item, fallback_id)
-            fallback_id += 1
-
-            # якщо раптом дубль id — зміщуємо
-            while qid in self.by_id:
-                qid += 1
-
-            section = str(item.get("section") or "")
-            topic = str(item.get("topic") or section)  # якщо topic нема — групуємо по section
-
-            ok = item.get("ok")
-            if ok is None:
-                ok = item.get("ok_name") or item.get("ok_code")  # на випадок якщо в тебе так буде
-
-            level = item.get("level")
-            level = None if level is None else int(level)
-
-            question = str(item.get("question") or item.get("question_text") or "")
-
-            # choices: старий "choices" або новий "answers"
-            if item.get("choices"):
-                choices = list(item.get("choices") or [])
-                answers = []
-            else:
-                answers = item.get("answers") or []
-                choices = [str(a.get("text", "")) for a in answers]
-
-            # correct: старий "correct" (вже 1-based) або новий формат
-            correct = list(item.get("correct") or [])
-            if not correct:
-                # 1) якщо є answers з is_correct
-                if answers:
-                    correct = [i + 1 for i, a in enumerate(answers) if a.get("is_correct") is True]
-                # 2) якщо є correct_answer_index (0-based) -> робимо 1-based
-                elif item.get("correct_answer_index") is not None:
-                    correct = [int(item["correct_answer_index"]) + 1]
-
-            correct_texts = list(item.get("correct_texts") or [])
-            if not correct_texts and choices and correct:
-                correct_texts = [choices[i - 1] for i in correct if 1 <= i <= len(choices)]
+        for item in self._iter_raw_questions(raw):
+            norm = self._normalize_item(item)
+            if not norm:
+                continue
 
             q = Q(
-                id=int(qid),
-                section=section,
-                topic=topic,
-                ok=ok,
-                level=level,
-                question=question,
-                choices=choices,
-                correct=[int(x) for x in correct],
-                correct_texts=correct_texts,
+                id=norm["id"],
+                section=norm.get("section", ""),
+                topic=norm.get("topic", ""),
+                ok=norm.get("ok"),
+                level=norm.get("level"),
+                question=norm.get("question", ""),
+                choices=norm.get("choices", []),
+                correct=norm.get("correct", []),
+                correct_texts=norm.get("correct_texts", []),
             )
+
+            # уникальний id (на випадок колізій при хешуванні)
+            if q.id in self.by_id:
+                nid = q.id
+                while nid in self.by_id:
+                    nid += 1
+                q.id = nid
+
             self.by_id[q.id] = q
 
-        # Index: Законодавство = ВСЕ без ok
+        # ---- indexes ----
         for qid, q in self.by_id.items():
             if not q.is_valid_mcq:
                 continue
-            if not q.ok:
+
+            sec = (q.section or "").lower()
+            is_law = ("законодав" in sec) or (sec in {"law", "legislation"}) or (q.section == "Законодавство")
+            if is_law and not q.ok:
                 self.law.append(qid)
                 key = self._law_group_key(q.topic)
                 self.law_groups.setdefault(key, []).append(qid)
 
-        # Index: OK = ВСЕ з ok
-        for qid, q in self.by_id.items():
-            if not q.is_valid_mcq:
-                continue
             if q.ok:
                 self.ok_modules.setdefault(q.ok, {})
                 lvl = int(q.level or 1)
@@ -462,19 +431,15 @@ class QuestionBank:
             for lvl in self.ok_modules[ok]:
                 self.ok_modules[ok][lvl].sort()
 
-    def _law_group_key(self, topic: str) -> str:
-        topic = (topic or "").strip()
-        # typical format: "1. ...", "2. ..."
-        if len(topic) >= 2 and topic[0].isdigit() and topic[1] == ".":
-            return topic.split(".", 1)[0].strip()  # "1", "2", ...
-        # fallback: group by full topic
-        return topic[:60] or "Законодавство"
-
     def law_group_title(self, key: str) -> str:
-        # try to find any topic starting with "key."
+        # hashed key -> title
+        if key in self._law_group_titles:
+            return self._law_group_titles[key]
+
+        # numeric key -> try to find any topic starting with "key."
         if key.isdigit():
             for qid in self.law_groups.get(key, []):
-                t = self.by_id[qid].topic.strip()
+                t = (self.by_id[qid].topic or "").strip()
                 if t.startswith(f"{key}."):
                     return t.split(".", 1)[1].strip()
         return key
@@ -484,6 +449,243 @@ class QuestionBank:
             return list(qids)
         return random.sample(qids, n)
 
+    # ---------- internals ----------
+    def _iter_raw_questions(self, raw: Any):
+        # 1) старий формат: list[dict]
+        if isinstance(raw, list):
+            for it in raw:
+                if isinstance(it, dict):
+                    yield it
+            return
+
+        if not isinstance(raw, dict):
+            return
+
+        # 2) {"questions": [...]}
+        qlist = raw.get("questions") or raw.get("items")
+        if isinstance(qlist, list):
+            for it in qlist:
+                if isinstance(it, dict):
+                    yield it
+
+        # 3) {"law": [...], "ok": ...}
+        law = raw.get("law") or raw.get("laws") or raw.get("legislation")
+        if isinstance(law, list):
+            for it in law:
+                if isinstance(it, dict):
+                    it = dict(it)
+                    it.setdefault("section", "Законодавство")
+                    yield it
+
+        ok = raw.get("ok") or raw.get("ok_questions") or raw.get("ok_modules")
+        if isinstance(ok, list):
+            for it in ok:
+                if isinstance(it, dict):
+                    it = dict(it)
+                    it.setdefault("section", "ОК")
+                    yield it
+
+        # ok як dict: module -> (dict level->list | list)
+        if isinstance(ok, dict):
+            for module_name, v in ok.items():
+                if isinstance(v, dict):
+                    for lvl, arr in v.items():
+                        if not isinstance(arr, list):
+                            continue
+                        for it in arr:
+                            if not isinstance(it, dict):
+                                continue
+                            it = dict(it)
+                            it.setdefault("section", "ОК")
+                            it.setdefault("ok", str(module_name))
+                            it.setdefault("level", lvl)
+                            yield it
+                elif isinstance(v, list):
+                    for it in v:
+                        if not isinstance(it, dict):
+                            continue
+                        it = dict(it)
+                        it.setdefault("section", "ОК")
+                        it.setdefault("ok", str(module_name))
+                        yield it
+
+        # 4) {"sections": [...]}
+        sections = raw.get("sections")
+        if isinstance(sections, list):
+            for sec in sections:
+                if not isinstance(sec, dict):
+                    continue
+                sec_name = sec.get("name") or sec.get("title") or sec.get("section") or ""
+                # може бути: {"questions":[...]}
+                sec_q = sec.get("questions") or sec.get("items")
+                if isinstance(sec_q, list):
+                    for it in sec_q:
+                        if not isinstance(it, dict):
+                            continue
+                        it = dict(it)
+                        it.setdefault("section", str(sec_name))
+                        yield it
+                # або: {"topics":[{"name":...,"questions":[...]}]}
+                topics = sec.get("topics")
+                if isinstance(topics, list):
+                    for tp in topics:
+                        if not isinstance(tp, dict):
+                            continue
+                        topic_name = tp.get("name") or tp.get("title") or tp.get("topic") or ""
+                        tp_q = tp.get("questions") or tp.get("items")
+                        if isinstance(tp_q, list):
+                            for it in tp_q:
+                                if not isinstance(it, dict):
+                                    continue
+                                it = dict(it)
+                                it.setdefault("section", str(sec_name))
+                                it.setdefault("topic", str(topic_name))
+                                yield it
+
+    def _normalize_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not isinstance(item, dict):
+            return None
+
+        # ---- question text ----
+        qtext = item.get("question") or item.get("q") or item.get("text") or item.get("title") or ""
+        qtext = str(qtext).strip()
+
+        # ---- choices/answers ----
+        choices = item.get("choices") or item.get("answers") or item.get("options") or item.get("variants") or []
+        if isinstance(choices, dict):
+            choices = list(choices.values())
+        if not isinstance(choices, list):
+            choices = []
+        choices = [str(x).strip() for x in choices if str(x).strip()]
+
+        # ---- correct ----
+        correct_raw = (
+            item.get("correct")
+            or item.get("correct_answers")
+            or item.get("correctAnswers")
+            or item.get("right")
+            or item.get("right_answers")
+            or item.get("answer")
+        )
+        correct_texts = item.get("correct_texts") or item.get("correctTexts") or []
+
+        correct: List[int] = []
+        inferred_texts: List[str] = []
+
+        def _as_int_list(v: Any) -> List[int]:
+            if v is None:
+                return []
+            if isinstance(v, int):
+                return [v]
+            if isinstance(v, str):
+                # "1,3" / "1 3" / "1;3"
+                nums = re.findall(r"\d+", v)
+                return [int(x) for x in nums] if nums else []
+            if isinstance(v, list):
+                # [1,3] or ["1","3"]
+                nums: List[int] = []
+                for x in v:
+                    if isinstance(x, bool):
+                        # handle later
+                        continue
+                    if isinstance(x, int):
+                        nums.append(x)
+                    elif isinstance(x, str) and x.strip().isdigit():
+                        nums.append(int(x.strip()))
+                return nums
+            return []
+
+        # bool-mask: [false,true,false,true]
+        if isinstance(correct_raw, list) and correct_raw and all(isinstance(x, bool) for x in correct_raw):
+            correct = [i + 1 for i, flag in enumerate(correct_raw) if flag]
+        else:
+            correct = _as_int_list(correct_raw)
+
+        # якщо correct заданий текстом/текстами
+        if (not correct) and isinstance(correct_raw, (str, list)) and choices:
+            cand_texts: List[str] = []
+            if isinstance(correct_raw, str):
+                cand_texts = [correct_raw]
+            elif isinstance(correct_raw, list):
+                cand_texts = [str(x) for x in correct_raw if x is not None]
+
+            # якщо там не цифри — шукаємо індекси по тексту
+            for t in cand_texts:
+                t = str(t).strip()
+                if not t or t.isdigit():
+                    continue
+                for i, ch in enumerate(choices):
+                    if ch.strip() == t:
+                        correct.append(i + 1)
+                        inferred_texts.append(t)
+                        break
+
+        # correct_texts (якщо є або якщо інфернули)
+        if isinstance(correct_texts, str):
+            correct_texts = [correct_texts]
+        if isinstance(correct_texts, list):
+            correct_texts = [str(x).strip() for x in correct_texts if str(x).strip()]
+        else:
+            correct_texts = []
+        if inferred_texts and not correct_texts:
+            correct_texts = inferred_texts
+
+        # ---- ids ----
+        raw_id = item.get("id") or item.get("qid") or item.get("question_id")
+        qid = self._make_int_id(raw_id, fallback=(item.get("section"), item.get("topic"), qtext))
+
+        # ---- meta ----
+        section = str(item.get("section") or item.get("category") or item.get("type") or "").strip()
+        topic = str(item.get("topic") or item.get("group") or item.get("chapter") or "").strip()
+
+        ok = item.get("ok") or item.get("module") or item.get("ok_module") or item.get("okModule")
+        ok = str(ok).strip() if ok is not None else None
+        if ok == "":
+            ok = None
+
+        lvl_raw = item.get("level") or item.get("lvl") or item.get("difficulty")
+        level = None
+        try:
+            if lvl_raw is not None and str(lvl_raw).strip() != "":
+                level = int(lvl_raw)
+        except Exception:
+            level = None
+
+        return {
+            "id": int(qid),
+            "section": section,
+            "topic": topic,
+            "ok": ok,
+            "level": level,
+            "question": qtext,
+            "choices": choices,
+            "correct": correct,
+            "correct_texts": correct_texts,
+        }
+
+    def _law_group_key(self, topic: str) -> str:
+        topic = (topic or "").strip()
+        # classic: "1. ...", "2. ..."
+        if len(topic) >= 2 and topic[0].isdigit() and topic[1] == ".":
+            return topic.split(".", 1)[0].strip()  # "1", "2", ...
+        if not topic:
+            topic = "Законодавство"
+        key = "t" + hashlib.sha1(topic.encode("utf-8")).hexdigest()[:10]  # ASCII, short
+        self._law_group_titles.setdefault(key, topic)
+        return key
+
+    def _make_int_id(self, raw_id: Any, fallback: Any) -> int:
+        # якщо в файлі є числовий id — використовуємо
+        try:
+            if raw_id is not None and str(raw_id).strip().lstrip("-").isdigit():
+                return int(raw_id)
+        except Exception:
+            pass
+
+        # інакше — детермінований хеш
+        s = json.dumps(fallback, ensure_ascii=False, sort_keys=True)
+        h = hashlib.sha1(s.encode("utf-8")).hexdigest()[:10]
+        return int(h, 16)
 
 # -------------------- Access --------------------
 
@@ -732,9 +934,10 @@ def screen_ok_menu(user_modules: List[str], qb: QuestionBank) -> Tuple[str, Inli
 
     text = "🧩 <b>ОК</b>\n\nОберіть модуль:"
     buttons = []
-    for m in user_modules:
+    for i, m in enumerate(user_modules):
         if m in qb.ok_modules:
-            buttons.append((m, f"okmod:{m}"))
+            # індекс, а не назва — щоб callback_data точно була валідна
+            buttons.append((m, f"okmodi:{i}"))
     buttons += [
         ("🔁 Змінити модулі", "okmods:pick"),
         ("⬅️ Назад", "nav:learn"),
@@ -742,29 +945,25 @@ def screen_ok_menu(user_modules: List[str], qb: QuestionBank) -> Tuple[str, Inli
     kb = kb_inline(buttons, row=2)
     return text, kb
 
-
-def screen_ok_modules_pick(selected: List[str], qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[str, InlineKeyboardMarkup]:
     text = "🧩 <b>Оберіть модулі ОК</b>\n\nПозначте потрібні модулі:"
-    all_mods = sorted(qb.ok_modules.keys(), key=lambda x: (len(x), x))
     b = InlineKeyboardBuilder()
-    for m in all_mods:
+    for i, m in enumerate(all_mods):
         mark = "✅" if m in selected else "⬜️"
-        b.button(text=f"{mark} {m}", callback_data=clamp_callback(f"okmods:toggle:{m}"))
+        b.button(text=f"{mark} {m}", callback_data=clamp_callback(f"okmods:togglei:{i}"))
     b.adjust(2)
     b.row()
     b.button(text="Готово", callback_data="okmods:save")
     b.button(text="⬅️ Назад", callback_data="learn:ok")
     return text, b.as_markup()
 
-
-def screen_ok_levels(module: str, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
     text = f"🧩 <b>{module}</b>\n\nОберіть рівень:"
-    buttons = [(f"Рівень {lvl}", f"learn_start:ok:{module}:{lvl}") for lvl in levels]
+    buttons = [(f"Рівень {lvl}", f"learn_start:ok:i:{idx}:{lvl}") for lvl in levels]
     buttons.append(("⬅️ Назад", "learn:ok"))
     kb = kb_inline(buttons, row=2)
     return text, kb
-
 
 def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[str, int]) -> Tuple[str, InlineKeyboardMarkup]:
     lines = [
@@ -995,37 +1194,50 @@ async def okmods_pick(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
     uid = cb.from_user.id
     user = await store.get_user(uid)
     ui = await store.get_ui(uid)
-    state = ui.get("state", {})
+    state = ui.get("state", {}) or {}
+
+    all_mods = sorted(list(qb.ok_modules.keys()))
     selected = state.get("okmods_temp")
     if selected is None:
         selected = list(user.get("ok_modules", []))
-    state["okmods_temp"] = selected
+
+    state["okmods_temp"] = list(selected)
+    state["okmods_all"] = all_mods
     await store.set_state(uid, state)
 
-    text, kb = screen_ok_modules_pick(selected, qb)
+    text, kb = screen_ok_modules_pick(list(selected), all_mods)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
-
-@router.callback_query(F.data.startswith("okmods:toggle:"))
+@router.callback_query(F.data.startswith("okmods:togglei:"))
 async def okmods_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
     uid = cb.from_user.id
-    mod = cb.data.split(":", 2)[2]
+    try:
+        idx = int(cb.data.split(":", 2)[2])
+    except Exception:
+        await cb.answer("Помилка")
+        return
 
     ui = await store.get_ui(uid)
-    state = ui.get("state", {})
+    state = ui.get("state", {}) or {}
+    all_mods = state.get("okmods_all") or sorted(list(qb.ok_modules.keys()))
+    if idx < 0 or idx >= len(all_mods):
+        await cb.answer("Помилка")
+        return
+    mod = all_mods[idx]
+
     selected = list(state.get("okmods_temp", []))
     if mod in selected:
         selected.remove(mod)
     else:
         selected.append(mod)
     state["okmods_temp"] = selected
+    state["okmods_all"] = all_mods
     await store.set_state(uid, state)
 
-    text, kb = screen_ok_modules_pick(selected, qb)
+    text, kb = screen_ok_modules_pick(selected, all_mods)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
-
 
 @router.callback_query(F.data == "okmods:save")
 async def okmods_save(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
@@ -1037,6 +1249,7 @@ async def okmods_save(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
     selected = [m for m in selected if m in qb.ok_modules]
     await store.set_ok_modules(uid, selected)
     state.pop("okmods_temp", None)
+    state.pop("okmods_all", None)
     await store.set_state(uid, state)
 
     user = await store.get_user(uid)
@@ -1045,13 +1258,25 @@ async def okmods_save(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
     await cb.answer("Збережено")
 
 
-@router.callback_query(F.data.startswith("okmod:"))
+@router.callback_query(F.data.startswith("okmodi:"))
 async def okmod_levels(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
-    module = cb.data.split(":", 1)[1]
-    text, kb = screen_ok_levels(module, qb)
-    await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
-    await cb.answer()
+    uid = cb.from_user.id
+    try:
+        idx = int(cb.data.split(":", 1)[1])
+    except Exception:
+        await cb.answer("Помилка")
+        return
 
+    user = await store.get_user(uid)
+    modules = list(user.get("ok_modules", []))
+    if idx < 0 or idx >= len(modules):
+        await cb.answer("Помилка")
+        return
+    module = modules[idx]
+
+    text, kb = screen_ok_levels(module, idx, qb)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
 
 # -------- Registration (contact) --------
 
@@ -1350,9 +1575,40 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         await cb.answer()
         return
 
+
     if kind == "ok":
-        module = parts[2]
-        level = int(parts[3])
+        module: Optional[str] = None
+        level = 1
+
+        # новий формат: learn_start:ok:i:<idx>:<level>
+        if len(parts) >= 5 and parts[2] == "i":
+            try:
+                idx = int(parts[3])
+                level = int(parts[4])
+            except Exception:
+                await cb.answer("Помилка")
+                return
+
+            user = await store.get_user(uid)
+            modules = list(user.get("ok_modules", []))
+            if 0 <= idx < len(modules):
+                module = modules[idx]
+
+        # старий формат (залишили для сумісності): learn_start:ok:<module>:<level>
+        else:
+            if len(parts) < 4:
+                await cb.answer("Помилка")
+                return
+            module = parts[2]
+            try:
+                level = int(parts[3])
+            except Exception:
+                level = 1
+
+        if not module:
+            await cb.answer("Модуль недоступний")
+            return
+
         qids = qb.ok_modules.get(module, {}).get(level, [])
         await store.set_ok_last_level(uid, module, level)
         header = f"🧩 <b>ОК</b>\n{module} • Рівень {level}"
@@ -2149,9 +2405,11 @@ async def admin_sub_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", admin_
         await cb.answer("Помилка")
         return
 
+    # забрати доступ
     await store.set_subscription(target_id, None, infinite=False)
+
     await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
-    await cb.answer()
+    await cb.answer("Ок")
 
 
 # -------------------- Bootstrap --------------------
