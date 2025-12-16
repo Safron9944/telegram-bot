@@ -1125,17 +1125,29 @@ def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, Inli
     kb = kb_inline(buttons, row=2)
     return text, kb
 
-def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[str, int]) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_test_config(
+    modules: List[str],
+    qb: QuestionBank,
+    temp_levels: Dict[str, int],
+    include_law: bool = True,
+    law_count: int = 50,
+) -> Tuple[str, InlineKeyboardMarkup]:
     lines = [
         "📝 <b>Тестування</b>",
         "",
         "Оберіть рівень для кожного модуля ОК (за потреби):",
         "Потім натисніть «Почати тест».",
     ]
-    if not modules:
-        lines += ["", "ℹ️ ОК-модулі не обрані — тест буде лише із законодавства (50 питань)."]
 
     buttons: List[Tuple[str, str]] = []
+
+    # 👇 Блок законодавства (видимий завжди)
+    law_mark = "✅" if include_law else "❌"
+    buttons.append((f"📚 Законодавство • {law_count} питань {law_mark}", "testlaw:toggle"))
+
+    if not modules:
+        lines += ["", "ℹ️ ОК-модулі не обрані."]
+
     for i, m in enumerate(modules):
         levels_map = qb.ok_modules.get(m, {})
         if not levels_map:
@@ -1151,6 +1163,7 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
         ("⬅️ Меню", "nav:menu"),
     ]
     return "\n".join(lines), kb_inline(buttons, row=1)
+
 
 
 def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Optional[int]) -> Tuple[str, InlineKeyboardMarkup]:
@@ -1448,6 +1461,24 @@ async def okmod_levels(cb: CallbackQuery, bot: Bot, store: Storage, qb: Question
     text, kb = screen_ok_levels(module, idx, qb)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
+
+@router.callback_query(F.data == "testlaw:toggle")
+async def testlaw_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    st["test_include_law"] = not bool(st.get("test_include_law", True))
+    await store.set_state(uid, st)
+
+    mod_list = st.get("test_mod_list", []) or []
+    temp_levels = st.get("test_levels_temp", {}) or {}
+    include_law = bool(st.get("test_include_law", True))
+
+    text, kb = screen_test_config(mod_list, qb, temp_levels, include_law=include_law)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
 
 # -------- Registration (contact) --------
 
@@ -1994,7 +2025,8 @@ async def nav_test(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
     st["test_mod_list"] = list(modules)          # щоб індекси в callback працювали
-    st["test_levels_temp"] = dict(temp_levels)   # тимчасовий вибір рівнів
+    st["test_levels_temp"] = dict(temp_levels)
+    st["test_include_law"] = True# тимчасовий вибір рівнів
     await store.set_state(uid, st)
 
     text, kb = screen_test_config(modules, qb, temp_levels)
@@ -2069,13 +2101,16 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
     uid = cb.from_user.id
     user = await store.get_user(uid)
 
-    law_qids = qb.pick_random(qb.law, 50)
+    ui = await store.get_ui(uid)
+    pre = ui.get("state", {}) or {}
+
+    # якщо десь у конфігу ти зберігаєш цей прапорець — тут він буде врахований
+    include_law = bool(pre.get("test_include_law", True))
+
+    law_qids = qb.pick_random(qb.law, 50) if include_law else []
 
     modules = user.get("ok_modules", [])
     last_levels = user.get("ok_last_levels", {}) or {}
-
-    ui = await store.get_ui(uid)
-    pre = ui.get("state", {}) or {}
     picked_levels = pre.get("test_levels_temp", {}) or {}
 
     ok_qids: List[int] = []
@@ -2093,6 +2128,12 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
         ok_qids.extend(qb.pick_random(qids, 20))
 
     all_qids = law_qids + ok_qids
+
+    # щоб не стартувати "порожній" тест (коли законодавство вимкнене і модулі не обрані)
+    if not all_qids:
+        await cb.answer("Оберіть хоча б один блок для тесту", show_alert=True)
+        return
+
     random.shuffle(all_qids)
 
     st = {
