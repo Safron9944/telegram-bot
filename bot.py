@@ -1088,12 +1088,16 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
     # feedback stage?
     if st.get("feedback"):
         fb = st["feedback"]
-        text = (
-            f"{st.get('header','')}\n"
-            f"❌ Неправильно.\n\n"
-            f"✅ Правильна відповідь:\n"
-            f"{fb.get('correct_text','')}"
-        )
+        qid_fb = fb.get("qid")
+        chosen = fb.get("chosen")
+
+        q = qb.by_id.get(int(qid_fb)) if qid_fb is not None else None
+
+        if q is not None and chosen is not None:
+            text = build_feedback_text(q, st.get("header", ""), int(chosen))
+        else:
+            text = f"{st.get('header', '')}\n❌ <b>Неправильно</b>"
+
         await render_main(bot, store, uid, chat_id, text, kb_feedback(), message=message)
         return
 
@@ -1312,8 +1316,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         else:
             # bump wrong counter -> move into mistakes after 5 wrong
             wc, im = await store.bump_wrong(uid, int(qid))
-            corr = hescape(", ".join(q.correct_texts)) if q.correct_texts else "—"
-            st["feedback"] = {"correct_text": corr}
+            st["feedback"] = {"qid": int(qid), "chosen": int(choice)}
         await store.set_state(uid, st)
         await cb.answer("✅" if is_correct else "❌")
         await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
