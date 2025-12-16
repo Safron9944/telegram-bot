@@ -27,7 +27,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-
 try:
     TZ = ZoneInfo("Europe/Kyiv")
 except Exception:
