@@ -1796,10 +1796,6 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
     await cb.answer("Невідомий режим")
 
 
-@router.callback_query(F.data == "ans:0")  # placeholder; real handler below
-async def _noop(cb: CallbackQuery):
-    await cb.answer()
-
 
 @router.callback_query(F.data.startswith("ans:"))
 async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
