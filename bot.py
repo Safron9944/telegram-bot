@@ -1661,15 +1661,15 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
     lines += [
         "❓ <b>Питання</b>",
         question,
-        "",
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━",  # одразу після питання
         "📝 <b>Варіанти відповіді</b>",
     ]
 
-    for i, ch in enumerate(choices):
-        lines.append(f"<b>{i+1})</b> {ch}")
+    for i, ch in enumerate(choices, start=1):
+        lines.append(f"  <b>{i})</b> {ch}")
 
     return "\n".join(lines)
+
 
 def build_feedback_text(q: Q, header: str, chosen: int) -> str:
     question = hescape(q.question or "")
