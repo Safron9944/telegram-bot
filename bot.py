@@ -1544,19 +1544,22 @@ def screen_ok_menu(
 
     buttons: List[Tuple[str, str]] = []
 
-    pairs = [(i, m) for i, m in enumerate(user_modules) if m in qb.ok_modules]
-    pairs.sort(key=lambda p: ok_sort_key(p[1]))
+    # залишаємо тільки дозволені модулі + сортуємо
+    mods = [m for m in user_modules if m in qb.ok_modules]
+    mods.sort(key=ok_sort_key)
 
-    for i, m in pairs:
-        buttons.append((ok_button_text(m), f"okmodi:{i}"))
+    # кожен модуль — окрема кнопка
+    for m in mods:
+        buttons.append((ok_button_text(m), f"okmod:{m}"))
 
     buttons += [
         ("🔁 Змінити модулі", "okmods:pick"),
         ("⬅️ Назад", "nav:learn"),
     ]
 
-    kb = kb_inline(buttons, row=1)
+    kb = kb_inline(buttons, row=1)  # row=1 => 1 кнопка в рядку
     return text, kb
+
 
 
 def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[str, InlineKeyboardMarkup]:
