@@ -2102,7 +2102,7 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
     await store.set_state(uid, st)
 
     # прибираємо ReplyKeyboard (кнопку знизу)
-    cleanup = await bot.send_message(chat_id, " ", reply_markup=ReplyKeyboardRemove())
+    cleanup = await bot.send_message(chat_id, "\u200B", reply_markup=ReplyKeyboardRemove())
     try:
         await bot.delete_message(chat_id, cleanup.message_id)
     except Exception:
