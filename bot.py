@@ -13,25 +13,22 @@ from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from html import escape as hescape
-from aiogram.client.default import DefaultBotProperties
-from aiogram.types import InlineKeyboardButton
-from aiogram.exceptions import TelegramBadRequest
-from typing import Dict, Any, Tuple
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 
 from aiogram import Bot, Dispatcher, Router, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     Message,
     CallbackQuery,
     InlineKeyboardMarkup,
+    InlineKeyboardButton,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     KeyboardButton,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 
 
 try:
@@ -1981,12 +1978,8 @@ async def testlaw_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     await cb.answer()
 
 
-
-
 async def show_contact_request(bot: Bot, store: Storage, uid: int, chat_id: int):
-    """Shows ReplyKeyboard with request_contact button (temporary message).
-    Telegram allows request_contact only via ReplyKeyboard, not inline keyboard.
-    """
+    """Shows ReplyKeyboard with request_contact button (temporary message)."""
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
 
@@ -2005,7 +1998,9 @@ async def show_contact_request(bot: Bot, store: Storage, uid: int, chat_id: int)
     )
     tmp = await bot.send_message(chat_id, "👇 Поділись номером (кнопка внизу)", reply_markup=kb)
 
+    # remember temp message id so we can delete it after registration
     st["reg_tmp_msg_id"] = tmp.message_id
+    st["reg_awaiting"] = True
     await store.set_state(uid, st)
 
 # -------- Registration (contact) --------
@@ -2041,12 +2036,23 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
 
     c = message.contact
     if not c or not c.phone_number:
+        # прибираємо повідомлення користувача (якщо можна), щоб не засмічувати чат
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
         await bot.send_message(chat_id, "Не бачу номер. Спробуй ще раз.")
         await show_contact_request(bot, store, uid, chat_id)
         return
 
-    # ✅ ВАЖЛИВО: інколи Telegram не передає contact.user_id -> тоді приймаємо контакт
+    # інколи Telegram не передає contact.user_id -> тоді приймаємо контакт
     if c.user_id is not None and c.user_id != uid:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
         await bot.send_message(chat_id, "Поділись, будь ласка, СВОЇМ номером через кнопку знизу.")
         await show_contact_request(bot, store, uid, chat_id)
         return
@@ -2057,23 +2063,28 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
 
     await store.set_phone_and_trial(uid, phone, first_name=first_name, last_name=last_name)
 
+    # прибираємо повідомлення користувача з контактом (там видно номер)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
     # прибираємо тимчасове повідомлення з кнопкою "Поділитися номером"
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
     tmp_id = st.pop("reg_tmp_msg_id", None)
+    st.pop("reg_awaiting", None)
+
     if tmp_id:
         try:
             await bot.delete_message(chat_id, tmp_id)
         except Exception:
             pass
+
     await store.set_state(uid, st)
 
-    # ✅ Прибираємо ReplyKeyboard НАДІЙНО + прибираємо "✅ Реєстрація успішна" з чату
-    cleanup = await bot.send_message(
-        chat_id,
-        "✅ Реєстрація успішна",
-        reply_markup=ReplyKeyboardRemove(),
-    )
+    # прибираємо ReplyKeyboard (кнопку знизу)
+    cleanup = await bot.send_message(chat_id, " ", reply_markup=ReplyKeyboardRemove())
     try:
         await bot.delete_message(chat_id, cleanup.message_id)
     except Exception:
@@ -2770,13 +2781,11 @@ def _admin_user_icon(u: Dict[str, Any]) -> str:
 
 
 def fmt_user_row(u: Dict[str, Any]) -> str:
-    uid = u["user_id"]
     phone = u.get("phone") or "без номера"
     fn = (u.get("first_name") or "").strip()
     ln = (u.get("last_name") or "").strip()
     full = " ".join([x for x in [fn, ln] if x]).strip() or "—"
-    return f"{_admin_user_icon(u)} {phone} | {full} • {uid}"
-
+    return f"{_admin_user_icon(u)} {phone} | {full}"
 
 def _is_not_modified_error(e: TelegramBadRequest) -> bool:
     return "message is not modified" in (str(e) or "").lower()
@@ -3095,15 +3104,20 @@ async def admin_users_clear(cb: CallbackQuery, bot: Bot, store: "Storage", admin
 
 
 @router.message(F.text)
-async def admin_users_search_input(message: Message, bot: Bot, store: "Storage", admin_ids: set[int]):
+async def admin_users_search_input(
+    message: Message,
+    bot: Bot,
+    store: "Storage",
+    admin_ids: set[int],
+):
     uid = message.from_user.id
     if uid not in admin_ids:
-        return
+        raise SkipHandler()
 
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
     if st.get(ADMIN_USERS_AWAITING) != "admin_users_phone":
-        return
+        raise SkipHandler()
 
     back_offset = int(st.get(ADMIN_USERS_BACK_OFFSET) or 0)
 
@@ -3116,10 +3130,12 @@ async def admin_users_search_input(message: Message, bot: Bot, store: "Storage",
         pass
 
     if not digits:
-        # не створюємо нових повідомлень — просто міняємо те саме меню з помилкою
         await render_admin_users_search_prompt(
-            bot, store, uid, st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id, back_offset,
-            message=None, error="Введи хоча б одну цифру"
+            bot, store, uid,
+            st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
+            back_offset,
+            message=None,
+            error="Введи хоча б одну цифру",
         )
         return
 
@@ -3128,12 +3144,11 @@ async def admin_users_search_input(message: Message, bot: Bot, store: "Storage",
     st.pop(ADMIN_USERS_BACK_OFFSET, None)
     await store.set_state(uid, st)
 
-    # важливо: message=None -> редагуємо збережене адмін-меню
     await render_admin_users_list(
         bot, store, uid,
         st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
         0,
-        message=None
+        message=None,
     )
 
 
