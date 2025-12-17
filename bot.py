@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import json
 import asyncio
@@ -14,7 +16,7 @@ from html import escape as hescape
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
-from __future__ import annotations
+
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.enums import ParseMode
