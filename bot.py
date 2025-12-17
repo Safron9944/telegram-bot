@@ -1659,10 +1659,10 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
         lines.append(progress)
 
     lines += [
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "❓ <b>Питання</b>",
         question,
-        "",  # <- проміжок (порожній рядок)
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
         "📝 <b>Варіанти відповіді</b>",
     ]
 
@@ -2390,7 +2390,7 @@ async def learn_start(
         qids = qb.ok_modules.get(module, {}).get(level, [])
         await store.set_ok_last_level(uid, module, level)
 
-        header = f"🧩 <b>ОК</b>\n{module} • Рівень {level}"
+        header = f"{module} • Рівень {level}"
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
