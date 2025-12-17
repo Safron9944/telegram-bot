@@ -157,6 +157,8 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
                     phone TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
                     is_admin INT DEFAULT 0,
                     trial_start TIMESTAMPTZ,
                     trial_end TIMESTAMPTZ,
@@ -167,6 +169,11 @@ class Storage:
                     created_at TIMESTAMPTZ
                 );
             """)
+
+            # ---- migration: add new columns if DB already exists ----
+            await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;")
+            await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;")
+
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS ui_state (
                     user_id BIGINT PRIMARY KEY,
@@ -211,12 +218,26 @@ class Storage:
         async with self.pool.acquire() as con:
             return await con.execute(sql, *params)
 
-    async def ensure_user(self, user_id: int, is_admin: bool = False):
+    async def ensure_user(
+            self,
+            user_id: int,
+            is_admin: bool = False,
+            first_name: Optional[str] = None,
+            last_name: Optional[str] = None,
+    ):
+        # normalize: treat empty strings as NULL
+        fn = (first_name or "").strip() or None
+        ln = (last_name or "").strip() or None
+
         await self._exec("""
-            INSERT INTO users (user_id, is_admin, created_at)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE SET is_admin=EXCLUDED.is_admin
-        """, user_id, 1 if is_admin else 0, now())
+            INSERT INTO users (user_id, is_admin, created_at, first_name, last_name)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id) DO UPDATE SET
+                is_admin=EXCLUDED.is_admin,
+                first_name=COALESCE(EXCLUDED.first_name, users.first_name),
+                last_name=COALESCE(EXCLUDED.last_name, users.last_name)
+        """, user_id, 1 if is_admin else 0, now(), fn, ln)
+
 
     async def get_user(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
@@ -227,12 +248,25 @@ class Storage:
         d["ok_last_levels"] = json.loads(d.get("ok_last_levels_json") or "{}")
         return d
 
-    async def set_phone_and_trial(self, user_id: int, phone: str):
+    async def set_phone_and_trial(
+            self,
+            user_id: int,
+            phone: str,
+            first_name: Optional[str] = None,
+            last_name: Optional[str] = None,
+    ):
         ts = now()
         te = ts + timedelta(days=3)
+        fn = (first_name or "").strip() or None
+        ln = (last_name or "").strip() or None
+
         await self._exec("""
-            UPDATE users SET phone=$1, trial_start=$2, trial_end=$3 WHERE user_id=$4
-        """, phone, ts, te, user_id)
+            UPDATE users
+            SET phone=$1, trial_start=$2, trial_end=$3,
+                first_name=COALESCE($4, first_name),
+                last_name=COALESCE($5, last_name)
+            WHERE user_id=$6
+        """, phone, ts, te, fn, ln, user_id)
 
     async def set_ok_modules(self, user_id: int, modules: list[str]):
         await self._exec("""
@@ -310,7 +344,7 @@ class Storage:
 
     async def list_users(self, offset: int, limit: int) -> list[dict]:
         rows = await self._fetch("""
-            SELECT user_id, phone, trial_end, sub_end, sub_infinite, created_at
+            SELECT user_id, phone, first_name, last_name, trial_end, sub_end, sub_infinite, created_at
             FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
         """, limit, offset)
         return [dict(r) for r in rows]
@@ -320,14 +354,13 @@ class Storage:
         if not q:
             return []
         rows = await self._fetch("""
-            SELECT user_id, phone, trial_end, sub_end, sub_infinite, created_at
+            SELECT user_id, phone, first_name, last_name, trial_end, sub_end, sub_infinite, created_at
             FROM users
             WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%' || $1 || '%'
             ORDER BY created_at DESC
             LIMIT $2 OFFSET $3
         """, q, limit, offset)
         return [dict(r) for r in rows]
-
 
 
 # -------------------- Question bank --------------------
@@ -1454,8 +1487,14 @@ router = Router()
 @router.message(F.text == "/start")
 async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     uid = message.from_user.id
-    await store.ensure_user(uid, is_admin=(uid in admin_ids))
+    await store.ensure_user(
+        uid,
+        is_admin=(uid in admin_ids),
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name
+    )
     user = await store.get_user(uid)
+    chat_id = message.chat.id
 
     # try delete /start to avoid chat clutter
     try:
@@ -1464,7 +1503,14 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
         pass
 
     ui = await store.get_ui(uid)
-    chat_id = message.chat.id
+
+    # якщо вже є телефон — прибираємо можливе “тимчасове” повідомлення з reply-клавіатурою
+    if user.get("phone") and ui.get("reg_tmp_msg_id"):
+        try:
+            await bot.delete_message(chat_id, ui["reg_tmp_msg_id"])
+        except Exception:
+            pass
+        await store.set_ui(uid, reg_tmp_msg_id=None)  # <-- якщо в тебе інша назва методу, заміни
 
     if not user.get("phone"):
         text, kb = screen_need_registration()
@@ -1473,7 +1519,6 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
 
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, chat_id, text, kb)
-
 
 @router.callback_query(F.data == "nav:menu")
 async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
@@ -1686,7 +1731,12 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
 @router.message(F.contact)
 async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = message.from_user.id
-    await store.ensure_user(uid, is_admin=(uid in admin_ids))
+    await store.ensure_user(
+        uid,
+        is_admin=(uid in admin_ids),
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+    )
 
     # accept only own contact
     if not message.contact or message.contact.user_id != uid:
@@ -1697,7 +1747,10 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
         return
 
     phone = message.contact.phone_number
-    await store.set_phone_and_trial(uid, phone)
+    first_name = (message.contact.first_name or message.from_user.first_name or "").strip() or None
+    last_name = (message.contact.last_name or message.from_user.last_name or "").strip() or None
+
+    await store.set_phone_and_trial(uid, phone, first_name=first_name, last_name=last_name)
 
     # cleanup: delete contact and temp message if possible
     try:
@@ -2418,7 +2471,11 @@ def _admin_user_icon(u: Dict[str, Any]) -> str:
 def fmt_user_row(u: Dict[str, Any]) -> str:
     uid = u["user_id"]
     phone = u.get("phone") or "без номера"
-    return f"{_admin_user_icon(u)} {phone} • {uid}"
+    fn = (u.get("first_name") or "").strip()
+    ln = (u.get("last_name") or "").strip()
+    full = " ".join([x for x in [fn, ln] if x]).strip() or "—"
+    return f"{_admin_user_icon(u)} {phone} | {full} • {uid}"
+
 
 def _is_not_modified_error(e: TelegramBadRequest) -> bool:
     return "message is not modified" in (str(e) or "").lower()
@@ -2622,10 +2679,15 @@ async def render_admin_user_detail(
     user = await store.get_user(target_id)
 
     phone_html = hescape(user.get("phone") or "—")
+    first_html = hescape(user.get("first_name") or "—")
+    last_html = hescape(user.get("last_name") or "—")
+
     text = (
         "👤 <b>Користувач</b>\n\n"
         f"ID: <b>{target_id}</b>\n"
         f"Телефон: <b>{phone_html}</b>\n"
+        f"Ім'я: <b>{first_html}</b>\n"
+        f"Прізвище: <b>{last_html}</b>\n"
         f"{fmt_access_line(user)}"
     )
 
@@ -2634,12 +2696,8 @@ async def render_admin_user_detail(
 
     b = InlineKeyboardBuilder()
 
-    # Кнопка "дати безкінечно" змінює іконку:
     if is_inf:
-        b.button(
-            text="🟢 Доступ безкінечно (активний)",
-            callback_data="noop",
-        )
+        b.button(text="🟢 Доступ безкінечно (активний)", callback_data="noop")
         b.button(
             text="🔴 Завершити доступ",
             callback_data=clamp_callback(f"admin:subcancel:{target_id}:{back_offset}"),
@@ -2655,7 +2713,12 @@ async def render_admin_user_detail(
         )
 
     b.adjust(1)
-    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"admin:users:{back_offset}")))
+    b.row(
+        InlineKeyboardButton(
+            text="⬅️ Назад",
+            callback_data=clamp_callback(f"admin:users:{back_offset}"),
+        )
+    )
 
     await render_admin_view(bot, store, admin_uid, chat_id, text, b.as_markup(), message=message)
 
