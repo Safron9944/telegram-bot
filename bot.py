@@ -1341,12 +1341,18 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
     header = "📜 <b>Законодавство</b>"
 
     if total <= 5:
-        text = f"{header}\n\nПитань: {total}\nПочати?"
+        text = (
+            f"{header}\n\n"
+            f"Питань: {total}\n"
+            f"Почати?\n\n"
+            f"ℹ️ <i>Під час тестування: при вірній відповіді система автоматично переходить до наступного питання, "
+            f"при невірній — відображається екран з поясненням помилки.</i>"
+        )
         kb = kb_inline([
             ("▶️ Почати", f"learn_start:law:{group_key}:1"),
             ("🎲 Рандомні", f"learn_start:lawrand:{group_key}"),
             ("⬅️ Назад", "learn:law"),
-        ], row=1)  # вже ок
+        ], row=1)
         return text, kb
 
     part_size = 50
@@ -1358,18 +1364,24 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
         parts.append((p, a, b))
         p += 1
 
-    text = f"{header}\n\nОберіть частину:"
+    text = (
+        f"{header}\n\n"
+        f"Оберіть частину:\n\n"
+        f"ℹ️ <i>Під час тестування: при вірній відповіді система автоматично переходить до наступного питання, "
+        f"при невірній — відображається екран з поясненням помилки.</i>"
+    )
 
     main_buttons = []
     main_buttons.append(("🎲 Рандомні 50", f"learn_start:lawrand:{group_key}"))
     for p, a, b in parts:
         main_buttons.append((f"{a}–{b}", f"learn_start:law:{group_key}:{p}"))
 
-    kb_main = kb_inline(main_buttons, row=1)          # кожна кнопка окремо
+    kb_main = kb_inline(main_buttons, row=1)
     kb_back = kb_inline([("⬅️ Назад", "learn:law")], row=1)
 
     kb_main.inline_keyboard.extend(kb_back.inline_keyboard)
     return text, kb_main
+
 
 OK_TITLES: dict[str, str] = {
     "ОК-1": "Кінологічне забезпечення",
@@ -1573,10 +1585,14 @@ def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[st
     return text, b.as_markup()
 
 
-
 def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
-    text = f"🧩 <b>{ok_full_label(module)}</b>\n\nОберіть рівень:"
+    text = (
+        f"🧩 <b>{ok_full_label(module)}</b>\n\n"
+        f"Оберіть рівень:\n\n"
+        f"ℹ️ <i>Під час тестування: при вірній відповіді система автоматично переходить до наступного питання, "
+        f"при невірній — відображається екран з поясненням помилки.</i>"
+    )
 
     level_buttons = [(f"Рівень {lvl}", f"learn_start:ok:i:{idx}:{lvl}") for lvl in levels]
 
@@ -1593,6 +1609,8 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
         "📝 <b>Тестування</b>",
         "",
         "ℹ️ <b>Підказка</b>: розділ «Тестування» — це перевірка знань за законодавством і обраними ОК-модулями.",
+        "<i>Під час тестування: при вірній відповіді система автоматично переходить до наступного питання, "
+        "при невірній — відображається екран з поясненням помилки.</i>",
         "",
         "Оберіть рівень для кожного модуля ОК (за потреби):",
         "Потім натисніть «Почати тест».",
@@ -2007,6 +2025,8 @@ async def show_contact_request(bot: Bot, store: Storage, uid: int, chat_id: int)
 
 @router.callback_query(F.data == "reg:request")
 async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
+    await cb.answer()  # <-- одразу, щоб не було таймауту
+
     uid = cb.from_user.id
     chat_id = cb.message.chat.id
 
@@ -2020,7 +2040,6 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
 
     await show_contact_request(bot, store, uid, chat_id)
 
-    await cb.answer()
 
 @router.message(F.contact)
 async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
@@ -2258,15 +2277,26 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
 
 
 @router.callback_query(F.data.startswith("learn_start:"))
-async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+@router.callback_query(F.data.startswith("learn_start:"))
+async def learn_start(
+    cb: CallbackQuery,
+    bot: Bot,
+    store: Storage,
+    qb: QuestionBank,
+    admin_ids: set[int],
+):
+    # 1) ОДРАЗУ відповідаємо на callback (без тексту) — щоб Telegram не таймаутився
+    await cb.answer()
+
     uid = cb.from_user.id
     user = await store.get_user(uid)
     ok_access, _ = access_status(user)
     if not ok_access:
         admin_url = get_admin_contact_url(admin_ids)
         text, kb = screen_no_access(user, admin_url)
-        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
-        await cb.answer()
+        await render_main(
+            bot, store, uid, cb.message.chat.id, text, kb, message=cb.message
+        )
         return
 
     parts = cb.data.split(":")
@@ -2278,22 +2308,19 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
     if kind == "law":
         group_key = parts[2]
         part = int(parts[3])
+
         qids = qb.law_groups.get(group_key, [])
         if len(qids) > 50:
             start = (part - 1) * 50
             end = start + 50
             qids = qids[start:end]
 
-        # прибрали показ "Законодавство / Пункт ..."
-        header = ""
-
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
-            header=header,
+            header="",
             save_meta={"kind": "law", "group": group_key, "part": part},
         )
-        await cb.answer()
         return
 
     if kind == "lawrand":
@@ -2303,18 +2330,13 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         n = min(50, len(all_qids))
         qids = qb.pick_random(all_qids, n)
 
-        # прибрали показ "Законодавство / Пункт ... / Рандомні ..."
-        header = ""
-
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
-            header=header,
+            header="",
             save_meta={"kind": "lawrand", "group": group_key, "part": 0},
         )
-        await cb.answer()
         return
-
 
     if kind == "ok":
         module: Optional[str] = None
@@ -2326,7 +2348,7 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
                 idx = int(parts[3])
                 level = int(parts[4])
             except Exception:
-                await cb.answer("Помилка")
+                await cb.message.answer("Помилка даних кнопки")
                 return
 
             user = await store.get_user(uid)
@@ -2334,10 +2356,10 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
             if 0 <= idx < len(modules):
                 module = modules[idx]
 
-        # старий формат (залишили для сумісності): learn_start:ok:<module>:<level>
+        # старий формат: learn_start:ok:<module>:<level>
         else:
             if len(parts) < 4:
-                await cb.answer("Помилка")
+                await cb.message.answer("Помилка даних кнопки")
                 return
             module = parts[2]
             try:
@@ -2346,23 +2368,23 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
                 level = 1
 
         if not module:
-            await cb.answer("Модуль недоступний")
+            await cb.message.answer("Модуль недоступний")
             return
 
         qids = qb.ok_modules.get(module, {}).get(level, [])
         await store.set_ok_last_level(uid, module, level)
-        header = f"🧩 <b>ОК</b>\n{module} • Рівень {level}"
 
+        header = f"🧩 <b>ОК</b>\n{module} • Рівень {level}"
         await start_learning_session(
             bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
             header=header,
             save_meta={"kind": "ok", "module": module, "level": level},
         )
-        await cb.answer()
         return
 
-    await cb.answer("Невідомий режим")
+    await cb.message.answer("Невідомий режим")
+
 
 async def guard_access_in_session(
     cb: CallbackQuery,
