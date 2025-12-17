@@ -16,6 +16,8 @@ from html import escape as hescape
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
+from typing import Dict, Any, Tuple
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 from aiogram import Bot, Dispatcher, Router, F
@@ -1140,16 +1142,27 @@ async def render_main(
     keyboard: Optional[InlineKeyboardMarkup],
     message: Optional[Message] = None,
 ):
-    # Prefer editing existing message (single-message concept)
+    async def save_mid(mid: int):
+        ui = await store.get_ui(user_id) or {}
+        ui["main_message_id"] = mid
+        await store.set_ui(user_id, ui)   # <-- set_ui має приймати dict
+
+    # 1) Якщо передали Message — редагуємо його
     if message:
         try:
-            await message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-            await store.set_ui(user_id, chat_id, message.message_id)
+            await message.edit_text(
+                text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            await save_mid(message.message_id)
             return
-        except Exception:
+        except TelegramBadRequest:
             pass
 
-    ui = await store.get_ui(user_id)
+    # 2) Інакше редагуємо "головне" з ui
+    ui = await store.get_ui(user_id) or {}
     mid = ui.get("main_message_id")
 
     if mid:
@@ -1163,11 +1176,18 @@ async def render_main(
                 disable_web_page_preview=True,
             )
             return
-        except Exception:
+        except TelegramBadRequest:
             pass
 
-    sent = await bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-    await store.set_ui(user_id, chat_id, sent.message_id)
+    # 3) Якщо нема що редагувати — надсилаємо нове і запам'ятовуємо
+    sent = await bot.send_message(
+        chat_id,
+        text,
+        reply_markup=keyboard,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    await save_mid(sent.message_id)
 
 
 # -------------------- Screens --------------------
@@ -1185,9 +1205,6 @@ def screen_need_registration() -> Tuple[str, InlineKeyboardMarkup]:
     return text, kb
 
 
-from typing import Dict, Any, Tuple
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "🏠 <b>Головне меню</b>\n"
@@ -1196,14 +1213,10 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
     )
 
     rows = [
-        [
-            InlineKeyboardButton(text="📚 Навчання", callback_data="nav:learn"),
-            InlineKeyboardButton(text="📝 Тестування", callback_data="nav:test"),
-        ],
-        [
-            InlineKeyboardButton(text="📊 Статистика", callback_data="nav:stats"),
-            InlineKeyboardButton(text="❓ Допомога", callback_data="nav:help"),
-        ],
+        [InlineKeyboardButton(text="📚 Навчання", callback_data="nav:learn")],
+        [InlineKeyboardButton(text="📝 Тестування", callback_data="nav:test")],
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="nav:stats")],
+        [InlineKeyboardButton(text="❓ Допомога", callback_data="nav:help")],
     ]
 
     if is_admin:
