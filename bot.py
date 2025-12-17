@@ -14,7 +14,7 @@ from html import escape as hescape
 from aiogram.client.default import DefaultBotProperties
 from aiogram.types import InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest
-
+from __future__ import annotations
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.enums import ParseMode
@@ -238,6 +238,11 @@ class Storage:
                 last_name=COALESCE(EXCLUDED.last_name, users.last_name)
         """, user_id, 1 if is_admin else 0, now(), fn, ln)
 
+    async def show_registration_gate(bot: Bot, store: Storage, uid: int, chat_id: int,
+                                     message: Optional[Message] = None):
+        text, kb = screen_need_registration()
+        await render_main(bot, store, uid, chat_id, text, kb, message=message)
+        await show_contact_request(bot, store, uid, chat_id)
 
     async def get_user(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
@@ -1061,11 +1066,35 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
 
 # -------------------- UI helpers --------------------
 
-def kb_inline(buttons: List[Tuple[str, str]], row: int = 2) -> InlineKeyboardMarkup:
+def kb_inline(
+    buttons: List[Tuple[str, str]],
+    row: int = 2,
+    single_row_prefixes: Optional[Tuple[str, ...]] = ("⬅️", "🔁"),
+    single_row_exact: Optional[Tuple[str, ...]] = ("⬅️ Назад", "⬅️ Меню"),
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+
+    main = []
+    tail = []
+
     for text, data in buttons:
+        item = (text, data)
+        if (single_row_exact and text in single_row_exact) or (
+            single_row_prefixes and text.startswith(single_row_prefixes)
+        ):
+            tail.append(item)      # ці кнопки підуть вниз по 1 в рядок
+        else:
+            main.append(item)      # решта — звичайне розкладання
+
+    for text, data in main:
         b.button(text=text, callback_data=clamp_callback(data))
     b.adjust(row)
+
+    # додаємо "хвіст" з кнопок, кожна окремим рядком
+    for text, data in tail:
+        b.button(text=text, callback_data=clamp_callback(data))
+        b.adjust(1)
+
     return b.as_markup()
 
 
@@ -1154,38 +1183,56 @@ def screen_need_registration() -> Tuple[str, InlineKeyboardMarkup]:
     return text, kb
 
 
+from typing import Dict, Any, Tuple
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "🏠 <b>Головне меню</b>\n"
         f"{fmt_access_line(user)}\n\n"
         "Оберіть розділ:"
     )
-    buttons = [
-        ("📚 Навчання", "nav:learn"),
-        ("📝 Тестування", "nav:test"),
-        ("📊 Статистика", "nav:stats"),
-        ("❓ Допомога", "nav:help"),
+
+    rows = [
+        [
+            InlineKeyboardButton(text="📚 Навчання", callback_data="nav:learn"),
+            InlineKeyboardButton(text="📝 Тестування", callback_data="nav:test"),
+        ],
+        [
+            InlineKeyboardButton(text="📊 Статистика", callback_data="nav:stats"),
+            InlineKeyboardButton(text="❓ Допомога", callback_data="nav:help"),
+        ],
     ]
+
     if is_admin:
-        buttons.append(("🛠 Користувачі", "admin:users:0"))
-    kb = kb_inline(buttons, row=2)
+        rows.append([InlineKeyboardButton(text="🛠 Користувачі", callback_data="admin:users:0")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     return text, kb
 
 
-def screen_help(admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
+
+def screen_help(admin_url: str, registered: bool) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "❓ <b>Допомога</b>\n\n"
         "Тут ви можете:\n"
         "▪ приєднатися до Telegram-групи\n"
-        "▪ звернутися до адміністратора для продовження підписки"
+        "▪ звернутися до адміністратора\n"
     )
+    if not registered:
+        text += "▪ зареєструватися (поділитися номером)\n"
 
     b = InlineKeyboardBuilder()
     if GROUP_URL:
         b.button(text="🔗 Telegram-група", url=GROUP_URL)
     if admin_url:
         b.button(text="📩 Написати адміну", url=admin_url)
-    b.button(text="⬅️ Меню", callback_data="nav:menu")
+
+    if registered:
+        b.button(text="⬅️ Меню", callback_data="nav:menu")
+    else:
+        b.button(text="⬅️ Реєстрація", callback_data="nav:reg")
+
     b.adjust(1)
     return text, b.as_markup()
 
@@ -1208,12 +1255,14 @@ def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineK
 
 def screen_learning_menu() -> Tuple[str, InlineKeyboardMarkup]:
     text = "📚 <b>Навчання</b>\n\nОберіть напрям:"
-    kb = kb_inline([
-        ("📜 Законодавство", "learn:law"),
-        ("🧩 Операційні компетенції (ОК)", "learn:ok"),
-        ("🧯 Робота над помилками", "learn:mistakes"),
-        ("⬅️ Меню", "nav:menu"),
-    ], row=1)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📜 Законодавство", callback_data="learn:law")],
+        [InlineKeyboardButton(text="🧩 Операційні компетенції (ОК)", callback_data="learn:ok")],
+        [InlineKeyboardButton(text="🧯 Робота над помилками", callback_data="learn:mistakes")],
+        [InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")],
+    ])
+
     return text, kb
 
 
@@ -1264,10 +1313,9 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
             ("▶️ Почати", f"learn_start:law:{group_key}:1"),
             ("🎲 Рандомні", f"learn_start:lawrand:{group_key}"),
             ("⬅️ Назад", "learn:law"),
-        ], row=1)
+        ], row=1)  # вже ок
         return text, kb
 
-    # make parts: 1-50, 51-100, ...
     part_size = 50
     parts = []
     p = 1
@@ -1278,17 +1326,17 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
         p += 1
 
     text = f"{header}\n\nОберіть частину:"
-    buttons = []
 
-    # нове:
-    buttons.append(("🎲 Рандомні 50", f"learn_start:lawrand:{group_key}"))
-
+    main_buttons = []
+    main_buttons.append(("🎲 Рандомні 50", f"learn_start:lawrand:{group_key}"))
     for p, a, b in parts:
-        buttons.append((f"{a}–{b}", f"learn_start:law:{group_key}:{p}"))
+        main_buttons.append((f"{a}–{b}", f"learn_start:law:{group_key}:{p}"))
 
-    buttons.append(("⬅️ Назад", "learn:law"))
-    kb = kb_inline(buttons, row=2)
-    return text, kb
+    kb_main = kb_inline(main_buttons, row=1)          # кожна кнопка окремо
+    kb_back = kb_inline([("⬅️ Назад", "learn:law")], row=1)
+
+    kb_main.inline_keyboard.extend(kb_back.inline_keyboard)
+    return text, kb_main
 
 _ok_re = re.compile(r"^\s*(?:ОК|OK)\s*[-–]?\s*(\d+)\s*$", re.IGNORECASE)
 
@@ -1345,10 +1393,15 @@ def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[st
 def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
     text = f"🧩 <b>{module}</b>\n\nОберіть рівень:"
-    buttons = [(f"Рівень {lvl}", f"learn_start:ok:i:{idx}:{lvl}") for lvl in levels]
-    buttons.append(("⬅️ Назад", "learn:ok"))
-    kb = kb_inline(buttons, row=2)
-    return text, kb
+
+    level_buttons = [(f"Рівень {lvl}", f"learn_start:ok:i:{idx}:{lvl}") for lvl in levels]
+
+    kb_levels = kb_inline(level_buttons, row=1)  # кожен рівень окремим рядком
+    kb_back = kb_inline([("⬅️ Назад", "learn:ok")], row=1)
+
+    kb_levels.inline_keyboard.extend(kb_back.inline_keyboard)
+    return text, kb_levels
+
 
 def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[str, int],
                        include_law: bool = True, law_count: int = 50) -> Tuple[str, InlineKeyboardMarkup]:
@@ -1544,6 +1597,14 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
 async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
+
+    # 🔒 якщо не зареєстрований — показуємо тільки реєстрацію
+    if not user.get("phone"):
+        await store.set_state(uid, {})
+        await Storage.show_registration_gate(bot, store, uid, cb.message.chat.id, message=cb.message)
+        await cb.answer()
+        return
+
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await store.set_state(uid, {})
@@ -1552,9 +1613,24 @@ async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
 
 @router.callback_query(F.data == "nav:help")
 async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+    uid = cb.from_user.id
+    user = await store.get_user(uid)
+
     admin_url = get_admin_contact_url(admin_ids)
-    text, kb = screen_help(admin_url)
-    await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
+    text, kb = screen_help(admin_url, registered=bool(user.get("phone")))
+
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+@router.callback_query(F.data == "nav:reg")
+async def nav_reg(cb: CallbackQuery, bot: Bot, store: Storage):
+    uid = cb.from_user.id
+    chat_id = cb.message.chat.id
+
+    text, kb = screen_need_registration()
+    await render_main(bot, store, uid, chat_id, text, kb, message=cb.message)
+    await show_contact_request(bot, store, uid, chat_id)
+
     await cb.answer()
 
 
