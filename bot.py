@@ -1652,28 +1652,24 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
     question = hescape(q.question or "")
     choices = [hescape(ch or "") for ch in (q.choices or [])]
 
-    parts: list[str] = []
+    lines: List[str] = []
+    if header:
+        lines.append(header)
+    if progress:
+        lines.append(progress)
 
-    top = "\n".join(x for x in [header, progress] if x)
-    if top:
-        parts.append(top)
-
-    parts += [
-        "╭────────────────────╮",
+    lines += [
         "❓ <b>Питання</b>",
-        "╰────────────────────╯",
         question,
         "",
-        "╭────────────────────╮",
-        "📝 <b>Варіанти</b>",
-        "╰────────────────────╯",
+        "━━━━━━━━━━━━━━━━",
+        "📝 <b>Варіанти відповіді</b>",
     ]
 
-    for i, ch in enumerate(choices, start=1):
-        parts.append(f" <b>{i}.</b> {ch}")
+    for i, ch in enumerate(choices):
+        lines.append(f"<b>{i+1})</b> {ch}")
 
-    return "\n".join(parts)
-
+    return "\n".join(lines)
 
 def build_feedback_text(q: Q, header: str, chosen: int) -> str:
     question = hescape(q.question or "")
