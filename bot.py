@@ -1271,26 +1271,25 @@ def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineK
     return text, b.as_markup()
 
 
-def screen_learning_menu(user: Dict[str, Any]) -> Tuple[str, InlineKeyboardMarkup]:
-    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+def screen_learning_menu(user: Optional[Dict[str, Any]] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    FILL = "\u2800" * 30
+
+    access_line = f"{fmt_access_line(user)}\n" if user else ""
 
     text = (
         "📚 <b>Навчання</b>\n"
-        f"{fmt_access_line(user)}\n"
+        f"{access_line}"
         f"{FILL}\n"
         "Оберіть напрям:"
     )
 
     rows = [
         [InlineKeyboardButton(text="📜 Законодавство", callback_data="learn:law")],
-        [InlineKeyboardButton(text="🧩 Операційні компетенції (ОК)", callback_data="learn:ok")],
+        [InlineKeyboardButton(text="🧩 ОК", callback_data="learn:ok")],
         [InlineKeyboardButton(text="🧯 Робота над помилками", callback_data="learn:mistakes")],
         [InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")],
     ]
-
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    return text, kb
-
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 def screen_law_groups(
     user: Dict[str, Any],
