@@ -1272,7 +1272,7 @@ def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineK
 
 
 def screen_learning_menu(user: Optional[Dict[str, Any]] = None) -> Tuple[str, InlineKeyboardMarkup]:
-    FILL = "\u2800" * 30
+    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
 
     access_line = f"{fmt_access_line(user)}\n" if user else ""
 
@@ -1285,11 +1285,14 @@ def screen_learning_menu(user: Optional[Dict[str, Any]] = None) -> Tuple[str, In
 
     rows = [
         [InlineKeyboardButton(text="📜 Законодавство", callback_data="learn:law")],
-        [InlineKeyboardButton(text="🧩 ОК", callback_data="learn:ok")],
+        [InlineKeyboardButton(text="🧩 Операційні компетенції (ОК)", callback_data="learn:ok")],
         [InlineKeyboardButton(text="🧯 Робота над помилками", callback_data="learn:mistakes")],
         [InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")],
     ]
-    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    return text, kb
+
 
 def screen_law_groups(
     user: Dict[str, Any],
@@ -1830,7 +1833,7 @@ async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         await cb.answer()
         return
 
-    text, kb = screen_learning_menu()
+    text, kb = screen_learning_menu(user)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
@@ -1866,7 +1869,7 @@ async def learn_ok(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank
     uid = cb.from_user.id
     user = await store.get_user(uid)
     modules = user.get("ok_modules", [])
-    text, kb = screen_ok_menu(modules, qb)
+    text, kb = screen_ok_menu(user, modules, qb)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
@@ -1935,7 +1938,7 @@ async def okmods_save(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
     await store.set_state(uid, state)
 
     user = await store.get_user(uid)
-    text, kb = screen_ok_menu(user.get("ok_modules", []), qb)
+    text, kb = screen_ok_menu(user, user.get("ok_modules", []), qb)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer("Збережено")
 
