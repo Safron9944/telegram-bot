@@ -1295,14 +1295,15 @@ def screen_learning_menu(user: Optional[Dict[str, Any]] = None) -> Tuple[str, In
 
 
 def screen_law_groups(
-    user: Dict[str, Any],
     qb: QuestionBank,
+    user: Optional[Dict[str, Any]] = None,
     page: int = 0,
     per_page: int = 8
 ) -> Tuple[str, InlineKeyboardMarkup]:
-    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+    user = user or {}
 
-    keys = list(qb.law_groups.keys())
+    FILL = "\u2800" * 30
+    keys = list(qb.law_groups.keys()))
 
     def key_sort(k: str):
         return (0, int(k)) if k.isdigit() else (1, k)
@@ -1840,19 +1841,26 @@ async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
 
 @router.callback_query(F.data == "learn:law")
 async def learn_law(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
-    text, kb = screen_law_groups(qb)
-    await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
+    uid = cb.from_user.id
+    user = await store.get_user(uid)
+
+    text, kb = screen_law_groups(qb, user)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("lawpg:"))
 async def law_page(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+    uid = cb.from_user.id
+    user = await store.get_user(uid)
+
     try:
         page = int(cb.data.split(":", 1)[1])
     except Exception:
         page = 0
-    text, kb = screen_law_groups(qb, page=page)
-    await render_main(bot, store, cb.from_user.id, cb.message.chat.id, text, kb, message=cb.message)
+
+    text, kb = screen_law_groups(qb, user, page=page)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
 
