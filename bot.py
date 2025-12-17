@@ -1576,12 +1576,13 @@ def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[st
             callback_data=clamp_callback(f"okmods:togglei:{i}")
         )
 
-    b.adjust(1)  # довгі назви краще в 1 колонку
-    b.row()
+    # нижні кнопки теж в ОДНУ колонку
     b.button(text="Готово", callback_data="okmods:save")
     b.button(text="⬅️ Назад", callback_data="learn:ok")
-    b.adjust(2)
+
+    b.adjust(1)
     return text, b.as_markup()
+
 
 
 def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
@@ -2037,6 +2038,51 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
     await show_contact_request(bot, store, uid, chat_id)
 
     await cb.answer()
+
+@router.message(F.contact)
+async def reg_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
+    uid = message.from_user.id
+    chat_id = message.chat.id
+
+    # 1) прибрати повідомлення користувача з номером (якщо Telegram дозволить)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    # 2) прибрати тимчасове повідомлення з кнопкою "Поділитися номером"
+    ui = await store.get_ui(uid)
+    st = (ui.get("state", {}) or {}) if ui else {}
+    tmp_id = st.pop("reg_tmp_msg_id", None)
+    if tmp_id:
+        try:
+            await bot.delete_message(chat_id, tmp_id)
+        except Exception:
+            pass
+        await store.set_state(uid, st)
+
+    # 3) зберегти телефон
+    phone = (message.contact.phone_number or "").strip() if message.contact else ""
+    if phone:
+        await store.set_phone_and_trial(
+            uid,
+            phone,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
+        )
+
+    # 4) прибрати ReplyKeyboard (і не залишати "✅ Реєстрація успішна" в чаті)
+    try:
+        m = await bot.send_message(chat_id, "✅ Реєстрація успішна", reply_markup=ReplyKeyboardRemove())
+        await asyncio.sleep(0.3)
+        await bot.delete_message(chat_id, m.message_id)
+    except Exception:
+        pass
+
+    # 5) показати меню
+    user = await store.get_user(uid)
+    text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
+    await render_main(bot, store, uid, chat_id, text, kb)
 
 @router.message(F.contact)
 async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
