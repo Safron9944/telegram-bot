@@ -312,8 +312,10 @@ class Storage:
 
     async def set_state(self, user_id: int, state: dict):
         await self._exec("""
-            UPDATE ui_state SET state_json=$1 WHERE user_id=$2
-        """, json.dumps(state, ensure_ascii=False), user_id)
+            INSERT INTO ui_state (user_id, chat_id, main_message_id, state_json)
+            VALUES ($1, NULL, NULL, $2)
+            ON CONFLICT (user_id) DO UPDATE SET state_json=EXCLUDED.state_json
+        """, user_id, json.dumps(state, ensure_ascii=False))
 
     async def bump_wrong(self, user_id: int, qid: int) -> tuple[int, int]:
         r = await self._fetchrow("SELECT wrong_count, in_mistakes FROM errors WHERE user_id=$1 AND qid=$2", user_id, qid)
@@ -1132,7 +1134,6 @@ def clean_law_title(title: str) -> str:
     return t
 
 
-
 async def render_main(
     bot: Bot,
     store: Storage,
@@ -1143,9 +1144,8 @@ async def render_main(
     message: Optional[Message] = None,
 ):
     async def save_mid(mid: int):
-        ui = await store.get_ui(user_id) or {}
-        ui["main_message_id"] = mid
-        await store.set_ui(user_id, ui)   # <-- set_ui має приймати dict
+        # ✅ set_ui очікує (user_id, chat_id, main_message_id)
+        await store.set_ui(user_id, chat_id, mid)
 
     # 1) Якщо передали Message — редагуємо його
     if message:
@@ -1419,6 +1419,90 @@ def ok_full_label(s: str) -> str:
         return f"[{code}] {OK_TITLES[code]}"
     return s
 
+def _truncate(s: str, max_len: int) -> str:
+    s = " ".join((s or "").split())
+    if max_len <= 0:
+        return ""
+    if len(s) <= max_len:
+        return s
+    return s[: max(1, max_len - 1)].rstrip() + "…"
+
+
+def _wrap_for_button(s: str, max_len: int = 34, max_lines: int = 2) -> str:
+    """
+    Робить "перенос" через \n (до max_lines рядків) і обрізає хвіст '…'.
+    """
+    s = " ".join((s or "").split())
+    if not s:
+        return ""
+    if max_lines <= 1:
+        return _truncate(s, max_len)
+
+    if len(s) <= max_len:
+        return s
+
+    words = s.split(" ")
+    lines = []
+    cur = ""
+
+    for w in words:
+        cand = (cur + " " + w).strip() if cur else w
+        if len(cand) <= max_len:
+            cur = cand
+            continue
+
+        if cur:
+            lines.append(cur)
+        else:
+            lines.append(_truncate(w, max_len))
+
+        cur = ""
+        if len(lines) >= max_lines - 1:
+            break
+
+    rest = " ".join(words[len(" ".join(lines).split()):]).strip() if lines else s
+    if not cur:
+        cur = rest
+    else:
+        cur = (cur + " " + rest).strip()
+
+    lines.append(_truncate(cur, max_len))
+    return "\n".join(lines[:max_lines])
+
+
+def _split_ok_label(full: str) -> tuple[str, str]:
+    """
+    '[ОК-14] Назва...' -> ('[ОК-14]', 'Назва...')
+    """
+    full = (full or "").strip()
+    m = re.match(r"^\s*(\[[^\]]+\])\s*(.*)$", full)
+    if not m:
+        return "", full
+    return m.group(1).strip(), (m.group(2) or "").strip()
+
+
+def ok_button_text(module: str, *, prefix: str = "", suffix: str = "", max_len: int = 34) -> str:
+    """
+    Формат для inline-кнопок: робимо перенос після коду (якщо є) + обрізання.
+    """
+    full = ok_full_label(module)
+    code, name = _split_ok_label(full)
+
+    if code:
+        line1 = (prefix + code).strip()
+        line2_raw = name
+        if suffix:
+            line2_raw = (f"{name} • {suffix}" if name else suffix).strip()
+        line2 = _wrap_for_button(line2_raw, max_len=max_len, max_lines=1)
+        return (line1 + "\n" + line2).strip()
+
+    # fallback якщо немає коду в дужках
+    raw = (prefix + full).strip()
+    if suffix:
+        raw = f"{raw} • {suffix}"
+    return _wrap_for_button(raw, max_len=max_len, max_lines=2)
+
+
 def ok_sort_key(name: str):
     code = ok_extract_code(name)
     if code:
@@ -1461,7 +1545,7 @@ def screen_ok_menu(
     pairs.sort(key=lambda p: ok_sort_key(p[1]))
 
     for i, m in pairs:
-        buttons.append((ok_full_label(m), f"okmodi:{i}"))
+        buttons.append((ok_button_text(m), f"okmodi:{i}"))
 
     buttons += [
         ("🔁 Змінити модулі", "okmods:pick"),
@@ -1482,7 +1566,7 @@ def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[st
     for i, m in pairs:
         mark = "✅" if m in selected else "⬜️"
         b.button(
-            text=f"{mark} {ok_full_label(m)}",
+            text=ok_button_text(m, prefix=f"{mark} "),
             callback_data=clamp_callback(f"okmods:togglei:{i}")
         )
 
@@ -1538,7 +1622,7 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
         buttons.append((f"🧩 {ok_full_label(m)} • Рівень {lvl}", f"testlvl:modi:{i}"))
 
     buttons += [
-        ("▶️ Почати тест", "test:start"),
+        ("📖 Почати тест", "test:start"),
         ("⬅️ Меню", "nav:menu"),
     ]
     return "\n".join(lines), kb_inline(buttons, row=1)
