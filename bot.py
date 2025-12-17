@@ -2040,7 +2040,6 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
 
     await show_contact_request(bot, store, uid, chat_id)
 
-
 @router.message(F.contact)
 async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = message.from_user.id
@@ -2055,7 +2054,6 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
 
     c = message.contact
     if not c or not c.phone_number:
-        # прибираємо повідомлення користувача (якщо можна), щоб не засмічувати чат
         try:
             await message.delete()
         except Exception:
@@ -2065,7 +2063,7 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
         await show_contact_request(bot, store, uid, chat_id)
         return
 
-    # інколи Telegram не передає contact.user_id -> тоді приймаємо контакт
+    # якщо Telegram передав contact.user_id і це не користувач — відхиляємо
     if c.user_id is not None and c.user_id != uid:
         try:
             await message.delete()
@@ -2093,6 +2091,7 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
     st = ui.get("state", {}) or {}
     tmp_id = st.pop("reg_tmp_msg_id", None)
     st.pop("reg_awaiting", None)
+    old_main_id = ui.get("main_message_id")
 
     if tmp_id:
         try:
@@ -2109,10 +2108,26 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
     except Exception:
         pass
 
-    # показуємо меню
+    # (опційно) видаляємо старе "головне" повідомлення (екран реєстрації), щоб не лишалось вище
+    if old_main_id:
+        try:
+            await bot.delete_message(chat_id, old_main_id)
+        except Exception:
+            pass
+
+    # показуємо меню НОВИМ повідомленням внизу (щоб його точно було видно)
     user = await store.get_user(uid)
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
-    await render_main(bot, store, uid, chat_id, text, kb)
+
+    sent = await bot.send_message(
+        chat_id,
+        text,
+        reply_markup=kb,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    await store.set_ui(uid, chat_id, sent.message_id)
+
 
 
 # -------- Learning / Testing sessions --------
