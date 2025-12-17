@@ -1303,7 +1303,7 @@ def screen_law_groups(
     user = user or {}
 
     FILL = "\u2800" * 30
-    keys = list(qb.law_groups.keys()))
+    keys = list(qb.law_groups.keys())
 
     def key_sort(k: str):
         return (0, int(k)) if k.isdigit() else (1, k)
