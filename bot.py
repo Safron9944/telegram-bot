@@ -1271,20 +1271,35 @@ def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineK
     return text, b.as_markup()
 
 
-def screen_learning_menu() -> Tuple[str, InlineKeyboardMarkup]:
-    text = "📚 <b>Навчання</b>\n\nОберіть напрям:"
+def screen_learning_menu(user: Dict[str, Any]) -> Tuple[str, InlineKeyboardMarkup]:
+    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    text = (
+        "📚 <b>Навчання</b>\n"
+        f"{fmt_access_line(user)}\n"
+        f"{FILL}\n"
+        "Оберіть напрям:"
+    )
+
+    rows = [
         [InlineKeyboardButton(text="📜 Законодавство", callback_data="learn:law")],
         [InlineKeyboardButton(text="🧩 Операційні компетенції (ОК)", callback_data="learn:ok")],
         [InlineKeyboardButton(text="🧯 Робота над помилками", callback_data="learn:mistakes")],
         [InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")],
-    ])
+    ]
 
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     return text, kb
 
 
-def screen_law_groups(qb: QuestionBank, page: int = 0, per_page: int = 8) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_law_groups(
+    user: Dict[str, Any],
+    qb: QuestionBank,
+    page: int = 0,
+    per_page: int = 8
+) -> Tuple[str, InlineKeyboardMarkup]:
+    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+
     keys = list(qb.law_groups.keys())
 
     def key_sort(k: str):
@@ -1313,7 +1328,13 @@ def screen_law_groups(qb: QuestionBank, page: int = 0, per_page: int = 8) -> Tup
         if page < total_pages - 1:
             buttons.append(("▶️ Наступні", f"lawpg:{page + 1}"))
 
-    text = "📜 <b>Законодавство</b>\n\nОберіть розділ:"
+    text = (
+        "📜 <b>Законодавство</b>\n"
+        f"{fmt_access_line(user)}\n"
+        f"{FILL}\n"
+        "Оберіть розділ:"
+    )
+
     buttons.append(("⬅️ Назад", "nav:learn"))
     kb = kb_inline(buttons, row=1)
     return text, kb
@@ -1356,37 +1377,98 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
     kb_main.inline_keyboard.extend(kb_back.inline_keyboard)
     return text, kb_main
 
-_ok_re = re.compile(r"^\s*(?:ОК|OK)\s*[-–]?\s*(\d+)\s*$", re.IGNORECASE)
+OK_TITLES: dict[str, str] = {
+    "ОК-1": "Кінологічне забезпечення",
+    "ОК-2": "Технічні засоби здійснення митного контролю",
+    "ОК-3": "Класифікація товарів",
+    "ОК-4": "Митні платежі",
+    "ОК-5": "Походження товарів",
+    "ОК-6": "Митна вартість",
+    "ОК-7": "Нетарифне регулювання",
+    "ОК-8": "Контроль за міжнародними передачами стратегічних товарів",
+    "ОК-9": "Авторизації",
+    "ОК-10": "Митні процедури",
+    "ОК-11": "Митний аудит",
+    "ОК-12": "Митна статистика",
+    "ОК-13": "Транзитні процедури",
+    "ОК-14": "Протидія контрабанді та боротьба з порушеннями митних правил",
+    "ОК-15": "Управління ризиками",
+    "ОК-16": "Захист прав інтелектуальної власності",
+    "ОК-17": "Підтримка митниці (організаційне забезпечення)",
+}
+
+_ok_code_any_re = re.compile(r"(?i)(?:\[\s*)?(?:ОК|OK)\s*[-–]?\s*(\d+)(?:\s*\])?")
+
+def ok_extract_code(s: str) -> Optional[str]:
+    """Extract normalized code like 'ОК-7' from 'ОК-7', '[ОК-7] ...', 'OK7', etc."""
+    if not s:
+        return None
+    m = _ok_code_any_re.search(s.strip())
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+    except Exception:
+        return None
+    return f"ОК-{n}"
+
+def ok_full_label(s: str) -> str:
+    """UI label: '[ОК-7] <name>' if known, otherwise return original."""
+    code = ok_extract_code(s) or (s or "").strip()
+    if code in OK_TITLES:
+        return f"[{code}] {OK_TITLES[code]}"
+    return s
 
 def ok_sort_key(name: str):
-    m = _ok_re.match(name)
-    if m:
-        return (0, int(m.group(1)))
-    return (1, name.lower())
+    code = ok_extract_code(name)
+    if code:
+        try:
+            return (0, int(code.split("-", 1)[1]))
+        except Exception:
+            pass
+    return (1, (name or "").lower())
 
-def screen_ok_menu(user_modules: List[str], qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_ok_menu(
+    user: Dict[str, Any],
+    user_modules: List[str],
+    qb: QuestionBank
+) -> Tuple[str, InlineKeyboardMarkup]:
+    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+
     if not user_modules:
-        text = "🧩 <b>ОК</b>\n\nСпочатку оберіть модулі (можна кілька)."
+        text = (
+            "🧩 <b>ОК</b>\n"
+            f"{fmt_access_line(user)}\n"
+            f"{FILL}\n"
+            "Спочатку оберіть модулі (можна кілька)."
+        )
         kb = kb_inline([
             ("✅ Обрати модулі", "okmods:pick"),
             ("⬅️ Назад", "nav:learn"),
         ], row=1)
         return text, kb
 
-    text = "🧩 <b>ОК</b>\n\nОберіть модуль:"
-    buttons = []
+    text = (
+        "🧩 <b>ОК</b>\n"
+        f"{fmt_access_line(user)}\n"
+        f"{FILL}\n"
+        "Оберіть модуль:"
+    )
+
+    buttons: List[Tuple[str, str]] = []
 
     pairs = [(i, m) for i, m in enumerate(user_modules) if m in qb.ok_modules]
     pairs.sort(key=lambda p: ok_sort_key(p[1]))
 
     for i, m in pairs:
-        buttons.append((m, f"okmodi:{i}"))
+        buttons.append((ok_full_label(m), f"okmodi:{i}"))
 
     buttons += [
         ("🔁 Змінити модулі", "okmods:pick"),
         ("⬅️ Назад", "nav:learn"),
     ]
-    kb = kb_inline(buttons, row=2)
+
+    kb = kb_inline(buttons, row=1)
     return text, kb
 
 
@@ -1399,22 +1481,26 @@ def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[st
 
     for i, m in pairs:
         mark = "✅" if m in selected else "⬜️"
-        b.button(text=f"{mark} {m}", callback_data=clamp_callback(f"okmods:togglei:{i}"))
+        b.button(
+            text=f"{mark} {ok_full_label(m)}",
+            callback_data=clamp_callback(f"okmods:togglei:{i}")
+        )
 
-    b.adjust(2)
+    b.adjust(1)  # довгі назви краще в 1 колонку
     b.row()
     b.button(text="Готово", callback_data="okmods:save")
     b.button(text="⬅️ Назад", callback_data="learn:ok")
+    b.adjust(2)
     return text, b.as_markup()
 
 
 def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
-    text = f"🧩 <b>{module}</b>\n\nОберіть рівень:"
+    text = f"🧩 <b>{ok_full_label(module)}</b>\n\nОберіть рівень:"
 
     level_buttons = [(f"Рівень {lvl}", f"learn_start:ok:i:{idx}:{lvl}") for lvl in levels]
 
-    kb_levels = kb_inline(level_buttons, row=1)  # кожен рівень окремим рядком
+    kb_levels = kb_inline(level_buttons, row=1)
     kb_back = kb_inline([("⬅️ Назад", "learn:ok")], row=1)
 
     kb_levels.inline_keyboard.extend(kb_back.inline_keyboard)
@@ -1449,7 +1535,7 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
         lvl = int(temp_levels.get(m, available[0]))
         if lvl not in available:
             lvl = available[0]
-        buttons.append((f"🧩 {m} • Рівень {lvl}", f"testlvl:modi:{i}"))
+        buttons.append((f"🧩 {ok_full_label(m)} • Рівень {lvl}", f"testlvl:modi:{i}"))
 
     buttons += [
         ("▶️ Почати тест", "test:start"),
@@ -1457,18 +1543,15 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
     ]
     return "\n".join(lines), kb_inline(buttons, row=1)
 
-
-
 def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Optional[int]) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
-    text = f"🧩 <b>{module}</b>\n\nОберіть рівень для тесту:"
+    text = f"🧩 <b>{ok_full_label(module)}</b>\n\nОберіть рівень для тесту:"
     buttons: List[Tuple[str, str]] = []
     for lvl in levels:
         mark = "✅ " if current == lvl else ""
         buttons.append((f"{mark}Рівень {lvl}", f"testlvl:seti:{idx}:{lvl}"))
     buttons.append(("⬅️ Назад", "testlvl:back"))
     return text, kb_inline(buttons, row=2)
-
 
 # -------------------- Session rendering --------------------
 
