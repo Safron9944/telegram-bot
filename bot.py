@@ -1328,7 +1328,6 @@ def screen_law_groups(
 
     text = (
         "📜 <b>Законодавство</b>\n"
-        f"{fmt_access_line(user)}\n"
         f"{FILL}\n"
         "Оберіть розділ:"
     )
@@ -1515,13 +1514,15 @@ def screen_ok_menu(
     user_modules: List[str],
     qb: "QuestionBank"
 ) -> Tuple[str, InlineKeyboardMarkup]:
-    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+    FILL = "\u2800" * 30
+
+    TITLE = "🧩 <b>Оцінювання рівня операційних митних компетенцій</b>\n"
 
     if not user_modules:
         text = (
-            "🧩 <b>ОК</b>\n"
-            f"{fmt_access_line(user)}\n"
+            f"{TITLE}"
             f"{FILL}\n"
+            "Тут можна проходити питання за вибраними модулями.\n"
             "Спочатку оберіть модулі (можна кілька)."
         )
         kb = kb_inline([
@@ -1531,16 +1532,13 @@ def screen_ok_menu(
         return text, kb
 
     text = (
-        "🧩 <b>ОК</b>\n"
-        f"{fmt_access_line(user)}\n"
+        f"{TITLE}"
         f"{FILL}\n"
-        "Оберіть модуль:"
+        "Оберіть модуль, щоб почати:"
     )
 
     buttons: List[Tuple[str, str]] = []
 
-    # було: mods = ... -> okmod:{m}
-    # стало: беремо індекс у user_modules, сортуємо за модулем, у callback кладемо індекс
     pairs = [(i, m) for i, m in enumerate(user_modules) if m in qb.ok_modules]
     pairs.sort(key=lambda p: ok_sort_key(p[1]))
     for i, m in pairs:
@@ -1553,6 +1551,7 @@ def screen_ok_menu(
 
     kb = kb_inline(buttons, row=1)
     return text, kb
+
 
 
 def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[str, InlineKeyboardMarkup]:
@@ -1723,9 +1722,10 @@ def kb_feedback() -> InlineKeyboardMarkup:
 
 def kb_leave_confirm() -> InlineKeyboardMarkup:
     return kb_inline([
+        ("🚪 Вийти в меню", "leave:yes"),
         ("⬅️ Продовжити", "leave:back"),
-        ("✅ Вийти в меню", "leave:yes"),
     ], row=1)
+
 
 
 # -------------------- Main app logic --------------------
@@ -2068,13 +2068,22 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
             pass
     await store.set_state(uid, st)
 
-    # ✅ Прибираємо ReplyKeyboard НАДІЙНО: НЕ видаляємо це повідомлення
-    await bot.send_message(chat_id, "✅ Реєстрація успішна", reply_markup=ReplyKeyboardRemove())
+    # ✅ Прибираємо ReplyKeyboard НАДІЙНО + прибираємо "✅ Реєстрація успішна" з чату
+    cleanup = await bot.send_message(
+        chat_id,
+        "✅ Реєстрація успішна",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    try:
+        await bot.delete_message(chat_id, cleanup.message_id)
+    except Exception:
+        pass
 
     # показуємо меню
     user = await store.get_user(uid)
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, chat_id, text, kb)
+
 
 # -------- Learning / Testing sessions --------
 
