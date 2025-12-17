@@ -1206,13 +1206,15 @@ def screen_need_registration() -> Tuple[str, InlineKeyboardMarkup]:
 
 
 def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineKeyboardMarkup]:
-    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+    FILL = "\u2800" * 30
 
     text = (
         "🏠 <b>Головне меню</b>\n"
-        f"{fmt_access_line(user)}\n"
         f"{FILL}\n"
-        "Оберіть розділ:"
+        "Оберіть розділ:\n\n"
+        "ℹ️ <b>Підказка</b>:\n"
+        "• 📚 <b>Навчання</b> — розділ для вивчення матеріалів (законодавство та ОК-модулі).\n"
+        "• 📝 <b>Тестування</b> — розділ для перевірки знань за законодавством і ОК-модулями."
     )
 
     rows = [
@@ -1221,13 +1223,10 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
         [InlineKeyboardButton(text="📊 Статистика", callback_data="nav:stats")],
         [InlineKeyboardButton(text="❓ Допомога", callback_data="nav:help")],
     ]
-
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Користувачі", callback_data="admin:users:0")])
 
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    return text, kb
-
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def screen_help(admin_url: str, registered: bool) -> Tuple[str, InlineKeyboardMarkup]:
@@ -1272,15 +1271,13 @@ def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineK
 
 
 def screen_learning_menu(user: Optional[Dict[str, Any]] = None) -> Tuple[str, InlineKeyboardMarkup]:
-    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
-
-    access_line = f"{fmt_access_line(user)}\n" if user else ""
+    FILL = "\u2800" * 30
 
     text = (
         "📚 <b>Навчання</b>\n"
-        f"{access_line}"
         f"{FILL}\n"
-        "Оберіть напрям:"
+        "Оберіть напрям:\n\n"
+        "ℹ️ <b>Підказка</b>: розділ «Навчання» — це матеріали для підготовки: законодавство та навчальні модулі."
     )
 
     rows = [
@@ -1289,9 +1286,7 @@ def screen_learning_menu(user: Optional[Dict[str, Any]] = None) -> Tuple[str, In
         [InlineKeyboardButton(text="🧯 Робота над помилками", callback_data="learn:mistakes")],
         [InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")],
     ]
-
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    return text, kb
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def screen_law_groups(
@@ -1518,7 +1513,7 @@ def ok_sort_key(name: str):
 def screen_ok_menu(
     user: Dict[str, Any],
     user_modules: List[str],
-    qb: QuestionBank
+    qb: "QuestionBank"
 ) -> Tuple[str, InlineKeyboardMarkup]:
     FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
 
@@ -1544,22 +1539,20 @@ def screen_ok_menu(
 
     buttons: List[Tuple[str, str]] = []
 
-    # залишаємо тільки дозволені модулі + сортуємо
-    mods = [m for m in user_modules if m in qb.ok_modules]
-    mods.sort(key=ok_sort_key)
-
-    # кожен модуль — окрема кнопка
-    for m in mods:
-        buttons.append((ok_button_text(m), f"okmod:{m}"))
+    # було: mods = ... -> okmod:{m}
+    # стало: беремо індекс у user_modules, сортуємо за модулем, у callback кладемо індекс
+    pairs = [(i, m) for i, m in enumerate(user_modules) if m in qb.ok_modules]
+    pairs.sort(key=lambda p: ok_sort_key(p[1]))
+    for i, m in pairs:
+        buttons.append((ok_button_text(m), f"okmodi:{i}"))
 
     buttons += [
         ("🔁 Змінити модулі", "okmods:pick"),
         ("⬅️ Назад", "nav:learn"),
     ]
 
-    kb = kb_inline(buttons, row=1)  # row=1 => 1 кнопка в рядку
+    kb = kb_inline(buttons, row=1)
     return text, kb
-
 
 
 def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[str, InlineKeyboardMarkup]:
@@ -1603,21 +1596,18 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
     lines = [
         "📝 <b>Тестування</b>",
         "",
+        "ℹ️ <b>Підказка</b>: розділ «Тестування» — це перевірка знань за законодавством і обраними ОК-модулями.",
+        "",
         "Оберіть рівень для кожного модуля ОК (за потреби):",
         "Потім натисніть «Почати тест».",
     ]
 
     buttons: List[Tuple[str, str]] = []
-
     law_mark = "✅" if include_law else "❌"
     buttons.append((f"📚 Законодавство • {law_count} питань {law_mark}", "testlaw:toggle"))
 
-    if not modules:
-        lines += ["", "ℹ️ ОК-модулі не обрані."]
-
-    pairs = list(enumerate(modules))
+    pairs = [(i, m) for i, m in enumerate(modules) if m in qb.ok_modules]
     pairs.sort(key=lambda p: ok_sort_key(p[1]))
-
     for i, m in pairs:
         levels_map = qb.ok_modules.get(m, {})
         if not levels_map:
@@ -1628,11 +1618,9 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
             lvl = available[0]
         buttons.append((f"🧩 {ok_full_label(m)} • Рівень {lvl}", f"testlvl:modi:{i}"))
 
-    buttons += [
-        ("📖 Почати тест", "test:start"),
-        ("⬅️ Меню", "nav:menu"),
-    ]
+    buttons += [("📖 Почати тест", "test:start"), ("⬅️ Меню", "nav:menu")]
     return "\n".join(lines), kb_inline(buttons, row=1)
+
 
 def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Optional[int]) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
@@ -2038,51 +2026,6 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
     await show_contact_request(bot, store, uid, chat_id)
 
     await cb.answer()
-
-@router.message(F.contact)
-async def reg_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
-    uid = message.from_user.id
-    chat_id = message.chat.id
-
-    # 1) прибрати повідомлення користувача з номером (якщо Telegram дозволить)
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    # 2) прибрати тимчасове повідомлення з кнопкою "Поділитися номером"
-    ui = await store.get_ui(uid)
-    st = (ui.get("state", {}) or {}) if ui else {}
-    tmp_id = st.pop("reg_tmp_msg_id", None)
-    if tmp_id:
-        try:
-            await bot.delete_message(chat_id, tmp_id)
-        except Exception:
-            pass
-        await store.set_state(uid, st)
-
-    # 3) зберегти телефон
-    phone = (message.contact.phone_number or "").strip() if message.contact else ""
-    if phone:
-        await store.set_phone_and_trial(
-            uid,
-            phone,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
-        )
-
-    # 4) прибрати ReplyKeyboard (і не залишати "✅ Реєстрація успішна" в чаті)
-    try:
-        m = await bot.send_message(chat_id, "✅ Реєстрація успішна", reply_markup=ReplyKeyboardRemove())
-        await asyncio.sleep(0.3)
-        await bot.delete_message(chat_id, m.message_id)
-    except Exception:
-        pass
-
-    # 5) показати меню
-    user = await store.get_user(uid)
-    text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
-    await render_main(bot, store, uid, chat_id, text, kb)
 
 @router.message(F.contact)
 async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
