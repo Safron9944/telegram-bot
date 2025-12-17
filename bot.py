@@ -1144,10 +1144,12 @@ async def render_main(
 def screen_need_registration() -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "Щоб користуватись ботом, потрібна реєстрація.\n\n"
-        "Натисни кнопку нижче."
+        "Натисни кнопку внизу 👇"
     )
+    # Кнопка «Поділитися номером» показується як ReplyKeyboard (request_contact),
+    # тому тут залишаємо лише допоміжні кнопки.
     kb = kb_inline([
-        ("📱 Поділитися номером", "reg:request"),
+        ("❓ Допомога", "nav:help"),
     ], row=1)
     return text, kb
 
@@ -1504,17 +1506,21 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
 
     ui = await store.get_ui(uid)
 
+    st = ui.get("state", {}) or {}
+
     # якщо вже є телефон — прибираємо можливе “тимчасове” повідомлення з reply-клавіатурою
-    if user.get("phone") and ui.get("reg_tmp_msg_id"):
+    if user.get("phone") and st.get("reg_tmp_msg_id"):
         try:
-            await bot.delete_message(chat_id, ui["reg_tmp_msg_id"])
+            await bot.delete_message(chat_id, st["reg_tmp_msg_id"])
         except Exception:
             pass
-        await store.set_ui(uid, reg_tmp_msg_id=None)  # <-- якщо в тебе інша назва методу, заміни
+        st.pop("reg_tmp_msg_id", None)
+        await store.set_state(uid, st)
 
     if not user.get("phone"):
         text, kb = screen_need_registration()
         await render_main(bot, store, uid, chat_id, text, kb)
+        await show_contact_request(bot, store, uid, chat_id)
         return
 
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
@@ -1698,6 +1704,33 @@ async def testlaw_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     await cb.answer()
 
 
+
+
+async def show_contact_request(bot: Bot, store: Storage, uid: int, chat_id: int):
+    """Shows ReplyKeyboard with request_contact button (temporary message).
+    Telegram allows request_contact only via ReplyKeyboard, not inline keyboard.
+    """
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    # delete previous temp message (if any) to avoid duplicates
+    tmp_id = st.get("reg_tmp_msg_id")
+    if tmp_id:
+        try:
+            await bot.delete_message(chat_id, tmp_id)
+        except Exception:
+            pass
+
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📱 Поділитися номером", request_contact=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+    tmp = await bot.send_message(chat_id, "👇 Поділись номером (кнопка внизу)", reply_markup=kb)
+
+    st["reg_tmp_msg_id"] = tmp.message_id
+    await store.set_state(uid, st)
+
 # -------- Registration (contact) --------
 
 @router.callback_query(F.data == "reg:request")
@@ -1708,22 +1741,12 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
     # main message stays the same, but we must show a ReplyKeyboard (contact) -> temporary message
     await render_main(
         bot, store, uid, chat_id,
-        "📱 <b>Реєстрація</b>\n\nНатисни кнопку нижче, щоб поділитися номером.",
+        "📱 <b>Реєстрація</b>\n\nНатисни кнопку внизу, щоб поділитися номером.",
         kb_inline([("⬅️ Назад", "nav:menu")], row=1),
         message=cb.message
     )
 
-    rk = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="Поділитися номером", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    tmp = await bot.send_message(chat_id, "👇 Поділись номером (кнопка внизу)", reply_markup=rk)
-
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {})
-    st["reg_tmp_msg_id"] = tmp.message_id
-    await store.set_state(uid, st)
+    await show_contact_request(bot, store, uid, chat_id)
 
     await cb.answer()
 
