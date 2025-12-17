@@ -1206,9 +1206,12 @@ def screen_need_registration() -> Tuple[str, InlineKeyboardMarkup]:
 
 
 def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineKeyboardMarkup]:
+    FILL = "\u2800" * 30  # зроби 40/50 якщо хочеш ще ширше
+
     text = (
         "🏠 <b>Головне меню</b>\n"
-        f"{fmt_access_line(user)}\n\n"
+        f"{fmt_access_line(user)}\n"
+        f"{FILL}\n"
         "Оберіть розділ:"
     )
 
