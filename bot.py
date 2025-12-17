@@ -1662,7 +1662,7 @@ def build_question_text(q: Q, header: str, progress: str) -> str:
         "❓ <b>Питання</b>",
         question,
         "",
-        "━━━━━━━━━━━━━━━━",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━",
         "📝 <b>Варіанти відповіді</b>",
     ]
 
