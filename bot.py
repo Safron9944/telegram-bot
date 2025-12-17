@@ -1,4 +1,3 @@
-
 import os
 import json
 import asyncio
@@ -348,7 +347,8 @@ class Q:
 
     @property
     def is_valid_mcq(self) -> bool:
-        return bool(self.choices) and bool(self.correct)
+        return bool(self.choices) and isinstance(self.correct, list) and len(self.correct) > 0
+
 
 class QuestionBank:
     """Loads a questions file and нормалізує структуру до формату Q.
@@ -605,7 +605,7 @@ class QuestionBank:
         if not isinstance(item, dict):
             return None
 
-        # ---- question text (supports new flat DB: question_text) ----
+        # ---- question text ----
         qtext = (
                 item.get("question_text")
                 or item.get("questionText")
@@ -616,115 +616,173 @@ class QuestionBank:
                 or ""
         )
         qtext = str(qtext).strip()
+        if not qtext:
+            return None
 
         # ---- meta (section/topic/ok/level) ----
         section = str(item.get("section") or item.get("category") or item.get("type") or "").strip()
-
         topic = str(item.get("topic") or item.get("group") or item.get("chapter") or "").strip()
         if not topic:
-            # In the new DB, "section" is effectively the topic for legislation
+            # для законодавства з твого формату section=Законодавство, topic=назва закону (виставляється вище)
             topic = section
 
-        # OK module (supports new flat DB: ok_code/ok_name)
         ok = item.get("ok") or item.get("module") or item.get("ok_module") or item.get("okModule")
         ok = str(ok).strip() if ok is not None else None
         if ok == "":
             ok = None
 
+        # якщо окремо лежать ok_code / ok_name — підхопимо
         ok_code = item.get("ok_code") or item.get("okCode")
         ok_name = item.get("ok_name") or item.get("okName")
         if ok is None:
-            if ok_code is not None and str(ok_code).strip() != "":
+            if ok_code is not None and str(ok_code).strip():
                 ok = str(ok_code).strip()
-            elif ok_name is not None and str(ok_name).strip() != "":
+            elif ok_name is not None and str(ok_name).strip():
                 ok = str(ok_name).strip()
 
-        level = item.get("level") or item.get("difficulty") or item.get("diff")
-        level = str(level).strip() if level is not None else None
-        if level == "":
+        # ---- level (int) ----
+        lvl_raw = item.get("level") or item.get("lvl") or item.get("difficulty") or item.get("diff")
+        level: Optional[int] = None
+        try:
+            if lvl_raw is not None and str(lvl_raw).strip() != "":
+                level = int(str(lvl_raw).strip())
+        except Exception:
             level = None
 
         # ---- question number (order) ----
         qnum_raw = (
                 item.get("question_number")
                 or item.get("questionNumber")
-                or item.get("number")  # <-- твій формат (number: 1..)
+                or item.get("number")  # твій формат
                 or item.get("num")
                 or item.get("no")
         )
         qnum: Optional[int] = None
         try:
             if qnum_raw is not None and str(qnum_raw).strip() != "":
-                qnum = int(qnum_raw)
+                qnum = int(str(qnum_raw).strip())
         except Exception:
             qnum = None
 
-        # ---- choices ----
+        # ---- choices / answers ----
         choices_raw = (
                 item.get("choices")
                 or item.get("options")
-                or item.get("answers")
+                or item.get("answers")  # твій формат
                 or item.get("variants")
                 or item.get("variants_list")
                 or []
         )
 
-        choices: List[str] = []
+        # підтримка dict варіантів {"A": "...", "B": "..."}
         if isinstance(choices_raw, dict):
-            # e.g. {"A": "...", "B": "..."}
-            for k, v in choices_raw.items():
-                txt = str(v).strip()
-                if txt:
-                    choices.append(txt)
+            choices_raw = list(choices_raw.values())
+
+        choices: List[str] = []
+        inferred_correct: List[int] = []
+
+        if isinstance(choices_raw, list) and choices_raw and all(isinstance(x, dict) for x in choices_raw):
+            # формат: [{"text": "...", "is_correct": true}, ...]
+            for d in choices_raw:
+                t = str(d.get("text") or d.get("answer") or d.get("value") or d.get("title") or "").strip()
+                if not t:
+                    continue
+                choices.append(t)
+                flag = d.get("is_correct")
+                if isinstance(flag, bool) and flag:
+                    inferred_correct.append(len(choices))  # 1-based
         elif isinstance(choices_raw, list):
             for ch in choices_raw:
-                if isinstance(ch, dict):
-                    txt = (
-                            ch.get("text")
-                            or ch.get("title")
-                            or ch.get("value")
-                            or ch.get("answer")
-                            or ""
-                    )
-                    txt = str(txt).strip()
-                    if txt:
-                        choices.append(txt)
-                else:
-                    txt = str(ch).strip()
-                    if txt:
-                        choices.append(txt)
+                txt = str(ch).strip()
+                if txt:
+                    choices.append(txt)
 
-        # ---- correct ----
-        correct_raw = (
-                item.get("correct")
-                or item.get("correctAnswer")
-                or item.get("correct_answer")
-                or item.get("answer")
-                or item.get("right")
-                or item.get("is_correct")
-                or item.get("true")
-        )
+        if not choices:
+            return None
 
-        correct: Optional[Any] = None
-        if isinstance(correct_raw, (list, tuple, set)):
-            correct = [str(x).strip() for x in correct_raw if str(x).strip() != ""]
-        elif correct_raw is not None and str(correct_raw).strip() != "":
-            correct = str(correct_raw).strip()
+        # ---- correct (list[int]) ----
+        correct: List[int] = []
 
-        # ---- correct_texts (best-effort) ----
-        correct_texts: List[str] = []
-        if isinstance(correct, list):
-            # if list contains indices or letters, we can't reliably map without extra schema
-            correct_texts = [str(x).strip() for x in correct if str(x).strip() != ""]
-        elif correct is not None:
-            correct_texts = [str(correct).strip()]
+        # 1) з answers[].is_correct
+        if inferred_correct:
+            correct = sorted(set(inferred_correct))
+
+        # 2) correct_index / correct_answer_index (0-based)
+        if not correct:
+            idx0 = (
+                    item.get("correct_answer_index")
+                    or item.get("correctAnswerIndex")
+                    or item.get("correct_index")  # твій формат
+                    or item.get("correctIndex")
+            )
+            try:
+                if idx0 is not None and str(idx0).strip() != "":
+                    i0 = int(str(idx0).strip())
+                    if 0 <= i0 < len(choices):
+                        correct = [i0 + 1]
+            except Exception:
+                pass
+
+        # 3) correct_answer_indices (0-based list)
+        if not correct:
+            idxs0 = item.get("correct_answer_indices") or item.get("correctAnswerIndices")
+            if isinstance(idxs0, list):
+                tmp: List[int] = []
+                for v in idxs0:
+                    try:
+                        i0 = int(v)
+                        if 0 <= i0 < len(choices):
+                            tmp.append(i0 + 1)
+                    except Exception:
+                        continue
+                if tmp:
+                    correct = sorted(set(tmp))
+
+        # 4) legacy: correct як 1-based числа/список/маска
+        if not correct:
+            correct_raw = (
+                    item.get("correct")
+                    or item.get("correct_answers")
+                    or item.get("correctAnswers")
+                    or item.get("right")
+                    or item.get("right_answers")
+                    or item.get("answer")
+            )
+
+            if isinstance(correct_raw, list) and correct_raw and all(isinstance(x, bool) for x in correct_raw):
+                correct = [i + 1 for i, flag in enumerate(correct_raw) if flag]
+            else:
+                nums: List[int] = []
+                if isinstance(correct_raw, int):
+                    nums = [correct_raw]
+                elif isinstance(correct_raw, str):
+                    nums = [int(x) for x in re.findall(r"\d+", correct_raw)]
+                elif isinstance(correct_raw, list):
+                    for x in correct_raw:
+                        if isinstance(x, int):
+                            nums.append(x)
+                        elif isinstance(x, str) and x.strip().isdigit():
+                            nums.append(int(x.strip()))
+                # вважаємо, що це 1-based (якщо файл інший)
+                nums = [n for n in nums if 1 <= n <= len(choices)]
+                if nums:
+                    correct = sorted(set(nums))
+
+        # ---- correct_texts ----
+        correct_texts = item.get("correct_texts") or item.get("correctTexts") or []
+        if isinstance(correct_texts, str):
+            correct_texts = [correct_texts]
+        if isinstance(correct_texts, list):
+            correct_texts = [str(x).strip() for x in correct_texts if str(x).strip()]
+        else:
+            correct_texts = []
+
+        if not correct_texts and correct:
+            correct_texts = [choices[i - 1] for i in correct if 1 <= i <= len(choices)]
 
         # ---- ids ----
         raw_id = item.get("id") or item.get("uid") or item.get("qid") or item.get("question_id")
         qid = self._make_int_id(raw_id, fallback=(raw_id, section, topic, qnum, qtext))
-
-        if not qtext:
-            return None
 
         return {
             "id": int(qid),
@@ -732,10 +790,10 @@ class QuestionBank:
             "topic": topic,
             "ok": ok,
             "level": level,
-            "qnum": qnum,  # <-- НОВЕ
+            "qnum": qnum,
             "question": qtext,
             "choices": choices,
-            "correct": correct,
+            "correct": correct,  # <-- завжди list[int]
             "correct_texts": correct_texts,
         }
 
@@ -1006,6 +1064,7 @@ def clean_law_title(title: str) -> str:
         if t.startswith(p):
             t = t[len(p):].strip()
     return t
+
 
 
 async def render_main(
