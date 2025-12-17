@@ -1290,6 +1290,13 @@ def screen_law_parts(group_key: str, qb: QuestionBank) -> Tuple[str, InlineKeybo
     kb = kb_inline(buttons, row=2)
     return text, kb
 
+_ok_re = re.compile(r"^\s*(?:ОК|OK)\s*[-–]?\s*(\d+)\s*$", re.IGNORECASE)
+
+def ok_sort_key(name: str):
+    m = _ok_re.match(name)
+    if m:
+        return (0, int(m.group(1)))
+    return (1, name.lower())
 
 def screen_ok_menu(user_modules: List[str], qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     if not user_modules:
@@ -1302,10 +1309,13 @@ def screen_ok_menu(user_modules: List[str], qb: QuestionBank) -> Tuple[str, Inli
 
     text = "🧩 <b>ОК</b>\n\nОберіть модуль:"
     buttons = []
-    for i, m in enumerate(user_modules):
-        if m in qb.ok_modules:
-            # індекс, а не назва — щоб callback_data точно була валідна
-            buttons.append((m, f"okmodi:{i}"))
+
+    pairs = [(i, m) for i, m in enumerate(user_modules) if m in qb.ok_modules]
+    pairs.sort(key=lambda p: ok_sort_key(p[1]))
+
+    for i, m in pairs:
+        buttons.append((m, f"okmodi:{i}"))
+
     buttons += [
         ("🔁 Змінити модулі", "okmods:pick"),
         ("⬅️ Назад", "nav:learn"),
@@ -1313,17 +1323,24 @@ def screen_ok_menu(user_modules: List[str], qb: QuestionBank) -> Tuple[str, Inli
     kb = kb_inline(buttons, row=2)
     return text, kb
 
+
 def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[str, InlineKeyboardMarkup]:
     text = "🧩 <b>Оберіть модулі ОК</b>\n\nПозначте потрібні модулі:"
     b = InlineKeyboardBuilder()
-    for i, m in enumerate(all_mods):
+
+    pairs = list(enumerate(all_mods))
+    pairs.sort(key=lambda p: ok_sort_key(p[1]))
+
+    for i, m in pairs:
         mark = "✅" if m in selected else "⬜️"
         b.button(text=f"{mark} {m}", callback_data=clamp_callback(f"okmods:togglei:{i}"))
+
     b.adjust(2)
     b.row()
     b.button(text="Готово", callback_data="okmods:save")
     b.button(text="⬅️ Назад", callback_data="learn:ok")
     return text, b.as_markup()
+
 
 def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
@@ -1333,13 +1350,8 @@ def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, Inli
     kb = kb_inline(buttons, row=2)
     return text, kb
 
-def screen_test_config(
-    modules: List[str],
-    qb: QuestionBank,
-    temp_levels: Dict[str, int],
-    include_law: bool = True,
-    law_count: int = 50,
-) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[str, int],
+                       include_law: bool = True, law_count: int = 50) -> Tuple[str, InlineKeyboardMarkup]:
     lines = [
         "📝 <b>Тестування</b>",
         "",
@@ -1349,14 +1361,16 @@ def screen_test_config(
 
     buttons: List[Tuple[str, str]] = []
 
-    # 👇 Блок законодавства (видимий завжди)
     law_mark = "✅" if include_law else "❌"
     buttons.append((f"📚 Законодавство • {law_count} питань {law_mark}", "testlaw:toggle"))
 
     if not modules:
         lines += ["", "ℹ️ ОК-модулі не обрані."]
 
-    for i, m in enumerate(modules):
+    pairs = list(enumerate(modules))
+    pairs.sort(key=lambda p: ok_sort_key(p[1]))
+
+    for i, m in pairs:
         levels_map = qb.ok_modules.get(m, {})
         if not levels_map:
             continue
@@ -1750,10 +1764,11 @@ async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
 
     await cb.answer()
 
-
 @router.message(F.contact)
 async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = message.from_user.id
+    chat_id = message.chat.id
+
     await store.ensure_user(
         uid,
         is_admin=(uid in admin_ids),
@@ -1761,51 +1776,42 @@ async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[
         last_name=message.from_user.last_name,
     )
 
-    # accept only own contact
-    if not message.contact or message.contact.user_id != uid:
-        try:
-            await message.delete()
-        except Exception:
-            pass
+    c = message.contact
+    if not c or not c.phone_number:
+        await bot.send_message(chat_id, "Не бачу номер. Спробуй ще раз.")
+        await show_contact_request(bot, store, uid, chat_id)
         return
 
-    phone = message.contact.phone_number
-    first_name = (message.contact.first_name or message.from_user.first_name or "").strip() or None
-    last_name = (message.contact.last_name or message.from_user.last_name or "").strip() or None
+    # ✅ ВАЖЛИВО: інколи Telegram не передає contact.user_id -> тоді приймаємо контакт
+    if c.user_id is not None and c.user_id != uid:
+        await bot.send_message(chat_id, "Поділись, будь ласка, СВОЇМ номером через кнопку знизу.")
+        await show_contact_request(bot, store, uid, chat_id)
+        return
+
+    phone = c.phone_number
+    first_name = (c.first_name or message.from_user.first_name or "").strip() or None
+    last_name = (c.last_name or message.from_user.last_name or "").strip() or None
 
     await store.set_phone_and_trial(uid, phone, first_name=first_name, last_name=last_name)
 
-    # cleanup: delete contact and temp message if possible
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
+    # прибираємо тимчасове повідомлення з кнопкою "Поділитися номером"
     ui = await store.get_ui(uid)
-    st = ui.get("state", {})
-    tmp_id = st.get("reg_tmp_msg_id")
+    st = ui.get("state", {}) or {}
+    tmp_id = st.pop("reg_tmp_msg_id", None)
     if tmp_id:
         try:
-            await bot.delete_message(message.chat.id, tmp_id)
+            await bot.delete_message(chat_id, tmp_id)
         except Exception:
             pass
-        st.pop("reg_tmp_msg_id", None)
-        await store.set_state(uid, st)
+    await store.set_state(uid, st)
 
-    # remove reply keyboard (best effort)
-    try:
-        rm = await bot.send_message(message.chat.id, "✅", reply_markup=ReplyKeyboardRemove())
-        try:
-            await bot.delete_message(message.chat.id, rm.message_id)
-        except Exception:
-            pass
-    except Exception:
-        pass
+    # ✅ Прибираємо ReplyKeyboard НАДІЙНО: НЕ видаляємо це повідомлення
+    await bot.send_message(chat_id, "✅ Реєстрація успішна", reply_markup=ReplyKeyboardRemove())
 
+    # показуємо меню
     user = await store.get_user(uid)
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
-    await render_main(bot, store, uid, message.chat.id, text, kb)
-
+    await render_main(bot, store, uid, chat_id, text, kb)
 
 # -------- Learning / Testing sessions --------
 
