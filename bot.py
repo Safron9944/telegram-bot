@@ -1,3 +1,4 @@
+м
 import os
 import json
 import asyncio
@@ -339,6 +340,7 @@ class Q:
     topic: str
     ok: Optional[str]
     level: Optional[int]
+    qnum: Optional[int]          # <-- НОВЕ: порядковий номер питання (1..N)
     question: str
     choices: List[str]
     correct: List[int]
@@ -347,7 +349,6 @@ class Q:
     @property
     def is_valid_mcq(self) -> bool:
         return bool(self.choices) and bool(self.correct)
-
 
 class QuestionBank:
     """Loads a questions file and нормалізує структуру до формату Q.
@@ -391,6 +392,7 @@ class QuestionBank:
                 topic=norm.get("topic", ""),
                 ok=norm.get("ok"),
                 level=norm.get("level"),
+                qnum=norm.get("qnum"),  # <-- НОВЕ
                 question=norm.get("question", ""),
                 choices=norm.get("choices", []),
                 correct=norm.get("correct", []),
@@ -429,13 +431,21 @@ class QuestionBank:
                 lvl = int(q.level or 1)
                 self.ok_modules[mod].setdefault(lvl, []).append(qid)
 
-        # stable order
+        def _ord_key(qid: int):
+            qq = self.by_id.get(qid)
+            n = getattr(qq, "qnum", None)
+            # якщо номера нема — кидаємо в кінець, щоб не ламати порядок
+            return (n if isinstance(n, int) else 10 ** 9, int(qid))
+
+        # stable order (by question number)
         for k in self.law_groups:
-            self.law_groups[k].sort()
-        self.law.sort()
+            self.law_groups[k].sort(key=_ord_key)
+
+        self.law.sort(key=_ord_key)
+
         for ok in self.ok_modules:
             for lvl in self.ok_modules[ok]:
-                self.ok_modules[ok][lvl].sort()
+                self.ok_modules[ok][lvl].sort(key=_ord_key)
 
     def law_group_title(self, key: str) -> str:
         # hashed key -> title
@@ -591,20 +601,19 @@ class QuestionBank:
                                 it.setdefault("topic", str(topic_name))
                                 yield it
 
-
     def _normalize_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
             return None
 
         # ---- question text (supports new flat DB: question_text) ----
         qtext = (
-            item.get("question_text")
-            or item.get("questionText")
-            or item.get("question")
-            or item.get("q")
-            or item.get("text")
-            or item.get("title")
-            or ""
+                item.get("question_text")
+                or item.get("questionText")
+                or item.get("question")
+                or item.get("q")
+                or item.get("text")
+                or item.get("title")
+                or ""
         )
         qtext = str(qtext).strip()
 
@@ -624,6 +633,111 @@ class QuestionBank:
 
         ok_code = item.get("ok_code") or item.get("okCode")
         ok_name = item.get("ok_name") or item.get("okName")
+        if ok is None:
+            if ok_code is not None and str(ok_code).strip() != "":
+                ok = str(ok_code).strip()
+            elif ok_name is not None and str(ok_name).strip() != "":
+                ok = str(ok_name).strip()
+
+        level = item.get("level") or item.get("difficulty") or item.get("diff")
+        level = str(level).strip() if level is not None else None
+        if level == "":
+            level = None
+
+        # ---- question number (order) ----
+        qnum_raw = (
+                item.get("question_number")
+                or item.get("questionNumber")
+                or item.get("number")  # <-- твій формат (number: 1..)
+                or item.get("num")
+                or item.get("no")
+        )
+        qnum: Optional[int] = None
+        try:
+            if qnum_raw is not None and str(qnum_raw).strip() != "":
+                qnum = int(qnum_raw)
+        except Exception:
+            qnum = None
+
+        # ---- choices ----
+        choices_raw = (
+                item.get("choices")
+                or item.get("options")
+                or item.get("answers")
+                or item.get("variants")
+                or item.get("variants_list")
+                or []
+        )
+
+        choices: List[str] = []
+        if isinstance(choices_raw, dict):
+            # e.g. {"A": "...", "B": "..."}
+            for k, v in choices_raw.items():
+                txt = str(v).strip()
+                if txt:
+                    choices.append(txt)
+        elif isinstance(choices_raw, list):
+            for ch in choices_raw:
+                if isinstance(ch, dict):
+                    txt = (
+                            ch.get("text")
+                            or ch.get("title")
+                            or ch.get("value")
+                            or ch.get("answer")
+                            or ""
+                    )
+                    txt = str(txt).strip()
+                    if txt:
+                        choices.append(txt)
+                else:
+                    txt = str(ch).strip()
+                    if txt:
+                        choices.append(txt)
+
+        # ---- correct ----
+        correct_raw = (
+                item.get("correct")
+                or item.get("correctAnswer")
+                or item.get("correct_answer")
+                or item.get("answer")
+                or item.get("right")
+                or item.get("is_correct")
+                or item.get("true")
+        )
+
+        correct: Optional[Any] = None
+        if isinstance(correct_raw, (list, tuple, set)):
+            correct = [str(x).strip() for x in correct_raw if str(x).strip() != ""]
+        elif correct_raw is not None and str(correct_raw).strip() != "":
+            correct = str(correct_raw).strip()
+
+        # ---- correct_texts (best-effort) ----
+        correct_texts: List[str] = []
+        if isinstance(correct, list):
+            # if list contains indices or letters, we can't reliably map without extra schema
+            correct_texts = [str(x).strip() for x in correct if str(x).strip() != ""]
+        elif correct is not None:
+            correct_texts = [str(correct).strip()]
+
+        # ---- ids ----
+        raw_id = item.get("id") or item.get("uid") or item.get("qid") or item.get("question_id")
+        qid = self._make_int_id(raw_id, fallback=(raw_id, section, topic, qnum, qtext))
+
+        if not qtext:
+            return None
+
+        return {
+            "id": int(qid),
+            "section": section,
+            "topic": topic,
+            "ok": ok,
+            "level": level,
+            "qnum": qnum,  # <-- НОВЕ
+            "question": qtext,
+            "choices": choices,
+            "correct": correct,
+            "correct_texts": correct_texts,
+        }
 
         def _clean_ok_name(name: Any) -> str:
             s = str(name or "").strip()
@@ -1826,10 +1940,33 @@ async def learn_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
 
     await cb.answer("Невідомий режим")
 
+async def guard_access_in_session(
+    cb: CallbackQuery,
+    bot: Bot,
+    store: Storage,
+    admin_ids: set[int],
+) -> Optional[Dict[str, Any]]:
+    uid = cb.from_user.id
+    user = await store.get_user(uid)
+    ok_access, _ = access_status(user)
 
+    if ok_access:
+        return user
+
+    # доступ закінчився — зупиняємо сесію і показуємо екран без доступу
+    await store.set_state(uid, {})
+    admin_url = get_admin_contact_url(admin_ids)
+    text, kb = screen_no_access(user, admin_url)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+
+    await cb.answer("Доступ завершився. Потрібна підписка.", show_alert=True)
+    return None
 
 @router.callback_query(F.data.startswith("ans:"))
-async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+
     uid = cb.from_user.id
     choice = int(cb.data.split(":")[1])
 
@@ -1885,7 +2022,10 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
 
 
 @router.callback_query(F.data == "skip")
-async def on_skip(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def on_skip(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+
     uid = cb.from_user.id
     ui = await store.get_ui(uid)
     st = ui.get("state", {})
@@ -1913,7 +2053,10 @@ async def on_skip(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank)
 
 
 @router.callback_query(F.data == "next")
-async def on_feedback_next(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def on_feedback_next(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+
     uid = cb.from_user.id
     ui = await store.get_ui(uid)
     st = ui.get("state", {})
@@ -1924,7 +2067,6 @@ async def on_feedback_next(cb: CallbackQuery, bot: Bot, store: Storage, qb: Ques
     await store.set_state(uid, st)
     await cb.answer()
     await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
-
 
 @router.callback_query(F.data == "leave:confirm")
 async def leave_confirm(cb: CallbackQuery, bot: Bot, store: Storage):
@@ -2093,20 +2235,18 @@ async def testlvl_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: Question
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
-
-
-
 @router.callback_query(F.data == "test:start")
-async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    user = await guard_access_in_session(cb, bot, store, admin_ids)
+    if not user:
+        return
+
     uid = cb.from_user.id
-    user = await store.get_user(uid)
 
     ui = await store.get_ui(uid)
     pre = ui.get("state", {}) or {}
 
-    # якщо десь у конфігу ти зберігаєш цей прапорець — тут він буде врахований
     include_law = bool(pre.get("test_include_law", True))
-
     law_qids = qb.pick_random(qb.law, 50) if include_law else []
 
     modules = user.get("ok_modules", [])
@@ -2129,7 +2269,6 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
 
     all_qids = law_qids + ok_qids
 
-    # щоб не стартувати "порожній" тест (коли законодавство вимкнене і модулі не обрані)
     if not all_qids:
         await cb.answer("Оберіть хоча б один блок для тесту", show_alert=True)
         return
@@ -2152,7 +2291,6 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
 
     await cb.answer()
     await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
-
 
 # -------- Statistics --------
 
