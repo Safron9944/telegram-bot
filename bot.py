@@ -2837,8 +2837,8 @@ def _qpick_kb(total: int, selected: int, back_cb: Optional[str]) -> InlineKeyboa
         label = str(i + 1)  # максимально коротко, щоб умістити 5–6 в рядку
         b.button(text=label, callback_data=clamp_callback(f"qpick:go:{i+1}"))
 
-    # 6 питань у рядку (компактніше)
-    cols = 6
+    # 8 питань у рядку (компактніше)
+    cols = 8
     if total:
         full_rows, remainder = divmod(total, cols)
         sizes = [cols] * full_rows
@@ -2883,7 +2883,14 @@ def screen_qpick_preview(
     total = max(1, int(total))
 
     # preview only (no answering here)
-    opts = "\n".join([f"{i+1}) {hescape(ch)}" for i, ch in enumerate(q.choices or [])])
+    correct_set = set(int(x) for x in (q.correct or []))
+    opts_lines: List[str] = []
+    for i, ch in enumerate(q.choices or []):
+        mark = "✅" if (i + 1) in correct_set else "▫️"
+        note = " <i>(правильно)</i>" if (i + 1) in correct_set else ""
+        opts_lines.append(f"{mark} <b>{i+1})</b> {hescape(ch)}{note}")
+    opts = "\n".join(opts_lines) if opts_lines else "—"
+    corr_line = ", ".join(str(x) for x in sorted(correct_set)) if correct_set else "—"
 
     text = (
         "📝 <b>Підготовка до тесту</b>\n\n"
@@ -2891,7 +2898,7 @@ def screen_qpick_preview(
         f"<b>Питання {idx_1based}/{total}</b>\n"
         f"{hescape(q.question)}\n\n"
         "📝 <b>Варіанти</b>\n"
-        f"{opts}"
+        f"{opts}\n\n<b>Правильні:</b> <code>{corr_line}</code>"
     )
 
     buttons: List[Tuple[str, str]] = [
@@ -3681,6 +3688,42 @@ async def render_admin_view(
 
 
 
+
+async def render_admin_qedit(
+    bot: Bot,
+    store: "Storage",
+    uid: int,
+    fallback_chat_id: int,
+    text: str,
+    keyboard: InlineKeyboardMarkup,
+):
+    """Для адмін-редагування питання: намагаємось редагувати саме те повідомлення,
+    в якому відкритий редактор (щоб не плодити нові повідомлення)."""
+    ui = await store.get_ui(uid) or {}
+    st = (ui.get("state", {}) or {})
+    qedit = st.get(ADMIN_QEDIT) or {}
+
+    chat_id = int(qedit.get("chat_id") or ui.get("chat_id") or fallback_chat_id)
+    msg_id = qedit.get("msg_id")
+
+    if msg_id:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=int(msg_id),
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            await store.set_ui(uid, chat_id, int(msg_id))
+            return
+        except TelegramBadRequest:
+            # якщо не можемо відредагувати — впадемо в звичайний render_main
+            pass
+
+    await render_main(bot, store, uid, chat_id, text, keyboard, message=None)
+
 # --- renders ---
 async def render_admin_users_list(
     bot: Bot,
@@ -4123,6 +4166,8 @@ async def admin_qedit_open(cb: CallbackQuery, bot: Bot, store: "Storage", qb: Qu
         "ret_kind": ret_kind,
         "ret_val": int(ret_val),
         "await": None,
+        "chat_id": cb.message.chat.id,
+        "msg_id": cb.message.message_id,
     }
     st.pop(ADMIN_QWORK_AWAITING, None)
     await store.set_state(uid, st)
@@ -4223,6 +4268,10 @@ async def admin_qedit_back(cb: CallbackQuery, bot: Bot, store: "Storage", qb: Qu
     await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
     await cb.answer()
 
+def pretest_mode(st: dict, qb) -> tuple[str, list[int]]:
+    header = st.get("header", "")
+    qids = list(st.get("qids", []) or [])
+    return header, qids
 
 
 @router.callback_query(F.data.startswith("admin:users:"))
@@ -4352,7 +4401,7 @@ async def admin_users_search_input(
 
         if not qid or qid not in qb.by_id:
             text, kb = screen_admin_qwork_find(page=page, error="Не бачу такого ID. Спробуй ще раз.")
-            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
             return
 
         q = qb.by_id[qid]
@@ -4361,7 +4410,7 @@ async def admin_users_search_input(
         await store.set_state(uid, st)
 
         text, kb = screen_admin_qedit(q)
-        await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+        await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
         return
 
     # 3) Адмін: редагування поля питання
@@ -4383,7 +4432,7 @@ async def admin_users_search_input(
             new_text = (message.text or "").strip()
             if not new_text:
                 text, kb = screen_admin_qedit_prompt(q, field, error="Текст не може бути порожнім.")
-                await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
                 return
 
             after = await store.update_question_content(int(qid), question=new_text, changed_by=f"admin:{uid}")
@@ -4396,14 +4445,14 @@ async def admin_users_search_input(
             await store.set_state(uid, st)
 
             text, kb = screen_admin_qedit(q, note="✅ Збережено")
-            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
             return
 
         if field == "choices":
             choices, correct_maybe = _parse_choices_and_optional_correct(message.text or "")
             if len(choices) < 2:
                 text, kb = screen_admin_qedit_prompt(q, field, error="Потрібно мінімум 2 варіанти.")
-                await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
                 return
 
             if correct_maybe is None:
@@ -4413,7 +4462,7 @@ async def admin_users_search_input(
                         q, field,
                         error="Після зміни варіантів треба вказати правильні. Додай рядок: correct: 2 або 1,3",
                     )
-                    await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                    await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
                     return
                 correct_to_set = filtered
             else:
@@ -4435,14 +4484,14 @@ async def admin_users_search_input(
             await store.set_state(uid, st)
 
             text, kb = screen_admin_qedit(q, note="✅ Збережено")
-            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
             return
 
         if field == "correct":
             corr = _parse_correct_list(message.text or "", len(q.choices or []))
             if not corr:
                 text, kb = screen_admin_qedit_prompt(q, field, error="Не бачу номерів або вони поза діапазоном.")
-                await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
                 return
 
             after = await store.update_question_content(int(qid), correct=corr, changed_by=f"admin:{uid}")
@@ -4455,7 +4504,7 @@ async def admin_users_search_input(
             await store.set_state(uid, st)
 
             text, kb = screen_admin_qedit(q, note="✅ Збережено")
-            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
             return
 
     raise SkipHandler()
