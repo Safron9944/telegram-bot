@@ -204,6 +204,39 @@ class Storage:
                 );
             """)
 
+
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS questions (
+                    id INT PRIMARY KEY,
+                    section TEXT,
+                    topic TEXT,
+                    ok TEXT,
+                    level INT,
+                    qnum INT,
+                    question TEXT NOT NULL,
+                    choices JSONB NOT NULL,
+                    correct JSONB NOT NULL,
+                    correct_texts JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                );
+            """)
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_questions_ok ON questions(ok);")
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_questions_level ON questions(level);")
+
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS question_revisions (
+                    id BIGSERIAL PRIMARY KEY,
+                    qid INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+                    version INT NOT NULL,
+                    changed_by TEXT,
+                    changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    before JSONB,
+                    after JSONB NOT NULL
+                );
+            """)
+            await con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_question_revisions_qid_version ON question_revisions(qid, version);")
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_question_revisions_qid ON question_revisions(qid);")
     async def _fetchrow(self, sql: str, *params):
         assert self.pool
         async with self.pool.acquire() as con:
@@ -369,6 +402,142 @@ class Storage:
             LIMIT $2 OFFSET $3
         """, q, limit, offset)
         return [dict(r) for r in rows]
+# -------------------- Questions (DB) --------------------
+
+async def questions_count(self) -> int:
+    r = await self._fetchrow("SELECT COUNT(*) AS c FROM questions")
+    return int(r["c"]) if r else 0
+
+async def fetch_questions(self) -> list[dict]:
+    rows = await self._fetch("""
+        SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+        FROM questions
+        ORDER BY id
+    """)
+    return [dict(r) for r in rows]
+
+async def import_questions_from_json(
+    self,
+    path: str,
+    *,
+    changed_by: str = "import",
+    force: bool = False,
+) -> int:
+    """
+    Імпорт/синхронізація питань з JSON у таблицю questions.
+    Підтримує повторний запуск:
+    - якщо питання не змінилось — revision не створюємо
+    - якщо force=True — перезаписуємо і створюємо revision завжди
+    """
+    if not path or not os.path.exists(path):
+        raise RuntimeError(f"Questions file not found: {path}")
+
+    qb = QuestionBank(path)
+    qb.load()
+
+    items = [q for q in qb.by_id.values() if q.is_valid_mcq]
+    if not items:
+        return 0
+
+    def _norm_json(v: Any):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return v
+        return v
+
+    assert self.pool
+    imported = 0
+
+    async with self.pool.acquire() as con:
+        async with con.transaction():
+            for q in items:
+                existing = await con.fetchrow(
+                    """
+                    SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+                    FROM questions
+                    WHERE id=$1
+                    """,
+                    int(q.id),
+                )
+
+                before = dict(existing) if existing else None
+                if before:
+                    before["choices"] = _norm_json(before.get("choices"))
+                    before["correct"] = _norm_json(before.get("correct"))
+                    before["correct_texts"] = _norm_json(before.get("correct_texts"))
+
+                after = {
+                    "id": int(q.id),
+                    "section": q.section or "",
+                    "topic": q.topic or "",
+                    "ok": q.ok,
+                    "level": int(q.level) if q.level is not None else None,
+                    "qnum": int(q.qnum) if q.qnum is not None else None,
+                    "question": q.question or "",
+                    "choices": list(q.choices or []),
+                    "correct": [int(x) for x in (q.correct or [])],
+                    "correct_texts": list(q.correct_texts or []),
+                }
+
+                changed = True
+                if before:
+                    cmp_before = {k: before.get(k) for k in after.keys()}
+                    changed = (cmp_before != after)
+
+                if (not existing) or changed or force:
+                    await con.execute(
+                        """
+                        INSERT INTO questions (id, section, topic, ok, level, qnum, question, choices, correct, correct_texts, updated_at)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb, now())
+                        ON CONFLICT (id) DO UPDATE SET
+                            section=EXCLUDED.section,
+                            topic=EXCLUDED.topic,
+                            ok=EXCLUDED.ok,
+                            level=EXCLUDED.level,
+                            qnum=EXCLUDED.qnum,
+                            question=EXCLUDED.question,
+                            choices=EXCLUDED.choices,
+                            correct=EXCLUDED.correct,
+                            correct_texts=EXCLUDED.correct_texts,
+                            updated_at=now()
+                        """,
+                        after["id"],
+                        after["section"],
+                        after["topic"],
+                        after["ok"],
+                        after["level"],
+                        after["qnum"],
+                        after["question"],
+                        json.dumps(after["choices"], ensure_ascii=False),
+                        json.dumps(after["correct"], ensure_ascii=False),
+                        json.dumps(after["correct_texts"], ensure_ascii=False),
+                    )
+
+                    # revision
+                    prev_ver = await con.fetchval(
+                        "SELECT COALESCE(MAX(version), 0) FROM question_revisions WHERE qid=$1",
+                        after["id"],
+                    )
+                    ver = int(prev_ver or 0) + 1
+
+                    await con.execute(
+                        """
+                        INSERT INTO question_revisions (qid, version, changed_by, before, after)
+                        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb)
+                        """,
+                        after["id"],
+                        ver,
+                        (changed_by or None),
+                        (json.dumps(before, ensure_ascii=False) if before else None),
+                        json.dumps(after, ensure_ascii=False),
+                    )
+
+                    imported += 1
+
+    return imported
+
 
 
 # -------------------- Question bank --------------------
@@ -487,6 +656,80 @@ class QuestionBank:
         for ok in self.ok_modules:
             for lvl in self.ok_modules[ok]:
                 self.ok_modules[ok][lvl].sort(key=_ord_key)
+
+
+async def load_from_db(self, store: "Storage"):
+    """
+    Завантаження питань з Postgres у памʼять (для швидкого UI).
+    Очікується, що таблиця questions вже заповнена.
+    """
+    rows = await store.fetch_questions()
+
+    self.by_id.clear()
+    self.law.clear()
+    self.law_groups.clear()
+    self.ok_modules.clear()
+    self._law_group_titles.clear()
+
+    def _norm_json(v: Any):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return v
+        return v
+
+    for r in rows:
+        rid = int(r.get("id"))
+        q = Q(
+            id=rid,
+            section=(r.get("section") or ""),
+            topic=(r.get("topic") or ""),
+            ok=r.get("ok"),
+            level=r.get("level"),
+            qnum=r.get("qnum"),
+            question=(r.get("question") or ""),
+            choices=_norm_json(r.get("choices")) or [],
+            correct=_norm_json(r.get("correct")) or [],
+            correct_texts=_norm_json(r.get("correct_texts")) or [],
+        )
+        self.by_id[q.id] = q
+
+    # ---- indexes ---- (same logic as .load())
+
+    for qid, q in self.by_id.items():
+        if not q.is_valid_mcq:
+            continue
+
+        sec = (q.section or "").lower()
+        is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
+
+        if not is_ok:
+            self.law.append(qid)
+            key = self._law_group_key(q.topic or q.section)
+            self.law_groups.setdefault(key, []).append(qid)
+
+        if is_ok:
+            mod = q.ok or "ОК"
+            self.ok_modules.setdefault(mod, {})
+            lvl = int(q.level or 1)
+            self.ok_modules[mod].setdefault(lvl, []).append(qid)
+
+    def _ord_key(qid: int):
+        qq = self.by_id.get(qid)
+        n = getattr(qq, "qnum", None)
+        return (n if isinstance(n, int) else 10 ** 9, int(qid))
+
+    for k in self.law_groups:
+        self.law_groups[k].sort(key=_ord_key)
+
+    self.law.sort(key=_ord_key)
+
+    for ok in self.ok_modules:
+        for lvl in self.ok_modules[ok]:
+            self.ok_modules[ok][lvl].sort(key=_ord_key)
+
+
 
     def law_group_title(self, key: str) -> str:
         # hashed key -> title
@@ -3466,7 +3709,6 @@ async def admin_users_search_input(
         message=None,
     )
 
-
 @router.callback_query(F.data.startswith("admin:user:"))
 async def admin_user_detail(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
     admin_uid = cb.from_user.id
@@ -3484,7 +3726,6 @@ async def admin_user_detail(cb: CallbackQuery, bot: Bot, store: "Storage", admin
 
     await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
     await cb.answer()
-
 
 @router.callback_query(F.data.startswith("admin:subinf:"))
 async def admin_sub_inf(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
@@ -3504,7 +3745,6 @@ async def admin_sub_inf(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids
     await store.set_subscription(target_id, None, infinite=True)
     await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
     await cb.answer()
-
 
 @router.callback_query(F.data.startswith("admin:subcancel:"))
 async def admin_sub_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
@@ -3527,7 +3767,6 @@ async def admin_sub_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", admin_
     await render_admin_user_detail(bot, store, admin_uid, cb.message.chat.id, target_id, back_offset, message=cb.message)
     await cb.answer("Ок")
 
-
 # -------------------- Bootstrap --------------------
 
 async def main():
@@ -3543,13 +3782,6 @@ async def main():
             if x.isdigit():
                 admin_ids.add(int(x))
 
-    questions_path = os.getenv("QUESTIONS_PATH", "questions_flat.json")
-    if not os.path.exists(questions_path):
-        raise RuntimeError(f"Questions file not found: {questions_path}")
-
-    qb = QuestionBank(questions_path)
-    qb.load()
-
     dsn = (
         os.getenv("DATABASE_URL")
         or os.getenv("POSTGRES_URL")
@@ -3562,13 +3794,38 @@ async def main():
     store = Storage(dsn)
     await store.init()
 
+    # ---------- Questions bootstrap ----------
+    questions_path = os.getenv("QUESTIONS_PATH", "questions_flat.json")
+
+    auto_import = (os.getenv("QUESTIONS_AUTO_IMPORT", "1") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    force_import = (os.getenv("QUESTIONS_FORCE_IMPORT", "0") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    if auto_import:
+        cnt = await store.questions_count()
+        if force_import or cnt == 0:
+            if not os.path.exists(questions_path):
+                if cnt == 0:
+                    raise RuntimeError(f"Questions table is empty and file not found: {questions_path}")
+            else:
+                n = await store.import_questions_from_json(
+                    questions_path,
+                    changed_by="bootstrap",
+                    force=force_import,
+                )
+                print(f"Questions imported/updated: {n}")
+
+    qb = QuestionBank(questions_path)
+    await qb.load_from_db(store)
+
+    if not qb.by_id:
+        raise RuntimeError("No questions loaded from DB. Fill table 'questions' first.")
+
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp["store"] = store
     dp["qb"] = qb
     dp["admin_ids"] = admin_ids
 
-    # inject deps via handler args (aiogram resolves by name)
     dp.include_router(router)
 
     async def _inject_middleware(handler, event, data):
@@ -3579,9 +3836,8 @@ async def main():
 
     dp.update.outer_middleware(_inject_middleware)
 
-    print(f"Loaded: law={len(qb.law)} | ok_modules={len(qb.ok_modules)}")
+    print(f"Loaded: law={len(qb.law)} | ok_modules={len(qb.ok_modules)} | questions={len(qb.by_id)}")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
