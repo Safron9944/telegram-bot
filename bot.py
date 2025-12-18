@@ -51,7 +51,7 @@ def normalize_tme_url(s: str) -> str:
 
 
 # Links (can be overridden via env vars)
-GROUP_URL = normalize_tme_url(os.getenv("GROUP_URL", "t.me/mytnytsia_tests"))
+GROUP_URL = normalize_tme_url(os.getenv("GROUP_URL", "t.me/mytnytsia_test"))
 
 # --- keys у state ---
 ADMIN_PANEL_MSG_ID = "admin_panel_msg_id"
