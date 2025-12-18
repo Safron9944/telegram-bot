@@ -151,58 +151,123 @@ class Storage:
 
     async def init(self):
         dsn, ssl_param = normalize_postgres_dsn(self.dsn)
-        self.pool = await asyncpg.create_pool(dsn=dsn, ssl=ssl_param, min_size=1, max_size=10)
+        self.pool = await asyncpg.create_pool(
+            dsn=dsn,
+            ssl=ssl_param,
+            min_size=1,
+            max_size=10,
+        )
 
         async with self.pool.acquire() as con:
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    phone TEXT,
-                    first_name TEXT,
-                    last_name TEXT,
-                    is_admin INT DEFAULT 0,
-                    trial_start TIMESTAMPTZ,
-                    trial_end TIMESTAMPTZ,
-                    sub_end TIMESTAMPTZ,
-                    sub_infinite INT DEFAULT 0,
-                    ok_modules_json TEXT DEFAULT '[]',
-                    ok_last_levels_json TEXT DEFAULT '{}',
-                    created_at TIMESTAMPTZ
-                );
-            """)
+            async with con.transaction():
+                # ---------------- USERS ----------------
+                await con.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id BIGINT PRIMARY KEY,
+                        phone TEXT,
+                        is_admin INT DEFAULT 0,
+                        trial_start TIMESTAMPTZ,
+                        trial_end TIMESTAMPTZ,
+                        sub_end TIMESTAMPTZ,
+                        sub_infinite INT DEFAULT 0,
+                        ok_modules_json TEXT DEFAULT '[]',
+                        ok_last_levels_json TEXT DEFAULT '{}',
+                        created_at TIMESTAMPTZ
+                    );
+                """)
 
-            # ---- migration: add new columns if DB already exists ----
-            await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;")
-            await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;")
+                # ---- migrations: add new columns / defaults safely ----
+                await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;")
+                await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;")
+                await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;")
 
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS ui_state (
-                    user_id BIGINT PRIMARY KEY,
-                    chat_id BIGINT,
-                    main_message_id BIGINT,
-                    state_json TEXT DEFAULT '{}'
-                );
-            """)
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS errors (
-                    user_id BIGINT,
-                    qid INT,
-                    wrong_count INT DEFAULT 0,
-                    in_mistakes INT DEFAULT 0,
-                    PRIMARY KEY (user_id, qid)
-                );
-            """)
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS tests (
-                    id BIGSERIAL PRIMARY KEY,
-                    user_id BIGINT,
-                    started_at TIMESTAMPTZ,
-                    finished_at TIMESTAMPTZ,
-                    total INT,
-                    correct INT,
-                    percent DOUBLE PRECISION
-                );
-            """)
+                # set defaults (idempotent)
+                await con.execute("ALTER TABLE users ALTER COLUMN ok_modules_json SET DEFAULT '[]';")
+                await con.execute("ALTER TABLE users ALTER COLUMN ok_last_levels_json SET DEFAULT '{}';")
+                await con.execute("ALTER TABLE users ALTER COLUMN created_at SET DEFAULT NOW();")
+
+                # backfill existing rows if they were created before created_at existed/default was set
+                await con.execute("UPDATE users SET created_at = NOW() WHERE created_at IS NULL;")
+                await con.execute("ALTER TABLE users ALTER COLUMN created_at SET NOT NULL;")
+
+                # ---------------- UI STATE ----------------
+                await con.execute("""
+                    CREATE TABLE IF NOT EXISTS ui_state (
+                        user_id BIGINT PRIMARY KEY,
+                        chat_id BIGINT,
+                        main_message_id BIGINT,
+                        state_json TEXT DEFAULT '{}'
+                    );
+                """)
+
+                # ---------------- ERRORS ----------------
+                await con.execute("""
+                    CREATE TABLE IF NOT EXISTS errors (
+                        user_id BIGINT,
+                        qid INT,
+                        wrong_count INT DEFAULT 0,
+                        in_mistakes INT DEFAULT 0,
+                        PRIMARY KEY (user_id, qid)
+                    );
+                """)
+
+                # ---------------- TESTS ----------------
+                await con.execute("""
+                    CREATE TABLE IF NOT EXISTS tests (
+                        id BIGSERIAL PRIMARY KEY,
+                        user_id BIGINT,
+                        started_at TIMESTAMPTZ,
+                        finished_at TIMESTAMPTZ,
+                        total INT,
+                        correct INT,
+                        percent DOUBLE PRECISION
+                    );
+                """)
+
+                # ---------------- QUESTIONS ----------------
+                await con.execute("""
+                    CREATE TABLE IF NOT EXISTS questions (
+                        id INT PRIMARY KEY,
+                        question TEXT NOT NULL,
+                        choices JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        correct JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        correct_texts JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+                        ok TEXT,
+                        level INT,
+                        section TEXT,
+                        topic TEXT,
+                        qnum INT,
+
+                        version INT NOT NULL DEFAULT 1,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_by BIGINT
+                    );
+                """)
+
+                await con.execute("""
+                    CREATE TABLE IF NOT EXISTS question_revisions (
+                        id BIGSERIAL PRIMARY KEY,
+                        qid INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+                        version INT NOT NULL,
+                        changed_by BIGINT,
+                        changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        before JSONB,
+                        after JSONB
+                    );
+                """)
+
+                await con.execute(
+                    "CREATE INDEX IF NOT EXISTS question_revisions_qid_idx ON question_revisions(qid);"
+                )
+                await con.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS question_revisions_qid_ver_uq ON question_revisions(qid, version);"
+                )
+
+                # (необов'язково, але корисно) індекси для частих запитів
+                await con.execute("CREATE INDEX IF NOT EXISTS tests_user_id_idx ON tests(user_id);")
+                await con.execute("CREATE INDEX IF NOT EXISTS ui_state_chat_id_idx ON ui_state(chat_id);")
+                await con.execute("CREATE INDEX IF NOT EXISTS errors_user_id_idx ON errors(user_id);")
 
     async def _fetchrow(self, sql: str, *params):
         assert self.pool
@@ -213,6 +278,188 @@ class Storage:
         assert self.pool
         async with self.pool.acquire() as con:
             return await con.fetch(sql, *params)
+
+    # -------- Questions API --------
+
+    async def questions_count(self) -> int:
+        row = await self._fetchrow("SELECT COUNT(*) AS c FROM questions;")
+        return int(row["c"] or 0) if row else 0
+
+    async def fetch_questions(self) -> List[Dict[str, Any]]:
+        rows = await self._fetch("""
+            SELECT
+                id, question, choices, correct, correct_texts,
+                ok, level, section, topic, qnum,
+                version, updated_at, updated_by
+            FROM questions
+            ORDER BY id;
+        """)
+        return [dict(r) for r in rows]
+
+    async def get_question(self, qid: int) -> Optional[Dict[str, Any]]:
+        row = await self._fetchrow("""
+            SELECT
+                id, question, choices, correct, correct_texts,
+                ok, level, section, topic, qnum,
+                version, updated_at, updated_by
+            FROM questions
+            WHERE id=$1;
+        """, int(qid))
+        return dict(row) if row else None
+
+    def _json_ready_question_snapshot(self, d: Dict[str, Any]) -> Dict[str, Any]:
+        """Make dict safe for JSONB (timestamps -> iso strings)."""
+        out = dict(d)
+        ua = out.get("updated_at")
+        if isinstance(ua, datetime):
+            out["updated_at"] = ua.isoformat()
+        return out
+
+    async def bootstrap_questions_if_empty(self, questions_path: str) -> int:
+        """
+        Якщо questions порожня — одноразово імпортуємо з questions_flat.json.
+        Повертає кількість вставлених рядків.
+        """
+        assert self.pool
+
+        if await self.questions_count() > 0:
+            return 0
+
+        if not os.path.exists(questions_path):
+            raise RuntimeError(f"Questions file not found for bootstrap import: {questions_path}")
+
+        qb_tmp = QuestionBank(questions_path)
+        qb_tmp.load()
+
+        payload: List[tuple] = []
+        for q in qb_tmp.by_id.values():
+            payload.append((
+                int(q.id),
+                str(q.question or ""),
+                list(q.choices or []),
+                [int(x) for x in (q.correct or [])],
+                list(q.correct_texts or []),
+                (str(q.ok) if q.ok else None),
+                (int(q.level) if q.level is not None else None),
+                (str(q.section) if q.section is not None else None),
+                (str(q.topic) if q.topic is not None else None),
+                (int(q.qnum) if q.qnum is not None else None),
+            ))
+
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                before = await con.fetchval("SELECT COUNT(*) FROM questions;")
+
+                await con.executemany("""
+                    INSERT INTO questions (
+                        id, question, choices, correct, correct_texts,
+                        ok, level, section, topic, qnum,
+                        version, updated_at, updated_by
+                    )
+                    VALUES (
+                        $1,$2,$3,$4,$5,
+                        $6,$7,$8,$9,$10,
+                        1, NOW(), NULL
+                    )
+                    ON CONFLICT (id) DO NOTHING;
+                """, payload)
+
+                after = await con.fetchval("SELECT COUNT(*) FROM questions;")
+                return int(after - before)
+
+    async def update_question_with_revision(
+        self,
+        qid: int,
+        patch: Dict[str, Any],
+        changed_by: int,
+    ) -> Dict[str, Any]:
+        """
+        1) Оновлює questions
+        2) Пише ревізію в question_revisions (before/after)
+        3) Інкрементує version
+        """
+        assert self.pool
+
+        allowed = {"question", "choices", "correct", "correct_texts", "ok", "level", "section", "topic", "qnum"}
+        unknown = set(patch.keys()) - allowed
+        if unknown:
+            raise ValueError(f"Unknown question fields: {sorted(unknown)}")
+
+        p = dict(patch)
+
+        # нормалізація типів під JSONB
+        if "choices" in p:
+            p["choices"] = [str(x) for x in (p["choices"] or [])]
+        if "correct" in p:
+            p["correct"] = [int(x) for x in (p["correct"] or [])]
+        if "correct_texts" in p:
+            p["correct_texts"] = [str(x) for x in (p["correct_texts"] or [])]
+
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                row = await con.fetchrow("SELECT * FROM questions WHERE id=$1 FOR UPDATE;", int(qid))
+                if not row:
+                    raise KeyError(f"Question not found: {qid}")
+
+                before = dict(row)
+                cur_ver = int(before.get("version") or 1)
+                new_ver = cur_ver + 1
+
+                after = dict(before)
+                after.update(p)
+                after["version"] = new_ver
+                after["updated_by"] = int(changed_by)
+                after["updated_at"] = now()
+
+                # update questions (пишемо всі поля з after, щоб було просто/надійно)
+                await con.execute("""
+                    UPDATE questions SET
+                        question=$2,
+                        choices=$3,
+                        correct=$4,
+                        correct_texts=$5,
+                        ok=$6,
+                        level=$7,
+                        section=$8,
+                        topic=$9,
+                        qnum=$10,
+                        version=$11,
+                        updated_at=$12,
+                        updated_by=$13
+                    WHERE id=$1;
+                """,
+                    int(qid),
+                    str(after.get("question") or ""),
+                    list(after.get("choices") or []),
+                    list(after.get("correct") or []),
+                    list(after.get("correct_texts") or []),
+                    after.get("ok"),
+                    after.get("level"),
+                    after.get("section"),
+                    after.get("topic"),
+                    after.get("qnum"),
+                    int(new_ver),
+                    after["updated_at"],
+                    int(changed_by),
+                )
+
+                # revision (JSONB-safe snapshots)
+                before_json = self._json_ready_question_snapshot(before)
+                after_json = self._json_ready_question_snapshot(after)
+
+                await con.execute("""
+                    INSERT INTO question_revisions (qid, version, changed_by, before, after)
+                    VALUES ($1,$2,$3,$4,$5);
+                """,
+                    int(qid),
+                    int(new_ver),
+                    int(changed_by),
+                    before_json,
+                    after_json,
+                )
+
+                return after
+
 
     async def _exec(self, sql: str, *params):
         assert self.pool
@@ -472,21 +719,84 @@ class QuestionBank:
                 lvl = int(q.level or 1)
                 self.ok_modules[mod].setdefault(lvl, []).append(qid)
 
-        def _ord_key(qid: int):
-            qq = self.by_id.get(qid)
-            n = getattr(qq, "qnum", None)
-            # якщо номера нема — кидаємо в кінець, щоб не ламати порядок
-            return (n if isinstance(n, int) else 10 ** 9, int(qid))
+        def load_from_rows(self, rows: List[Dict[str, Any]]):
+            # повністю перебудовуємо кеш (by_id/law/ok_modules/індекси)
+            self.by_id.clear()
+            self.law.clear()
+            self.law_groups.clear()
+            self.ok_modules.clear()
+            self._law_group_titles.clear()
 
-        # stable order (by question number)
-        for k in self.law_groups:
-            self.law_groups[k].sort(key=_ord_key)
+            for r in rows:
+                qid = int(r["id"])
+                question = str(r.get("question") or "")
+                choices = r.get("choices") or []
+                correct = r.get("correct") or []
+                correct_texts = r.get("correct_texts") or []
 
-        self.law.sort(key=_ord_key)
+                # defensive normalization
+                if not isinstance(choices, list):
+                    choices = []
+                if not isinstance(correct, list):
+                    correct = []
+                if not isinstance(correct_texts, list):
+                    correct_texts = []
 
-        for ok in self.ok_modules:
-            for lvl in self.ok_modules[ok]:
-                self.ok_modules[ok][lvl].sort(key=_ord_key)
+                q = Q(
+                    id=qid,
+                    section=str(r.get("section") or ""),
+                    topic=str(r.get("topic") or ""),
+                    ok=(str(r.get("ok")) if r.get("ok") else None),
+                    level=(int(r["level"]) if r.get("level") is not None else None),
+                    qnum=(int(r["qnum"]) if r.get("qnum") is not None else None),
+                    question=question,
+                    choices=[str(x) for x in choices],
+                    correct=[int(x) for x in correct],
+                    correct_texts=[str(x) for x in correct_texts],
+                )
+
+                self.by_id[q.id] = q
+
+            # ---- indexes (копія логіки з load()) ----
+            for qid, q in self.by_id.items():
+                if not q.is_valid_mcq:
+                    continue
+
+                sec = (q.section or "").lower()
+                is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
+
+                if not is_ok:
+                    self.law.append(qid)
+                    key = self._law_group_key(q.topic or q.section)
+                    self.law_groups.setdefault(key, []).append(qid)
+
+                if is_ok:
+                    mod = q.ok or "ОК"
+                    self.ok_modules.setdefault(mod, {})
+                    lvl = int(q.level or 1)
+                    self.ok_modules[mod].setdefault(lvl, []).append(qid)
+
+            def _ord_key(qid: int):
+                qq = self.by_id.get(qid)
+                n = getattr(qq, "qnum", None)
+                return (n if isinstance(n, int) else 10 ** 9, int(qid))
+
+            for k in self.law_groups:
+                self.law_groups[k].sort(key=_ord_key)
+
+            self.law.sort(key=_ord_key)
+
+            for ok in self.ok_modules:
+                for lvl in self.ok_modules[ok]:
+                    self.ok_modules[ok][lvl].sort(key=_ord_key)
+
+    async def load_from_db(self, store: "Storage"):
+        rows = await store.fetch_questions()
+        self.load_from_rows(rows)
+
+    async def reload_cache(self, store: "Storage"):
+        # alias, щоб читалось як у твоєму ТЗ
+        await self.load_from_db(store)
 
     def law_group_title(self, key: str) -> str:
         # hashed key -> title
@@ -500,6 +810,8 @@ class QuestionBank:
                 if t.startswith(f"{key}."):
                     return t.split(".", 1)[1].strip()
         return key
+
+
 
     def pick_random(self, qids: List[int], n: int) -> List[int]:
         if len(qids) <= n:
@@ -1041,6 +1353,7 @@ class QuestionBank:
         digest = hashlib.sha1(s.encode("utf-8")).digest()
         v = int.from_bytes(digest[:4], "big") & 0x7FFFFFFF
         return v or 1
+
 
 # -------------------- Access --------------------
 
@@ -2308,238 +2621,7 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
         return
 
 
-# -------- Pre-test (question picker) --------
-
-def _qpick_kb(total: int, selected: int, back_cb: Optional[str]) -> InlineKeyboardMarkup:
-    """Inline keyboard with 1..total buttons + 'Start test' under them.
-    selected: 0-based index of highlighted question.
-    """
-    total = max(0, int(total))
-    selected = max(0, min(int(selected), max(0, total - 1))) if total else 0
-
-    b = InlineKeyboardBuilder()
-
-    # 50 buttons (or less)
-    for i in range(total):
-        label = str(i + 1)
-        if total and i == selected:
-            label = "✅" + label
-        b.button(text=label, callback_data=clamp_callback(f"qpick:go:{i+1}"))
-
-    # 5 buttons per row (10 rows for 50)
-    if total:
-        rows = (total + 4) // 5
-        b.adjust(*([5] * (rows - 1) + [total - 5 * (rows - 1)]))
-    else:
-        b.adjust(1)
-
-    # actions under grid
-    b.row(InlineKeyboardButton(text="▶️ Розпочати тестування", callback_data="qpick:start"))
-    if back_cb:
-        b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
-    b.row(InlineKeyboardButton(text="⬅️ Навчання", callback_data="nav:learn"))
-
-    return b.as_markup()
-
-
-def screen_qpick_grid(header: str, total: int, selected: int = 0, back_cb: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
-    total = max(0, int(total))
-    selected = max(0, min(int(selected), max(0, total - 1))) if total else 0
-
-    text = (
-        "📝 <b>Підготовка до тесту</b>\n\n"
-        f"{header}\n"
-        f"Питань у цьому тесті: <b>{total}</b>\n\n"
-        "Натисни номер питання, щоб подивитись його, або натисни "
-        "<b>«Розпочати тестування»</b>."
-    )
-
-    return text, _qpick_kb(total, selected, back_cb)
-
-
-def screen_qpick_preview(
-    header: str,
-    q: Q,
-    idx_1based: int,
-    total: int,
-    back_cb: Optional[str] = None,
-) -> Tuple[str, InlineKeyboardMarkup]:
-    idx_1based = max(1, int(idx_1based))
-    total = max(1, int(total))
-
-    # preview only (no answering here)
-    opts = "\n".join([f"{i+1}) {hescape(ch)}" for i, ch in enumerate(q.choices or [])])
-
-    text = (
-        "📝 <b>Підготовка до тесту</b>\n\n"
-        f"{header}\n\n"
-        f"<b>Питання {idx_1based}/{total}</b>\n"
-        f"{hescape(q.question)}\n\n"
-        "📝 <b>Варіанти</b>\n"
-        f"{opts}"
-    )
-
-    b = InlineKeyboardBuilder()
-    b.button(text="⬅️ До списку питань", callback_data="qpick:show")
-    b.button(text="▶️ Розпочати тестування", callback_data="qpick:start")
-    if back_cb:
-        b.button(text="⬅️ Назад", callback_data=back_cb)
-    b.button(text="⬅️ Навчання", callback_data="nav:learn")
-    b.adjust(2, 2)  # 2 rows
-
-    return text, b.as_markup()
-
-
-async def start_pretest(
-    bot: Bot,
-    store: Storage,
-    qb: QuestionBank,
-    uid: int,
-    chat_id: int,
-    message: Message,
-    qids: List[int],
-    header: str,
-    meta: Dict[str, Any],
-    back_cb: Optional[str] = None,
-):
-    # limit to 50 questions (as requested)
-    qids = list(qids or [])[:50]
-
-    if not qids:
-        await render_main(
-            bot, store, uid, chat_id,
-            "Немає доступних питань у цьому наборі (можливо, вони без варіантів відповіді).",
-            kb_inline([("⬅️ Назад", back_cb or "nav:learn")], row=1),
-            message=message,
-        )
-        return
-
-    st = {
-        "mode": "pretest",
-        "header": header,
-        "qids": qids,
-        "selected": 0,  # 0-based
-        "meta": meta or {},
-        "back_cb": back_cb,
-    }
-    await store.set_state(uid, st)
-
-    text, kb = screen_qpick_grid(header, len(qids), selected=0, back_cb=back_cb)
-    await render_main(bot, store, uid, chat_id, text, kb, message=message)
-
-
-async def start_test_from_pretest(
-    bot: Bot,
-    store: Storage,
-    qb: QuestionBank,
-    uid: int,
-    chat_id: int,
-    message: Message,
-    pre: Dict[str, Any],
-):
-    qids = list(pre.get("qids", []) or [])
-    if not qids:
-        return
-
-    selected = int(pre.get("selected", 0) or 0)
-    selected = max(0, min(selected, len(qids) - 1))
-
-    # start from selected question
-    ordered = qids[selected:] + qids[:selected]
-
-    st = {
-        "mode": "test",
-        "header": pre.get("header", "📝 <b>Тестування</b>"),
-        "pending": ordered,
-        "skipped": [],
-        "phase": "pending",
-        "feedback": None,
-        "current_qid": None,
-        "correct_count": 0,
-        "total": len(ordered),
-        "started_at": dt_to_iso(now()),
-        "answers": {},
-        "meta": pre.get("meta", {}) or {},
-    }
-    await store.set_state(uid, st)
-    await show_next_in_session(bot, store, qb, uid, chat_id, message)
-
-
-@router.callback_query(F.data == "qpick:show")
-async def qpick_show(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
-    if not await guard_access_in_session(cb, bot, store, admin_ids):
-        return
-    uid = cb.from_user.id
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    if st.get("mode") != "pretest":
-        await cb.answer("Немає активної підготовки", show_alert=True)
-        return
-    header = st.get("header", "")
-    back_cb = st.get("back_cb")
-    selected = int(st.get("selected", 0) or 0)
-    total = len(st.get("qids", []) or [])
-    text, kb = screen_qpick_grid(header, total, selected=selected, back_cb=back_cb)
-    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
-    await cb.answer()
-
-
-@router.callback_query(F.data.startswith("qpick:go:"))
-async def qpick_go(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
-    if not await guard_access_in_session(cb, bot, store, admin_ids):
-        return
-    uid = cb.from_user.id
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    if st.get("mode") != "pretest":
-        await cb.answer("Немає активної підготовки", show_alert=True)
-        return
-
-    try:
-        idx_1based = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка", show_alert=True)
-        return
-
-    qids = list(st.get("qids", []) or [])
-    total = len(qids)
-    if total <= 0:
-        await cb.answer("Немає питань", show_alert=True)
-        return
-
-    idx0 = max(0, min(idx_1based - 1, total - 1))
-    st["selected"] = idx0
-    await store.set_state(uid, st)
-
-    qid = qids[idx0]
-    q = qb.by_id.get(int(qid))
-    if not q:
-        await cb.answer("Питання не знайдено", show_alert=True)
-        return
-
-    header = st.get("header", "")
-    back_cb = st.get("back_cb")
-    text, kb = screen_qpick_preview(header, q, idx_1based=idx0 + 1, total=total, back_cb=back_cb)
-    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
-    await cb.answer()
-
-
-@router.callback_query(F.data == "qpick:start")
-async def qpick_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
-    if not await guard_access_in_session(cb, bot, store, admin_ids):
-        return
-    uid = cb.from_user.id
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    if st.get("mode") != "pretest":
-        await cb.answer("Немає активної підготовки", show_alert=True)
-        return
-
-    await cb.answer()
-    await start_test_from_pretest(bot, store, qb, uid, cb.message.chat.id, cb.message, st)
-
-
-
+@router.callback_query(F.data.startswith("learn_start:"))
 @router.callback_query(F.data.startswith("learn_start:"))
 async def learn_start(
     cb: CallbackQuery,
@@ -2548,135 +2630,105 @@ async def learn_start(
     qb: QuestionBank,
     admin_ids: set[int],
 ):
-    # 1) швидко відповідаємо на callback (щоб Telegram не таймаутився)
+    # 1) ОДРАЗУ відповідаємо на callback (без тексту) — щоб Telegram не таймаутився
     await cb.answer()
 
     uid = cb.from_user.id
     user = await store.get_user(uid)
-
     ok_access, _ = access_status(user)
     if not ok_access:
-        # доступ закінчився — зупиняємо будь-яку сесію і показуємо екран без доступу
-        await store.set_state(uid, {})
         admin_url = get_admin_contact_url(admin_ids)
         text, kb = screen_no_access(user, admin_url)
-        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
-        await cb.answer("Доступ завершився. Потрібна підписка.", show_alert=True)
+        await render_main(
+            bot, store, uid, cb.message.chat.id, text, kb, message=cb.message
+        )
         return
 
-    parts = (cb.data or "").split(":")
-    if len(parts) < 2:
-        await cb.answer("Помилка", show_alert=True)
-        return
-
+    parts = cb.data.split(":")
+    # learn_start:law:<group_key>:<part>
+    # learn_start:lawrand:<group_key>
+    # learn_start:ok:<module>:<level>
     kind = parts[1]
 
-    # -------- Законодавство --------
     if kind == "law":
-        # формат: learn_start:law:<group_key>:<part>
-        group_key = parts[2] if len(parts) >= 3 else ""
-        try:
-            part = int(parts[3]) if len(parts) >= 4 else 1
-        except Exception:
-            part = 1
+        group_key = parts[2]
+        part = int(parts[3])
 
-        all_qids = qb.law_groups.get(group_key, []) or []
-        start = max(0, (part - 1) * 50)
-        qids = all_qids[start:start + 50]
+        qids = qb.law_groups.get(group_key, [])
+        if len(qids) > 50:
+            start = (part - 1) * 50
+            end = start + 50
+            qids = qids[start:end]
 
-        title = qb.law_group_title(group_key)
-        header = f"📜 <b>Законодавство</b> • {hescape(title)}"
-        if len(all_qids) > 50:
-            header += f" • частина {part}"
-
-        await start_pretest(
-            bot, store, qb,
-            uid, cb.message.chat.id, cb.message,
+        await start_learning_session(
+            bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
-            header=header,
-            meta={"kind": "law", "group": group_key, "part": part},
-            back_cb=f"lawgrp:{group_key}" if group_key else "nav:learn",
+            header="",
+            save_meta={"kind": "law", "group": group_key, "part": part},
         )
         return
 
     if kind == "lawrand":
-        # формат: learn_start:lawrand:<group_key>
-        group_key = parts[2] if len(parts) >= 3 else ""
-        all_qids = qb.law_groups.get(group_key, []) or []
-        qids = qb.pick_random(all_qids, min(50, len(all_qids)))
+        group_key = parts[2]
+        all_qids = qb.law_groups.get(group_key, [])
 
-        title = qb.law_group_title(group_key)
-        header = f"📜 <b>Законодавство</b> • {hescape(title)} • 🎲"
+        n = min(50, len(all_qids))
+        qids = qb.pick_random(all_qids, n)
 
-        await start_pretest(
-            bot, store, qb,
-            uid, cb.message.chat.id, cb.message,
+        await start_learning_session(
+            bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
-            header=header,
-            meta={"kind": "lawrand", "group": group_key},
-            back_cb=f"lawgrp:{group_key}" if group_key else "nav:learn",
+            header="",
+            save_meta={"kind": "lawrand", "group": group_key, "part": 0},
         )
         return
 
-    # -------- ОК --------
     if kind == "ok":
         module: Optional[str] = None
         level = 1
-        back_cb: str = "nav:learn"
 
-        # НОВИЙ формат: learn_start:ok:i:<idx>:<level>
+        # новий формат: learn_start:ok:i:<idx>:<level>
         if len(parts) >= 5 and parts[2] == "i":
             try:
                 idx = int(parts[3])
                 level = int(parts[4])
             except Exception:
-                await cb.answer("Помилка", show_alert=True)
+                await cb.message.answer("Помилка даних кнопки")
                 return
 
-            modules = user.get("ok_modules", []) or []
-            if idx < 0 or idx >= len(modules):
-                await cb.answer("Модуль не знайдено", show_alert=True)
-                return
-            module = modules[idx]
-            back_cb = f"okmodi:{idx}"
+            user = await store.get_user(uid)
+            modules = list(user.get("ok_modules", []))
+            if 0 <= idx < len(modules):
+                module = modules[idx]
 
-        # СТАРИЙ формат: learn_start:ok:<module>:<level?>
+        # старий формат: learn_start:ok:<module>:<level>
         else:
-            module = parts[2] if len(parts) >= 3 else None
-            if len(parts) >= 4:
-                try:
-                    level = int(parts[3])
-                except Exception:
-                    level = 1
-
-            # back to levels screen if possible
-            modules = user.get("ok_modules", []) or []
-            if module in modules:
-                back_cb = f"okmodi:{modules.index(module)}"
+            if len(parts) < 4:
+                await cb.message.answer("Помилка даних кнопки")
+                return
+            module = parts[2]
+            try:
+                level = int(parts[3])
+            except Exception:
+                level = 1
 
         if not module:
-            await cb.answer("Модуль не знайдено", show_alert=True)
+            await cb.message.answer("Модуль недоступний")
             return
 
-        qids = (qb.ok_modules.get(module, {}) or {}).get(int(level), []) or []
-        qids = list(qids)[:50]  # рівно 50 (або менше, якщо немає)
+        qids = qb.ok_modules.get(module, {}).get(level, [])
+        await store.set_ok_last_level(uid, module, level)
 
-        # запамʼятовуємо останній рівень (як було)
-        await store.set_ok_last_level(uid, module, int(level))
-
-        header = f"🧠 <b>ОК</b> • {hescape(module)} • Рівень {int(level)}"
-
-        await start_pretest(
-            bot, store, qb,
-            uid, cb.message.chat.id, cb.message,
+        header = f"{module} • Рівень {level}"
+        await start_learning_session(
+            bot, store, qb, uid, cb.message.chat.id, cb.message,
             qids=qids,
             header=header,
-            meta={"kind": "ok", "module": module, "level": int(level)},
-            back_cb=back_cb,
+            save_meta={"kind": "ok", "module": module, "level": level},
         )
         return
 
-    await cb.answer("Невідомий режим", show_alert=True)
+    await cb.message.answer("Невідомий режим")
 
 
 async def guard_access_in_session(
@@ -3536,19 +3588,15 @@ async def main():
         raise RuntimeError("Set BOT_TOKEN env var")
 
     admin_ids_env = os.getenv("ADMIN_IDS", "").strip()
-    admin_ids = set()
-    if admin_ids_env:
-        for x in admin_ids_env.split(","):
-            x = x.strip()
-            if x.isdigit():
-                admin_ids.add(int(x))
+    admin_ids = {
+        int(x.strip())
+        for x in admin_ids_env.split(",")
+        if x.strip().isdigit()
+    } if admin_ids_env else set()
 
     questions_path = os.getenv("QUESTIONS_PATH", "questions_flat.json")
     if not os.path.exists(questions_path):
         raise RuntimeError(f"Questions file not found: {questions_path}")
-
-    qb = QuestionBank(questions_path)
-    qb.load()
 
     dsn = (
         os.getenv("DATABASE_URL")
@@ -3562,14 +3610,31 @@ async def main():
     store = Storage(dsn)
     await store.init()
 
+    # одноразовий bootstrap (тільки якщо таблиця пуста)
+    inserted = await store.bootstrap_questions_if_empty(questions_path)
+    if inserted:
+        print(f"[questions] bootstrapped from json: {inserted} rows")
+
+    # далі працюємо з БД (qb можна лишити як кеш/інтерфейс)
+    qb = QuestionBank(questions_path)
+    await qb.load_from_db(store)
+
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     dp["store"] = store
     dp["qb"] = qb
     dp["admin_ids"] = admin_ids
 
-    # inject deps via handler args (aiogram resolves by name)
     dp.include_router(router)
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # акуратне закриття ресурсів
+        await bot.session.close()
+        if store.pool:
+            await store.pool.close()
+
 
     async def _inject_middleware(handler, event, data):
         data["store"] = store
