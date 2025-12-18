@@ -2258,41 +2258,288 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
         correct = int(st.get("correct_count", 0))
         total = int(st.get("total", 0)) or 0
         percent = (correct / total * 100.0) if total else 0.0
+
         text = (
             "📚 <b>Навчання завершено</b>\n\n"
             "📊 <b>Результат:</b>\n"
             f"✅ <b>{correct}</b> з <b>{total}</b> правильних\n"
             f"📈 <b>{percent:.1f}%</b>"
         )
+
+        # NEW: кнопка "назад до рівнів/ОК" + стара кнопка "Навчання"
+        meta = st.get("meta") or {}
+        kind = meta.get("kind")
+
+        buttons = []
+
+        # якщо це ОК-рівень — даємо "До рівнів" (повертає на вибір рівня цього модуля)
+        if kind == "ok":
+            module = meta.get("module")
+            idx = None
+            if module:
+                user = await store.get_user(uid)
+                mods = list(user.get("ok_modules", []))
+                try:
+                    idx = mods.index(module)
+                except ValueError:
+                    idx = None
+
+            if idx is not None:
+                buttons.append(("⬅️ До рівнів", f"okmodi:{idx}"))
+            else:
+                buttons.append(("⬅️ ОК", "learn:ok"))
+
+        # якщо це законодавство — можна теж дати повернення до частин (не обовʼязково)
+        elif kind in ("law", "lawrand"):
+            group_key = meta.get("group")
+            if group_key:
+                buttons.append(("⬅️ До частин", f"lawgrp:{group_key}"))
+
+        # завжди залишаємо вихід у меню навчання
+        buttons.append(("⬅️ Навчання", "nav:learn"))
+
         await store.set_state(uid, {})
-        await render_main(bot, store, uid, chat_id, text, kb_inline([("⬅️ Навчання", "nav:learn")], row=1), message=message)
+        await render_main(
+            bot, store, uid, chat_id,
+            text,
+            kb_inline(buttons, row=1),
+            message=message
+        )
         return
 
-    qid = int(pending[0])
-    q = qb.by_id.get(qid)
-    if not q or not q.is_valid_mcq:
-        # skip invalid
-        st["pending"] = pending[1:]
-        await store.set_state(uid, st)
-        await show_next_in_session(bot, store, qb, uid, chat_id, message)
+
+# -------- Pre-test (question picker) --------
+
+def _qpick_kb(total: int, selected: int, back_cb: Optional[str]) -> InlineKeyboardMarkup:
+    """Inline keyboard with 1..total buttons + 'Start test' under them.
+    selected: 0-based index of highlighted question.
+    """
+    total = max(0, int(total))
+    selected = max(0, min(int(selected), max(0, total - 1))) if total else 0
+
+    b = InlineKeyboardBuilder()
+
+    # 50 buttons (or less)
+    for i in range(total):
+        label = str(i + 1)
+        if total and i == selected:
+            label = "✅" + label
+        b.button(text=label, callback_data=clamp_callback(f"qpick:go:{i+1}"))
+
+    # 5 buttons per row (10 rows for 50)
+    if total:
+        rows = (total + 4) // 5
+        b.adjust(*([5] * (rows - 1) + [total - 5 * (rows - 1)]))
+    else:
+        b.adjust(1)
+
+    # actions under grid
+    b.row(InlineKeyboardButton(text="▶️ Розпочати тестування", callback_data="qpick:start"))
+    if back_cb:
+        b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
+    b.row(InlineKeyboardButton(text="⬅️ Навчання", callback_data="nav:learn"))
+
+    return b.as_markup()
+
+
+def screen_qpick_grid(header: str, total: int, selected: int = 0, back_cb: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    total = max(0, int(total))
+    selected = max(0, min(int(selected), max(0, total - 1))) if total else 0
+
+    text = (
+        "📝 <b>Підготовка до тесту</b>\n\n"
+        f"{header}\n"
+        f"Питань у цьому тесті: <b>{total}</b>\n\n"
+        "Натисни номер питання, щоб подивитись його, або натисни "
+        "<b>«Розпочати тестування»</b>."
+    )
+
+    return text, _qpick_kb(total, selected, back_cb)
+
+
+def screen_qpick_preview(
+    header: str,
+    q: Q,
+    idx_1based: int,
+    total: int,
+    back_cb: Optional[str] = None,
+) -> Tuple[str, InlineKeyboardMarkup]:
+    idx_1based = max(1, int(idx_1based))
+    total = max(1, int(total))
+
+    # preview only (no answering here)
+    opts = "\n".join([f"{i+1}) {hescape(ch)}" for i, ch in enumerate(q.choices or [])])
+
+    text = (
+        "📝 <b>Підготовка до тесту</b>\n\n"
+        f"{header}\n\n"
+        f"<b>Питання {idx_1based}/{total}</b>\n"
+        f"{hescape(q.question)}\n\n"
+        "📝 <b>Варіанти</b>\n"
+        f"{opts}"
+    )
+
+    b = InlineKeyboardBuilder()
+    b.button(text="⬅️ До списку питань", callback_data="qpick:show")
+    b.button(text="▶️ Розпочати тестування", callback_data="qpick:start")
+    if back_cb:
+        b.button(text="⬅️ Назад", callback_data=back_cb)
+    b.button(text="⬅️ Навчання", callback_data="nav:learn")
+    b.adjust(2, 2)  # 2 rows
+
+    return text, b.as_markup()
+
+
+async def start_pretest(
+    bot: Bot,
+    store: Storage,
+    qb: QuestionBank,
+    uid: int,
+    chat_id: int,
+    message: Message,
+    qids: List[int],
+    header: str,
+    meta: Dict[str, Any],
+    back_cb: Optional[str] = None,
+):
+    # limit to 50 questions (as requested)
+    qids = list(qids or [])[:50]
+
+    if not qids:
+        await render_main(
+            bot, store, uid, chat_id,
+            "Немає доступних питань у цьому наборі (можливо, вони без варіантів відповіді).",
+            kb_inline([("⬅️ Назад", back_cb or "nav:learn")], row=1),
+            message=message,
+        )
         return
 
-    # set current qid
-    st["current_qid"] = qid
+    st = {
+        "mode": "pretest",
+        "header": header,
+        "qids": qids,
+        "selected": 0,  # 0-based
+        "meta": meta or {},
+        "back_cb": back_cb,
+    }
     await store.set_state(uid, st)
 
-    total = int(st.get("total", 0)) or (len(pending) + len(skipped))
-    done = total - len(pending) - len(skipped)
-    phase_note = " (пропущені)" if phase == "skipped" else ""
-    remaining = len(pending) + len(skipped)
-    progress = f"Питань залишилось: <b>{remaining}</b>{phase_note}"
+    text, kb = screen_qpick_grid(header, len(qids), selected=0, back_cb=back_cb)
+    await render_main(bot, store, uid, chat_id, text, kb, message=message)
+
+
+async def start_test_from_pretest(
+    bot: Bot,
+    store: Storage,
+    qb: QuestionBank,
+    uid: int,
+    chat_id: int,
+    message: Message,
+    pre: Dict[str, Any],
+):
+    qids = list(pre.get("qids", []) or [])
+    if not qids:
+        return
+
+    selected = int(pre.get("selected", 0) or 0)
+    selected = max(0, min(selected, len(qids) - 1))
+
+    # start from selected question
+    ordered = qids[selected:] + qids[:selected]
+
+    st = {
+        "mode": "test",
+        "header": pre.get("header", "📝 <b>Тестування</b>"),
+        "pending": ordered,
+        "skipped": [],
+        "phase": "pending",
+        "feedback": None,
+        "current_qid": None,
+        "correct_count": 0,
+        "total": len(ordered),
+        "started_at": dt_to_iso(now()),
+        "answers": {},
+        "meta": pre.get("meta", {}) or {},
+    }
+    await store.set_state(uid, st)
+    await show_next_in_session(bot, store, qb, uid, chat_id, message)
+
+
+@router.callback_query(F.data == "qpick:show")
+async def qpick_show(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    if st.get("mode") != "pretest":
+        await cb.answer("Немає активної підготовки", show_alert=True)
+        return
+    header = st.get("header", "")
+    back_cb = st.get("back_cb")
+    selected = int(st.get("selected", 0) or 0)
+    total = len(st.get("qids", []) or [])
+    text, kb = screen_qpick_grid(header, total, selected=selected, back_cb=back_cb)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("qpick:go:"))
+async def qpick_go(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    if st.get("mode") != "pretest":
+        await cb.answer("Немає активної підготовки", show_alert=True)
+        return
+
+    try:
+        idx_1based = int(cb.data.split(":")[2])
+    except Exception:
+        await cb.answer("Помилка", show_alert=True)
+        return
+
+    qids = list(st.get("qids", []) or [])
+    total = len(qids)
+    if total <= 0:
+        await cb.answer("Немає питань", show_alert=True)
+        return
+
+    idx0 = max(0, min(idx_1based - 1, total - 1))
+    st["selected"] = idx0
+    await store.set_state(uid, st)
+
+    qid = qids[idx0]
+    q = qb.by_id.get(int(qid))
+    if not q:
+        await cb.answer("Питання не знайдено", show_alert=True)
+        return
 
     header = st.get("header", "")
-    text = build_question_text(q, header, progress)
-    await render_main(bot, store, uid, chat_id, text, kb_answers(len(q.choices)), message=message)
+    back_cb = st.get("back_cb")
+    text, kb = screen_qpick_preview(header, q, idx_1based=idx0 + 1, total=total, back_cb=back_cb)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
 
 
-@router.callback_query(F.data.startswith("learn_start:"))
+@router.callback_query(F.data == "qpick:start")
+async def qpick_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    if st.get("mode") != "pretest":
+        await cb.answer("Немає активної підготовки", show_alert=True)
+        return
+
+    await cb.answer()
+    await start_test_from_pretest(bot, store, qb, uid, cb.message.chat.id, cb.message, st)
+
+
+
 @router.callback_query(F.data.startswith("learn_start:"))
 async def learn_start(
     cb: CallbackQuery,
@@ -2301,105 +2548,135 @@ async def learn_start(
     qb: QuestionBank,
     admin_ids: set[int],
 ):
-    # 1) ОДРАЗУ відповідаємо на callback (без тексту) — щоб Telegram не таймаутився
+    # 1) швидко відповідаємо на callback (щоб Telegram не таймаутився)
     await cb.answer()
 
     uid = cb.from_user.id
     user = await store.get_user(uid)
+
     ok_access, _ = access_status(user)
     if not ok_access:
+        # доступ закінчився — зупиняємо будь-яку сесію і показуємо екран без доступу
+        await store.set_state(uid, {})
         admin_url = get_admin_contact_url(admin_ids)
         text, kb = screen_no_access(user, admin_url)
-        await render_main(
-            bot, store, uid, cb.message.chat.id, text, kb, message=cb.message
-        )
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer("Доступ завершився. Потрібна підписка.", show_alert=True)
         return
 
-    parts = cb.data.split(":")
-    # learn_start:law:<group_key>:<part>
-    # learn_start:lawrand:<group_key>
-    # learn_start:ok:<module>:<level>
+    parts = (cb.data or "").split(":")
+    if len(parts) < 2:
+        await cb.answer("Помилка", show_alert=True)
+        return
+
     kind = parts[1]
 
+    # -------- Законодавство --------
     if kind == "law":
-        group_key = parts[2]
-        part = int(parts[3])
+        # формат: learn_start:law:<group_key>:<part>
+        group_key = parts[2] if len(parts) >= 3 else ""
+        try:
+            part = int(parts[3]) if len(parts) >= 4 else 1
+        except Exception:
+            part = 1
 
-        qids = qb.law_groups.get(group_key, [])
-        if len(qids) > 50:
-            start = (part - 1) * 50
-            end = start + 50
-            qids = qids[start:end]
+        all_qids = qb.law_groups.get(group_key, []) or []
+        start = max(0, (part - 1) * 50)
+        qids = all_qids[start:start + 50]
 
-        await start_learning_session(
-            bot, store, qb, uid, cb.message.chat.id, cb.message,
+        title = qb.law_group_title(group_key)
+        header = f"📜 <b>Законодавство</b> • {hescape(title)}"
+        if len(all_qids) > 50:
+            header += f" • частина {part}"
+
+        await start_pretest(
+            bot, store, qb,
+            uid, cb.message.chat.id, cb.message,
             qids=qids,
-            header="",
-            save_meta={"kind": "law", "group": group_key, "part": part},
+            header=header,
+            meta={"kind": "law", "group": group_key, "part": part},
+            back_cb=f"lawgrp:{group_key}" if group_key else "nav:learn",
         )
         return
 
     if kind == "lawrand":
-        group_key = parts[2]
-        all_qids = qb.law_groups.get(group_key, [])
+        # формат: learn_start:lawrand:<group_key>
+        group_key = parts[2] if len(parts) >= 3 else ""
+        all_qids = qb.law_groups.get(group_key, []) or []
+        qids = qb.pick_random(all_qids, min(50, len(all_qids)))
 
-        n = min(50, len(all_qids))
-        qids = qb.pick_random(all_qids, n)
+        title = qb.law_group_title(group_key)
+        header = f"📜 <b>Законодавство</b> • {hescape(title)} • 🎲"
 
-        await start_learning_session(
-            bot, store, qb, uid, cb.message.chat.id, cb.message,
+        await start_pretest(
+            bot, store, qb,
+            uid, cb.message.chat.id, cb.message,
             qids=qids,
-            header="",
-            save_meta={"kind": "lawrand", "group": group_key, "part": 0},
+            header=header,
+            meta={"kind": "lawrand", "group": group_key},
+            back_cb=f"lawgrp:{group_key}" if group_key else "nav:learn",
         )
         return
 
+    # -------- ОК --------
     if kind == "ok":
         module: Optional[str] = None
         level = 1
+        back_cb: str = "nav:learn"
 
-        # новий формат: learn_start:ok:i:<idx>:<level>
+        # НОВИЙ формат: learn_start:ok:i:<idx>:<level>
         if len(parts) >= 5 and parts[2] == "i":
             try:
                 idx = int(parts[3])
                 level = int(parts[4])
             except Exception:
-                await cb.message.answer("Помилка даних кнопки")
+                await cb.answer("Помилка", show_alert=True)
                 return
 
-            user = await store.get_user(uid)
-            modules = list(user.get("ok_modules", []))
-            if 0 <= idx < len(modules):
-                module = modules[idx]
+            modules = user.get("ok_modules", []) or []
+            if idx < 0 or idx >= len(modules):
+                await cb.answer("Модуль не знайдено", show_alert=True)
+                return
+            module = modules[idx]
+            back_cb = f"okmodi:{idx}"
 
-        # старий формат: learn_start:ok:<module>:<level>
+        # СТАРИЙ формат: learn_start:ok:<module>:<level?>
         else:
-            if len(parts) < 4:
-                await cb.message.answer("Помилка даних кнопки")
-                return
-            module = parts[2]
-            try:
-                level = int(parts[3])
-            except Exception:
-                level = 1
+            module = parts[2] if len(parts) >= 3 else None
+            if len(parts) >= 4:
+                try:
+                    level = int(parts[3])
+                except Exception:
+                    level = 1
+
+            # back to levels screen if possible
+            modules = user.get("ok_modules", []) or []
+            if module in modules:
+                back_cb = f"okmodi:{modules.index(module)}"
 
         if not module:
-            await cb.message.answer("Модуль недоступний")
+            await cb.answer("Модуль не знайдено", show_alert=True)
             return
 
-        qids = qb.ok_modules.get(module, {}).get(level, [])
-        await store.set_ok_last_level(uid, module, level)
+        qids = (qb.ok_modules.get(module, {}) or {}).get(int(level), []) or []
+        qids = list(qids)[:50]  # рівно 50 (або менше, якщо немає)
 
-        header = f"{module} • Рівень {level}"
-        await start_learning_session(
-            bot, store, qb, uid, cb.message.chat.id, cb.message,
+        # запамʼятовуємо останній рівень (як було)
+        await store.set_ok_last_level(uid, module, int(level))
+
+        header = f"🧠 <b>ОК</b> • {hescape(module)} • Рівень {int(level)}"
+
+        await start_pretest(
+            bot, store, qb,
+            uid, cb.message.chat.id, cb.message,
             qids=qids,
             header=header,
-            save_meta={"kind": "ok", "module": module, "level": level},
+            meta={"kind": "ok", "module": module, "level": int(level)},
+            back_cb=back_cb,
         )
         return
 
-    await cb.message.answer("Невідомий режим")
+    await cb.answer("Невідомий режим", show_alert=True)
 
 
 async def guard_access_in_session(
