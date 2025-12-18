@@ -3798,7 +3798,7 @@ async def main():
     questions_path = os.getenv("QUESTIONS_PATH", "questions_flat.json")
 
     auto_import = (os.getenv("QUESTIONS_AUTO_IMPORT", "1") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-    force_import = (os.getenv("QUESTIONS_FORCE_IMPORT", "0") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    force_import = (os.getenv("QUESTIONS_FORCE_IMPORT", "1") or "").strip().lower() in ("1", "true", "yes", "y", "on")
 
     if auto_import:
         cnt = await store.questions_count()
