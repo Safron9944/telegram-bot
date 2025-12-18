@@ -402,141 +402,141 @@ class Storage:
             LIMIT $2 OFFSET $3
         """, q, limit, offset)
         return [dict(r) for r in rows]
-# -------------------- Questions (DB) --------------------
+    # -------------------- Questions (DB) --------------------
 
-async def questions_count(self) -> int:
-    r = await self._fetchrow("SELECT COUNT(*) AS c FROM questions")
-    return int(r["c"]) if r else 0
+    async def questions_count(self) -> int:
+        r = await self._fetchrow("SELECT COUNT(*) AS c FROM questions")
+        return int(r["c"]) if r else 0
 
-async def fetch_questions(self) -> list[dict]:
-    rows = await self._fetch("""
-        SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
-        FROM questions
-        ORDER BY id
-    """)
-    return [dict(r) for r in rows]
+    async def fetch_questions(self) -> list[dict]:
+        rows = await self._fetch("""
+            SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+            FROM questions
+            ORDER BY id
+        """)
+        return [dict(r) for r in rows]
 
-async def import_questions_from_json(
-    self,
-    path: str,
-    *,
-    changed_by: str = "import",
-    force: bool = False,
-) -> int:
-    """
-    Імпорт/синхронізація питань з JSON у таблицю questions.
-    Підтримує повторний запуск:
-    - якщо питання не змінилось — revision не створюємо
-    - якщо force=True — перезаписуємо і створюємо revision завжди
-    """
-    if not path or not os.path.exists(path):
-        raise RuntimeError(f"Questions file not found: {path}")
+    async def import_questions_from_json(
+        self,
+        path: str,
+        *,
+        changed_by: str = "import",
+        force: bool = False,
+    ) -> int:
+        """
+        Імпорт/синхронізація питань з JSON у таблицю questions.
+        Підтримує повторний запуск:
+        - якщо питання не змінилось — revision не створюємо
+        - якщо force=True — перезаписуємо і створюємо revision завжди
+        """
+        if not path or not os.path.exists(path):
+            raise RuntimeError(f"Questions file not found: {path}")
 
-    qb = QuestionBank(path)
-    qb.load()
+        qb = QuestionBank(path)
+        qb.load()
 
-    items = [q for q in qb.by_id.values() if q.is_valid_mcq]
-    if not items:
-        return 0
+        items = [q for q in qb.by_id.values() if q.is_valid_mcq]
+        if not items:
+            return 0
 
-    def _norm_json(v: Any):
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except Exception:
-                return v
-        return v
+        def _norm_json(v: Any):
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
 
-    assert self.pool
-    imported = 0
+        assert self.pool
+        imported = 0
 
-    async with self.pool.acquire() as con:
-        async with con.transaction():
-            for q in items:
-                existing = await con.fetchrow(
-                    """
-                    SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
-                    FROM questions
-                    WHERE id=$1
-                    """,
-                    int(q.id),
-                )
-
-                before = dict(existing) if existing else None
-                if before:
-                    before["choices"] = _norm_json(before.get("choices"))
-                    before["correct"] = _norm_json(before.get("correct"))
-                    before["correct_texts"] = _norm_json(before.get("correct_texts"))
-
-                after = {
-                    "id": int(q.id),
-                    "section": q.section or "",
-                    "topic": q.topic or "",
-                    "ok": q.ok,
-                    "level": int(q.level) if q.level is not None else None,
-                    "qnum": int(q.qnum) if q.qnum is not None else None,
-                    "question": q.question or "",
-                    "choices": list(q.choices or []),
-                    "correct": [int(x) for x in (q.correct or [])],
-                    "correct_texts": list(q.correct_texts or []),
-                }
-
-                changed = True
-                if before:
-                    cmp_before = {k: before.get(k) for k in after.keys()}
-                    changed = (cmp_before != after)
-
-                if (not existing) or changed or force:
-                    await con.execute(
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                for q in items:
+                    existing = await con.fetchrow(
                         """
-                        INSERT INTO questions (id, section, topic, ok, level, qnum, question, choices, correct, correct_texts, updated_at)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb, now())
-                        ON CONFLICT (id) DO UPDATE SET
-                            section=EXCLUDED.section,
-                            topic=EXCLUDED.topic,
-                            ok=EXCLUDED.ok,
-                            level=EXCLUDED.level,
-                            qnum=EXCLUDED.qnum,
-                            question=EXCLUDED.question,
-                            choices=EXCLUDED.choices,
-                            correct=EXCLUDED.correct,
-                            correct_texts=EXCLUDED.correct_texts,
-                            updated_at=now()
+                        SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+                        FROM questions
+                        WHERE id=$1
                         """,
-                        after["id"],
-                        after["section"],
-                        after["topic"],
-                        after["ok"],
-                        after["level"],
-                        after["qnum"],
-                        after["question"],
-                        json.dumps(after["choices"], ensure_ascii=False),
-                        json.dumps(after["correct"], ensure_ascii=False),
-                        json.dumps(after["correct_texts"], ensure_ascii=False),
+                        int(q.id),
                     )
 
-                    # revision
-                    prev_ver = await con.fetchval(
-                        "SELECT COALESCE(MAX(version), 0) FROM question_revisions WHERE qid=$1",
-                        after["id"],
-                    )
-                    ver = int(prev_ver or 0) + 1
+                    before = dict(existing) if existing else None
+                    if before:
+                        before["choices"] = _norm_json(before.get("choices"))
+                        before["correct"] = _norm_json(before.get("correct"))
+                        before["correct_texts"] = _norm_json(before.get("correct_texts"))
 
-                    await con.execute(
-                        """
-                        INSERT INTO question_revisions (qid, version, changed_by, before, after)
-                        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb)
-                        """,
-                        after["id"],
-                        ver,
-                        (changed_by or None),
-                        (json.dumps(before, ensure_ascii=False) if before else None),
-                        json.dumps(after, ensure_ascii=False),
-                    )
+                    after = {
+                        "id": int(q.id),
+                        "section": q.section or "",
+                        "topic": q.topic or "",
+                        "ok": q.ok,
+                        "level": int(q.level) if q.level is not None else None,
+                        "qnum": int(q.qnum) if q.qnum is not None else None,
+                        "question": q.question or "",
+                        "choices": list(q.choices or []),
+                        "correct": [int(x) for x in (q.correct or [])],
+                        "correct_texts": list(q.correct_texts or []),
+                    }
 
-                    imported += 1
+                    changed = True
+                    if before:
+                        cmp_before = {k: before.get(k) for k in after.keys()}
+                        changed = (cmp_before != after)
 
-    return imported
+                    if (not existing) or changed or force:
+                        await con.execute(
+                            """
+                            INSERT INTO questions (id, section, topic, ok, level, qnum, question, choices, correct, correct_texts, updated_at)
+                            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb, now())
+                            ON CONFLICT (id) DO UPDATE SET
+                                section=EXCLUDED.section,
+                                topic=EXCLUDED.topic,
+                                ok=EXCLUDED.ok,
+                                level=EXCLUDED.level,
+                                qnum=EXCLUDED.qnum,
+                                question=EXCLUDED.question,
+                                choices=EXCLUDED.choices,
+                                correct=EXCLUDED.correct,
+                                correct_texts=EXCLUDED.correct_texts,
+                                updated_at=now()
+                            """,
+                            after["id"],
+                            after["section"],
+                            after["topic"],
+                            after["ok"],
+                            after["level"],
+                            after["qnum"],
+                            after["question"],
+                            json.dumps(after["choices"], ensure_ascii=False),
+                            json.dumps(after["correct"], ensure_ascii=False),
+                            json.dumps(after["correct_texts"], ensure_ascii=False),
+                        )
+
+                        # revision
+                        prev_ver = await con.fetchval(
+                            "SELECT COALESCE(MAX(version), 0) FROM question_revisions WHERE qid=$1",
+                            after["id"],
+                        )
+                        ver = int(prev_ver or 0) + 1
+
+                        await con.execute(
+                            """
+                            INSERT INTO question_revisions (qid, version, changed_by, before, after)
+                            VALUES ($1,$2,$3,$4::jsonb,$5::jsonb)
+                            """,
+                            after["id"],
+                            ver,
+                            (changed_by or None),
+                            (json.dumps(before, ensure_ascii=False) if before else None),
+                            json.dumps(after, ensure_ascii=False),
+                        )
+
+                        imported += 1
+
+        return imported
 
 
 
@@ -658,76 +658,76 @@ class QuestionBank:
                 self.ok_modules[ok][lvl].sort(key=_ord_key)
 
 
-async def load_from_db(self, store: "Storage"):
-    """
-    Завантаження питань з Postgres у памʼять (для швидкого UI).
-    Очікується, що таблиця questions вже заповнена.
-    """
-    rows = await store.fetch_questions()
+    async def load_from_db(self, store: "Storage"):
+        """
+        Завантаження питань з Postgres у памʼять (для швидкого UI).
+        Очікується, що таблиця questions вже заповнена.
+        """
+        rows = await store.fetch_questions()
 
-    self.by_id.clear()
-    self.law.clear()
-    self.law_groups.clear()
-    self.ok_modules.clear()
-    self._law_group_titles.clear()
+        self.by_id.clear()
+        self.law.clear()
+        self.law_groups.clear()
+        self.ok_modules.clear()
+        self._law_group_titles.clear()
 
-    def _norm_json(v: Any):
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except Exception:
-                return v
-        return v
+        def _norm_json(v: Any):
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
 
-    for r in rows:
-        rid = int(r.get("id"))
-        q = Q(
-            id=rid,
-            section=(r.get("section") or ""),
-            topic=(r.get("topic") or ""),
-            ok=r.get("ok"),
-            level=r.get("level"),
-            qnum=r.get("qnum"),
-            question=(r.get("question") or ""),
-            choices=_norm_json(r.get("choices")) or [],
-            correct=_norm_json(r.get("correct")) or [],
-            correct_texts=_norm_json(r.get("correct_texts")) or [],
-        )
-        self.by_id[q.id] = q
+        for r in rows:
+            rid = int(r.get("id"))
+            q = Q(
+                id=rid,
+                section=(r.get("section") or ""),
+                topic=(r.get("topic") or ""),
+                ok=r.get("ok"),
+                level=r.get("level"),
+                qnum=r.get("qnum"),
+                question=(r.get("question") or ""),
+                choices=_norm_json(r.get("choices")) or [],
+                correct=_norm_json(r.get("correct")) or [],
+                correct_texts=_norm_json(r.get("correct_texts")) or [],
+            )
+            self.by_id[q.id] = q
 
-    # ---- indexes ---- (same logic as .load())
+        # ---- indexes ---- (same logic as .load())
 
-    for qid, q in self.by_id.items():
-        if not q.is_valid_mcq:
-            continue
+        for qid, q in self.by_id.items():
+            if not q.is_valid_mcq:
+                continue
 
-        sec = (q.section or "").lower()
-        is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
+            sec = (q.section or "").lower()
+            is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
 
-        if not is_ok:
-            self.law.append(qid)
-            key = self._law_group_key(q.topic or q.section)
-            self.law_groups.setdefault(key, []).append(qid)
+            if not is_ok:
+                self.law.append(qid)
+                key = self._law_group_key(q.topic or q.section)
+                self.law_groups.setdefault(key, []).append(qid)
 
-        if is_ok:
-            mod = q.ok or "ОК"
-            self.ok_modules.setdefault(mod, {})
-            lvl = int(q.level or 1)
-            self.ok_modules[mod].setdefault(lvl, []).append(qid)
+            if is_ok:
+                mod = q.ok or "ОК"
+                self.ok_modules.setdefault(mod, {})
+                lvl = int(q.level or 1)
+                self.ok_modules[mod].setdefault(lvl, []).append(qid)
 
-    def _ord_key(qid: int):
-        qq = self.by_id.get(qid)
-        n = getattr(qq, "qnum", None)
-        return (n if isinstance(n, int) else 10 ** 9, int(qid))
+        def _ord_key(qid: int):
+            qq = self.by_id.get(qid)
+            n = getattr(qq, "qnum", None)
+            return (n if isinstance(n, int) else 10 ** 9, int(qid))
 
-    for k in self.law_groups:
-        self.law_groups[k].sort(key=_ord_key)
+        for k in self.law_groups:
+            self.law_groups[k].sort(key=_ord_key)
 
-    self.law.sort(key=_ord_key)
+        self.law.sort(key=_ord_key)
 
-    for ok in self.ok_modules:
-        for lvl in self.ok_modules[ok]:
-            self.ok_modules[ok][lvl].sort(key=_ord_key)
+        for ok in self.ok_modules:
+            for lvl in self.ok_modules[ok]:
+                self.ok_modules[ok][lvl].sort(key=_ord_key)
 
 
 
@@ -3798,7 +3798,7 @@ async def main():
     questions_path = os.getenv("QUESTIONS_PATH", "questions_flat.json")
 
     auto_import = (os.getenv("QUESTIONS_AUTO_IMPORT", "1") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-    force_import = (os.getenv("QUESTIONS_FORCE_IMPORT", "1") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    force_import = (os.getenv("QUESTIONS_FORCE_IMPORT", "0") or "").strip().lower() in ("1", "true", "yes", "y", "on")
 
     if auto_import:
         cnt = await store.questions_count()
