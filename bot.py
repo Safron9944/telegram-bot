@@ -2040,27 +2040,36 @@ def build_feedback_text(q: Q, header: str, chosen: int) -> str:
 
 
 
-def kb_answers(n: int) -> InlineKeyboardMarkup:
+def kb_answers(n: int, allow_skip: bool = True) -> InlineKeyboardMarkup:
+    """Кнопки відповідей для питання.
+
+    - варіанти: по 4 в рядку
+    - нижній ряд: (опційно) «Пропустити» + «Вийти»
+    """
     b = InlineKeyboardBuilder()
+
+    n = max(0, int(n))
 
     # Варіанти відповіді — по 4 в рядку
     for i in range(n):
         b.button(text=str(i + 1), callback_data=clamp_callback(f"ans:{i}"))
 
-    # Нижній ряд: Пропустити + Вийти
-    b.button(text="⏭ Пропустити", callback_data="skip")
-    b.button(text="⏹ Вийти", callback_data="leave:confirm")
+    # Нижній ряд керування
+    controls: list[tuple[str, str]] = []
+    if allow_skip:
+        controls.append(("⏭ Пропустити", "skip"))
+    controls.append(("⏹ Вийти", "leave:confirm"))
+    for text, cb in controls:
+        b.button(text=text, callback_data=cb)
 
-    # Розкладка: варіанти по 4 в рядку, потім рядок з двома кнопками
-    full_rows = n // 4
-    remainder = n % 4
+    # Розкладка: відповіді по 4, потім рядок керування
+    full_rows, remainder = divmod(n, 4)
     adjust_list = [4] * full_rows
     if remainder:
         adjust_list.append(remainder)
-    adjust_list.append(2)  # для "Пропустити" та "Вийти"
+    adjust_list.append(len(controls))
 
     b.adjust(*adjust_list)
-
     return b.as_markup()
 
 
@@ -2639,6 +2648,37 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
             message=message
         )
         return
+    # ---------- показ поточного питання ----------
+    # pending НЕ змінюємо тут — його оновлює on_answer / skip.
+    # Тут прибираємо лише "биті" qid (нема питання / нема варіантів).
+    while pending:
+        qid = int(pending[0])
+        q = qb.by_id.get(qid)
+        if q is not None and (q.choices or []):
+            break
+        pending = pending[1:]
+
+    if not pending:
+        st["pending"] = []
+        await store.set_state(uid, st)
+        await show_next_in_session(bot, store, qb, uid, chat_id, message)
+        return
+
+    qid = int(pending[0])
+    q = qb.by_id.get(qid)
+
+    st["pending"] = pending
+    st["current_qid"] = qid
+    await store.set_state(uid, st)
+
+    total = int(st.get("total", len(pending)) or 0)
+    idx = (total - len(pending) + 1) if total else 1
+    repeat_note = " • <i>повтор</i>" if (mode == "learn" and phase == "skipped") else ""
+    progress = f"<b>Питання {idx}/{total}</b>{repeat_note}"
+
+    text = build_question_text(q, st.get("header", ""), progress)
+    kb = kb_answers(len(q.choices or []), allow_skip=(mode == "learn"))
+    await render_main(bot, store, uid, chat_id, text, kb, message=message)
 
 
 # -------- Pre-test (question picker) --------
@@ -2652,25 +2692,26 @@ def _qpick_kb(total: int, selected: int, back_cb: Optional[str]) -> InlineKeyboa
 
     b = InlineKeyboardBuilder()
 
-    # 50 buttons (or less)
+    # Кнопки 1..total (до 50)
     for i in range(total):
-        label = str(i + 1)
-        if total and i == selected:
-            label = "✅" + label
+        label = str(i + 1)  # максимально коротко, щоб умістити 5–6 в рядку
         b.button(text=label, callback_data=clamp_callback(f"qpick:go:{i+1}"))
 
-    # 5 buttons per row (10 rows for 50)
+    # 6 питань у рядку (компактніше)
+    cols = 6
     if total:
-        rows = (total + 4) // 5
-        b.adjust(*([5] * (rows - 1) + [total - 5 * (rows - 1)]))
+        full_rows, remainder = divmod(total, cols)
+        sizes = [cols] * full_rows
+        if remainder:
+            sizes.append(remainder)
+        b.adjust(*sizes)
     else:
         b.adjust(1)
 
-    # actions under grid
+    # Дії під сіткою
     b.row(InlineKeyboardButton(text="▶️ Розпочати тестування", callback_data="qpick:start"))
     if back_cb:
         b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=back_cb))
-    b.row(InlineKeyboardButton(text="⬅️ Навчання", callback_data="nav:learn"))
 
     return b.as_markup()
 
@@ -2712,15 +2753,14 @@ def screen_qpick_preview(
         f"{opts}"
     )
 
-    b = InlineKeyboardBuilder()
-    b.button(text="⬅️ До списку питань", callback_data="qpick:show")
-    b.button(text="▶️ Розпочати тестування", callback_data="qpick:start")
+    buttons: List[Tuple[str, str]] = [
+        ("⬅️ До списку питань", "qpick:show"),
+        ("▶️ Розпочати тестування", "qpick:start"),
+    ]
     if back_cb:
-        b.button(text="⬅️ Назад", callback_data=back_cb)
-    b.button(text="⬅️ Навчання", callback_data="nav:learn")
-    b.adjust(2, 2)  # 2 rows
+        buttons.append(("⬅️ Назад", back_cb))
 
-    return text, b.as_markup()
+    return text, kb_inline(buttons, row=2)
 
 
 async def start_pretest(
