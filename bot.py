@@ -143,11 +143,13 @@ def normalize_postgres_dsn(dsn: str) -> tuple[str, object | None]:
     return cleaned, ssl_param
 
 # -------------------- DB --------------------
-
 class Storage:
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.pool: asyncpg.Pool | None = None
+
+        # cache: True -> changed_by is INT/BIGINT, False -> TEXT, None -> unknown
+        self._rev_changed_by_is_int: bool | None = None
 
     async def init(self):
         dsn, ssl_param = normalize_postgres_dsn(self.dsn)
@@ -204,7 +206,6 @@ class Storage:
                 );
             """)
 
-
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS questions (
                     id INT PRIMARY KEY,
@@ -237,10 +238,97 @@ class Storage:
             """)
             await con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_question_revisions_qid_version ON question_revisions(qid, version);")
             await con.execute("CREATE INDEX IF NOT EXISTS idx_question_revisions_qid ON question_revisions(qid);")
+
+            # ✅ Виклик міграції після CREATE TABLE
+            await self._maybe_migrate_question_revisions_changed_by(con)
+
     async def _fetchrow(self, sql: str, *params):
         assert self.pool
         async with self.pool.acquire() as con:
             return await con.fetchrow(sql, *params)
+
+
+    async def _maybe_migrate_question_revisions_changed_by(self, con) -> None:
+        """
+        Якщо в реальній БД колонка question_revisions.changed_by має тип BIGINT/INT,
+        мігруємо її у TEXT (щоб можна було писати 'bootstrap', 'import', тощо).
+        """
+        row = await con.fetchrow(
+            """
+            SELECT data_type, udt_name
+            FROM information_schema.columns
+            WHERE table_schema='public'
+              AND table_name='question_revisions'
+              AND column_name='changed_by'
+            """
+        )
+        if not row:
+            return
+
+        data_type = (row["data_type"] or "").lower()
+        udt_name = (row["udt_name"] or "").lower()
+        is_int = data_type in ("bigint", "integer") or udt_name in ("int8", "int4")
+
+        if is_int:
+            try:
+                await con.execute(
+                    "ALTER TABLE question_revisions "
+                    "ALTER COLUMN changed_by TYPE TEXT "
+                    "USING changed_by::text"
+                )
+            except Exception:
+                # немає прав / інші обмеження — просто пропускаємо
+                pass
+
+        # онови кеш типу після спроби міграції
+        row2 = await con.fetchrow(
+            """
+            SELECT data_type, udt_name
+            FROM information_schema.columns
+            WHERE table_schema='public'
+              AND table_name='question_revisions'
+              AND column_name='changed_by'
+            """
+        )
+        if row2:
+            dt2 = (row2["data_type"] or "").lower()
+            udt2 = (row2["udt_name"] or "").lower()
+            self._rev_changed_by_is_int = dt2 in ("bigint", "integer") or udt2 in ("int8", "int4")
+
+    async def _rev_changed_by_param(self, con, changed_by):
+        """
+        Повертає значення для параметра changed_by у INSERT, відповідно до реального типу колонки в БД.
+        """
+        if self._rev_changed_by_is_int is None:
+            row = await con.fetchrow(
+                """
+                SELECT data_type, udt_name
+                FROM information_schema.columns
+                WHERE table_schema='public'
+                  AND table_name='question_revisions'
+                  AND column_name='changed_by'
+                """
+            )
+            if row:
+                dt = (row["data_type"] or "").lower()
+                udt = (row["udt_name"] or "").lower()
+                self._rev_changed_by_is_int = dt in ("bigint", "integer") or udt in ("int8", "int4")
+            else:
+                self._rev_changed_by_is_int = False  # за замовчуванням як TEXT
+
+        if self._rev_changed_by_is_int:
+            # колонка INT/BIGINT: рядки типу "bootstrap" не можна
+            if isinstance(changed_by, int):
+                return changed_by
+            if isinstance(changed_by, str) and changed_by.strip().isdigit():
+                return int(changed_by.strip())
+            return None  # системний/bootstrapping запуск
+        else:
+            # колонка TEXT
+            if changed_by is None:
+                return None
+            s = str(changed_by).strip()
+            return s or None
 
     async def _fetch(self, sql: str, *params):
         assert self.pool
@@ -417,11 +505,11 @@ class Storage:
         return [dict(r) for r in rows]
 
     async def import_questions_from_json(
-        self,
-        path: str,
-        *,
-        changed_by: str = "import",
-        force: bool = False,
+            self,
+            path: str,
+            *,
+            changed_by: str = "import",
+            force: bool = False,
     ) -> int:
         """
         Імпорт/синхронізація питань з JSON у таблицю questions.
@@ -522,6 +610,9 @@ class Storage:
                         )
                         ver = int(prev_ver or 0) + 1
 
+                        # ✅ Отримуємо значення changed_by з хелпера
+                        changed_by_db = await self._rev_changed_by_param(con, changed_by)
+
                         await con.execute(
                             """
                             INSERT INTO question_revisions (qid, version, changed_by, before, after)
@@ -529,7 +620,7 @@ class Storage:
                             """,
                             after["id"],
                             ver,
-                            (changed_by or None),
+                            changed_by_db,
                             (json.dumps(before, ensure_ascii=False) if before else None),
                             json.dumps(after, ensure_ascii=False),
                         )
@@ -537,7 +628,6 @@ class Storage:
                         imported += 1
 
         return imported
-
 
 
 # -------------------- Question bank --------------------
