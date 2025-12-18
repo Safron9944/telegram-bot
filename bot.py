@@ -61,6 +61,10 @@ ADMIN_USERS_QUERY = "admin_users_query"
 ADMIN_USERS_AWAITING = "awaiting"
 ADMIN_USERS_BACK_OFFSET = "admin_users_back_offset"
 
+ADMIN_QWORK_AWAITING = "admin_qwork_awaiting"
+ADMIN_QWORK_PAGE = "admin_qwork_page"
+ADMIN_QEDIT = "admin_qedit"
+
 def get_admin_contact_url(admin_ids: set[int]) -> str:
     """URL for 'contact admin' button.
 
@@ -503,6 +507,126 @@ class Storage:
             ORDER BY id
         """)
         return [dict(r) for r in rows]
+
+
+    async def fetch_question(self, qid: int) -> Optional[dict]:
+        row = await self._fetchrow(
+            """
+            SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+            FROM questions
+            WHERE id=$1
+            """,
+            int(qid),
+        )
+        return dict(row) if row else None
+
+    async def update_question_content(
+        self,
+        qid: int,
+        *,
+        question: Optional[str] = None,
+        choices: Optional[List[str]] = None,
+        correct: Optional[List[int]] = None,
+        changed_by: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Оновлює ТІЛЬКИ контент питання (question/choices/correct) + створює revision, якщо були зміни."""
+
+        def _norm_json(v: Any):
+            if isinstance(v, str):
+                try:
+                    return json.loads(v)
+                except Exception:
+                    return v
+            return v
+
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                existing = await con.fetchrow(
+                    """
+                    SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+                    FROM questions
+                    WHERE id=$1
+                    FOR UPDATE
+                    """,
+                    int(qid),
+                )
+                if not existing:
+                    return None
+
+                before = dict(existing)
+                before["choices"] = _norm_json(before.get("choices"))
+                before["correct"] = _norm_json(before.get("correct"))
+                before["correct_texts"] = _norm_json(before.get("correct_texts"))
+
+                after = {
+                    "id": int(before.get("id")),
+                    "section": before.get("section") or "",
+                    "topic": before.get("topic") or "",
+                    "ok": before.get("ok"),
+                    "level": int(before.get("level")) if before.get("level") is not None else None,
+                    "qnum": int(before.get("qnum")) if before.get("qnum") is not None else None,
+                    "question": before.get("question") or "",
+                    "choices": list(before.get("choices") or []),
+                    "correct": [int(x) for x in (before.get("correct") or [])],
+                    "correct_texts": list(before.get("correct_texts") or []),
+                }
+
+                if question is not None:
+                    after["question"] = (question or "").strip()
+
+                if choices is not None:
+                    after["choices"] = [str(x).strip() for x in choices if str(x).strip()]
+
+                if correct is not None:
+                    after["correct"] = [int(x) for x in correct]
+
+                # always normalize correct_texts from current choices/correct
+                ch = list(after.get("choices") or [])
+                corr = [int(x) for x in (after.get("correct") or [])]
+                after["correct_texts"] = [ch[i - 1] for i in corr if 1 <= i <= len(ch)]
+
+                cmp_before = {k: before.get(k) for k in after.keys()}
+                if cmp_before == after:
+                    return after  # no changes
+
+                await con.execute(
+                    """
+                    UPDATE questions
+                    SET question=$2,
+                        choices=$3::jsonb,
+                        correct=$4::jsonb,
+                        correct_texts=$5::jsonb,
+                        updated_at=now()
+                    WHERE id=$1
+                    """,
+                    after["id"],
+                    after["question"],
+                    json.dumps(after["choices"], ensure_ascii=False),
+                    json.dumps(after["correct"], ensure_ascii=False),
+                    json.dumps(after["correct_texts"], ensure_ascii=False),
+                )
+
+                prev_ver = await con.fetchval(
+                    "SELECT COALESCE(MAX(version), 0) FROM question_revisions WHERE qid=$1",
+                    after["id"],
+                )
+                ver = int(prev_ver or 0) + 1
+                changed_by_db = await self._rev_changed_by_param(con, changed_by)
+
+                await con.execute(
+                    """
+                    INSERT INTO question_revisions (qid, version, changed_by, before, after)
+                    VALUES ($1,$2,$3,$4::jsonb,$5::jsonb)
+                    """,
+                    after["id"],
+                    ver,
+                    changed_by_db,
+                    json.dumps(before, ensure_ascii=False),
+                    json.dumps(after, ensure_ascii=False),
+                )
+
+                return after
 
     async def import_questions_from_json(
             self,
@@ -1555,6 +1679,7 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="🛠 Користувачі", callback_data="admin:users:0")])
+        rows.append([InlineKeyboardButton(text="✏️ Робота над питаннями", callback_data="admin:qwork:0")])
 
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -2040,11 +2165,12 @@ def build_feedback_text(q: Q, header: str, chosen: int) -> str:
 
 
 
-def kb_answers(n: int, allow_skip: bool = True) -> InlineKeyboardMarkup:
+
+def kb_answers(n: int, allow_skip: bool = True, edit_cb: Optional[str] = None) -> InlineKeyboardMarkup:
     """Кнопки відповідей для питання.
 
     - варіанти: по 4 в рядку
-    - нижній ряд: (опційно) «Пропустити» + «Вийти»
+    - нижній ряд: (опційно) «Пропустити» + (для адміна) «Змінити питання» + «Вийти»
     """
     b = InlineKeyboardBuilder()
 
@@ -2058,7 +2184,10 @@ def kb_answers(n: int, allow_skip: bool = True) -> InlineKeyboardMarkup:
     controls: list[tuple[str, str]] = []
     if allow_skip:
         controls.append(("⏭ Пропустити", "skip"))
+    if edit_cb:
+        controls.append(("✏️ Змінити питання", clamp_callback(edit_cb)))
     controls.append(("⏹ Вийти", "leave:confirm"))
+
     for text, cb in controls:
         b.button(text=text, callback_data=cb)
 
@@ -2074,8 +2203,13 @@ def kb_answers(n: int, allow_skip: bool = True) -> InlineKeyboardMarkup:
 
 
 
-def kb_feedback() -> InlineKeyboardMarkup:
-    return kb_inline([("Зрозуміло / Продовжити", "next")], row=1)
+
+def kb_feedback(edit_cb: Optional[str] = None) -> InlineKeyboardMarkup:
+    buttons: List[Tuple[str, str]] = []
+    if edit_cb:
+        buttons.append(("✏️ Змінити питання", edit_cb))
+    buttons.append(("Зрозуміло / Продовжити", "next"))
+    return kb_inline(buttons, row=1)
 
 
 def kb_leave_confirm() -> InlineKeyboardMarkup:
@@ -2485,6 +2619,7 @@ async def start_learning_session(
     qids: List[int],
     header: str,
     save_meta: Dict[str, Any],
+    admin_ids: Optional[set[int]] = None,
 ):
     if not qids:
         await render_main(
@@ -2510,13 +2645,16 @@ async def start_learning_session(
         "meta": save_meta,
     }
     await store.set_state(uid, state)
-    await show_next_in_session(bot, store, qb, uid, chat_id, message)
+    await show_next_in_session(bot, store, qb, uid, chat_id, message, admin_ids=admin_ids)
 
 
-async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: int, chat_id: int, message: Message):
+async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: int, chat_id: int, message: Message, admin_ids: Optional[set[int]] = None):
     ui = await store.get_ui(uid)
     st = ui.get("state", {})
     mode = st.get("mode")
+
+    admin_ids = admin_ids or set()
+    is_admin = uid in admin_ids
 
     if mode not in ("learn", "test", "mistakes"):
         return
@@ -2534,7 +2672,8 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
         else:
             text = f"{st.get('header', '')}\n❌ <b>Неправильно</b>"
 
-        await render_main(bot, store, uid, chat_id, text, kb_feedback(), message=message)
+        edit_cb = (f"admin:qedit:{int(qid_fb)}:sess:0" if (is_admin and qid_fb is not None) else None)
+        await render_main(bot, store, uid, chat_id, text, kb_feedback(edit_cb=edit_cb), message=message)
         return
 
     pending = list(st.get("pending", []))
@@ -2547,7 +2686,7 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
             st["skipped"] = []
             st["phase"] = "skipped"
             await store.set_state(uid, st)
-            await show_next_in_session(bot, store, qb, uid, chat_id, message)
+            await show_next_in_session(bot, store, qb, uid, chat_id, message, admin_ids=admin_ids)
             return
 
         # finish
@@ -2661,7 +2800,7 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
     if not pending:
         st["pending"] = []
         await store.set_state(uid, st)
-        await show_next_in_session(bot, store, qb, uid, chat_id, message)
+        await show_next_in_session(bot, store, qb, uid, chat_id, message, admin_ids=admin_ids)
         return
 
     qid = int(pending[0])
@@ -2677,7 +2816,8 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
     progress = f"<b>Питання {idx}/{total}</b>{repeat_note}"
 
     text = build_question_text(q, st.get("header", ""), progress)
-    kb = kb_answers(len(q.choices or []), allow_skip=(mode == "learn"))
+    edit_cb = (f"admin:qedit:{int(qid)}:sess:0" if is_admin else None)
+    kb = kb_answers(len(q.choices or []), allow_skip=(mode == "learn"), edit_cb=edit_cb)
     await render_main(bot, store, uid, chat_id, text, kb, message=message)
 
 
@@ -2737,6 +2877,7 @@ def screen_qpick_preview(
     idx_1based: int,
     total: int,
     back_cb: Optional[str] = None,
+    is_admin: bool = False,
 ) -> Tuple[str, InlineKeyboardMarkup]:
     idx_1based = max(1, int(idx_1based))
     total = max(1, int(total))
@@ -2757,6 +2898,8 @@ def screen_qpick_preview(
         ("⬅️ До списку питань", "qpick:show"),
         ("▶️ Розпочати тестування", "qpick:start"),
     ]
+    if is_admin:
+        buttons.insert(0, ("✏️ Змінити це питання", f"admin:qedit:{int(q.id)}:qpick:{int(idx_1based)}"))
     if back_cb:
         buttons.append(("⬅️ Назад", back_cb))
 
@@ -2809,6 +2952,7 @@ async def start_test_from_pretest(
     chat_id: int,
     message: Message,
     pre: Dict[str, Any],
+    admin_ids: Optional[set[int]] = None,
 ):
     qids = list(pre.get("qids", []) or [])
     if not qids:
@@ -2835,7 +2979,7 @@ async def start_test_from_pretest(
         "meta": pre.get("meta", {}) or {},
     }
     await store.set_state(uid, st)
-    await show_next_in_session(bot, store, qb, uid, chat_id, message)
+    await show_next_in_session(bot, store, qb, uid, chat_id, message, admin_ids=admin_ids)
 
 
 @router.callback_query(F.data == "qpick:show")
@@ -2892,7 +3036,7 @@ async def qpick_go(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank
 
     header = st.get("header", "")
     back_cb = st.get("back_cb")
-    text, kb = screen_qpick_preview(header, q, idx_1based=idx0 + 1, total=total, back_cb=back_cb)
+    text, kb = screen_qpick_preview(header, q, idx_1based=idx0 + 1, total=total, back_cb=back_cb, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
@@ -2909,7 +3053,7 @@ async def qpick_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionB
         return
 
     await cb.answer()
-    await start_test_from_pretest(bot, store, qb, uid, cb.message.chat.id, cb.message, st)
+    await start_test_from_pretest(bot, store, qb, uid, cb.message.chat.id, cb.message, st, admin_ids=admin_ids)
 
 
 
@@ -3111,7 +3255,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
             st["feedback"] = {"qid": int(qid), "chosen": int(choice)}
         await store.set_state(uid, st)
         await cb.answer("✅" if is_correct else "❌")
-        await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+        await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
         return
 
     if mode == "test":
@@ -3120,7 +3264,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
             st["correct_count"] = int(st.get("correct_count", 0)) + 1
         await store.set_state(uid, st)
         await cb.answer()
-        await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+        await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
         return
 
     if mode == "mistakes":
@@ -3129,7 +3273,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         st["answers"] = answers
         await store.set_state(uid, st)
         await cb.answer()
-        await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+        await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
         return
 
 
@@ -3161,7 +3305,7 @@ async def on_skip(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank,
     st["feedback"] = None
     await store.set_state(uid, st)
     await cb.answer("Пропущено")
-    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
 
 
 @router.callback_query(F.data == "next")
@@ -3178,7 +3322,7 @@ async def on_feedback_next(cb: CallbackQuery, bot: Bot, store: Storage, qb: Ques
     st["feedback"] = None
     await store.set_state(uid, st)
     await cb.answer()
-    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
 
 @router.callback_query(F.data == "leave:confirm")
 async def leave_confirm(cb: CallbackQuery, bot: Bot, store: Storage):
@@ -3192,10 +3336,10 @@ async def leave_confirm(cb: CallbackQuery, bot: Bot, store: Storage):
 
 
 @router.callback_query(F.data == "leave:back")
-async def leave_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+async def leave_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     # just continue session
     await cb.answer()
-    await show_next_in_session(bot, store, qb, cb.from_user.id, cb.message.chat.id, cb.message)
+    await show_next_in_session(bot, store, qb, cb.from_user.id, cb.message.chat.id, cb.message, admin_ids=admin_ids)
 
 
 @router.callback_query(F.data == "leave:yes")
@@ -3245,7 +3389,7 @@ async def learn_mistakes(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     }
     await store.set_state(uid, st)
     await cb.answer()
-    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
 
 
 # -------- Testing --------
@@ -3402,7 +3546,7 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
     await store.set_state(uid, st)
 
     await cb.answer()
-    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message)
+    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
 
 # -------- Statistics --------
 
@@ -3727,6 +3871,360 @@ async def noop(cb: CallbackQuery):
     await cb.answer()
 
 
+
+# -------------------- Admin: questions editing --------------------
+
+def _q_snip(s: str, max_len: int = 46) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max(0, max_len - 1)] + "…"
+
+
+def screen_admin_qwork(qb: QuestionBank, page: int = 0, page_size: int = 10) -> Tuple[str, InlineKeyboardMarkup]:
+    ids = sorted(list(qb.by_id.keys()))
+    total = len(ids)
+    if total == 0:
+        text = "✏️ <b>Робота над питаннями</b>\n\nПитань не знайдено."
+        kb = kb_inline([("⬅️ Меню", "nav:menu")], row=1)
+        return text, kb
+
+    page = max(0, int(page))
+    page_size = max(5, int(page_size))
+    pages = (total + page_size - 1) // page_size
+    if page >= pages:
+        page = pages - 1
+
+    start = page * page_size
+    end = min(total, start + page_size)
+    chunk = ids[start:end]
+
+    text = (
+        "✏️ <b>Робота над питаннями</b>\n"
+        f"Сторінка <b>{page + 1}</b>/<b>{pages}</b> • Питань: <b>{total}</b>\n\n"
+        "Натисни на питання, щоб відкрити редагування, або введи ID."
+    )
+
+    b = InlineKeyboardBuilder()
+    for qid in chunk:
+        q = qb.by_id.get(qid)
+        title = f"{qid} • {_q_snip(q.question if q else '')}"
+        b.row(
+            InlineKeyboardButton(
+                text=title,
+                callback_data=clamp_callback(f"admin:qedit:{int(qid)}:qwork:{int(page)}"),
+            )
+        )
+
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Попередня", callback_data=clamp_callback(f"admin:qwork:{page - 1}")))
+    if page + 1 < pages:
+        nav_row.append(InlineKeyboardButton(text="Наступна ➡️", callback_data=clamp_callback(f"admin:qwork:{page + 1}")))
+    if nav_row:
+        b.row(*nav_row)
+
+    b.row(InlineKeyboardButton(text="🔎 Відкрити по ID", callback_data=clamp_callback(f"admin:qwork_find:{int(page)}")))
+    b.row(InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu"))
+    return text, b.as_markup()
+
+
+def screen_admin_qwork_find(page: int = 0, error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    page = max(0, int(page))
+    text = "🔎 <b>Відкрити питання по ID</b>\n\nНадішли ID питання одним повідомленням."
+    if error:
+        text += f"\n\n❗️ {hescape(error)}"
+    kb = kb_inline([("⬅️ Назад", f"admin:qwork:{page}")], row=1)
+    return text, kb
+
+
+def _fmt_q_choices(q: Q) -> str:
+    lines = []
+    for i, c in enumerate(q.choices or []):
+        lines.append(f"<b>{i + 1}.</b> {hescape(c)}")
+    return "\n".join(lines) if lines else "—"
+
+
+def screen_admin_qedit(q: Q, note: str = "") -> Tuple[str, InlineKeyboardMarkup]:
+    corr = ", ".join(str(int(x)) for x in (q.correct or [])) or "—"
+    corr_texts = "; ".join(hescape(x) for x in (q.correct_texts or [])) or "—"
+
+    head = "✏️ <b>Редагування питання</b>"
+    if note:
+        head += f"\n{note}"
+
+    meta = []
+    if q.ok:
+        meta.append(f"OK: <b>{hescape(q.ok)}</b>")
+    if q.level is not None:
+        meta.append(f"Рівень: <b>{int(q.level)}</b>")
+    if q.qnum is not None:
+        meta.append(f"№: <b>{int(q.qnum)}</b>")
+    meta_line = ("\n" + " • ".join(meta)) if meta else ""
+
+    text = (
+        f"{head}\n"
+        f"ID: <code>{int(q.id)}</code>{meta_line}\n\n"
+        f"<b>Питання:</b>\n{hescape(q.question)}\n\n"
+        f"<b>Варіанти:</b>\n{_fmt_q_choices(q)}\n\n"
+        f"<b>Правильні:</b> <code>{hescape(corr)}</code>\n"
+        f"<b>Тексти правильних:</b> {corr_texts}"
+    )
+
+    kb = kb_inline(
+        [
+            ("✏️ Змінити текст", "admin:qedit_set:question"),
+            ("🧩 Змінити варіанти", "admin:qedit_set:choices"),
+            ("✅ Змінити правильні", "admin:qedit_set:correct"),
+            ("⬅️ Назад", "admin:qedit_back"),
+        ],
+        row=1,
+    )
+    return text, kb
+
+
+def screen_admin_qedit_prompt(q: Q, field: str, error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    field = (field or "").strip().lower()
+    if field == "question":
+        hint = "Надішли новий <b>текст питання</b> одним повідомленням."
+        current = hescape(q.question)
+    elif field == "choices":
+        hint = (
+            "Надішли <b>варіанти</b>, кожен з нового рядка.\n"
+            "Опційно останнім рядком можна додати: <code>correct: 2,4</code>"
+        )
+        current = _fmt_q_choices(q)
+    elif field == "correct":
+        hint = "Надішли номери правильних варіантів через кому, напр.: <code>2</code> або <code>1,3</code>."
+        current = hescape(", ".join(str(x) for x in (q.correct or [])) or "—")
+    else:
+        hint = "Надішли нове значення."
+        current = "—"
+
+    text = f"✏️ <b>Редагування</b> (ID <code>{int(q.id)}</code>)\n\n{hint}\n\n<b>Поточне:</b>\n{current}"
+    if error:
+        text += f"\n\n❗️ {hescape(error)}"
+
+    kb = kb_inline([("⬅️ Назад", "admin:qedit_cancel")], row=1)
+    return text, kb
+
+
+_CORRECT_LINE_RE = re.compile(r"^(?:correct|правильн\w*|відповід\w*|ans)\s*[:=]\s*(.+)$", re.IGNORECASE)
+
+def _parse_int_from_text(s: str) -> Optional[int]:
+    s = (s or "").strip()
+    if not s:
+        return None
+    m = re.search(r"\d+", s)
+    return int(m.group(0)) if m else None
+
+
+def _parse_correct_list(s: str, n_choices: int) -> Optional[List[int]]:
+    nums = [int(x) for x in re.findall(r"\d+", (s or ""))]
+    nums = sorted(set(nums))
+    nums = [x for x in nums if 1 <= x <= int(n_choices)]
+    return nums if nums else None
+
+
+def _parse_choices_and_optional_correct(text: str) -> Tuple[List[str], Optional[List[int]]]:
+    lines = [ln.strip() for ln in (text or "").splitlines()]
+    lines = [ln for ln in lines if ln]
+
+    correct_part: Optional[str] = None
+    # шукаємо рядок correct: ...
+    for i, ln in enumerate(list(lines)):
+        m = _CORRECT_LINE_RE.match(ln)
+        if m:
+            correct_part = m.group(1)
+            lines.pop(i)
+            break
+
+    choices = [ln for ln in lines if ln]
+    correct: Optional[List[int]] = None
+    if correct_part is not None:
+        correct = _parse_correct_list(correct_part, len(choices))
+    return choices, correct
+
+
+@router.callback_query(F.data.startswith("admin:qwork:"))
+async def admin_qwork_list(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    try:
+        page = int(cb.data.split(":")[2])
+    except Exception:
+        page = 0
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    st.pop(ADMIN_QWORK_AWAITING, None)
+    await store.set_state(uid, st)
+
+    text, kb = screen_admin_qwork(qb, page=page)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin:qwork_find:"))
+async def admin_qwork_find_prompt(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    try:
+        page = int(cb.data.split(":")[2])
+    except Exception:
+        page = 0
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    st[ADMIN_QWORK_AWAITING] = "qid"
+    st[ADMIN_QWORK_PAGE] = page
+    await store.set_state(uid, st)
+
+    text, kb = screen_admin_qwork_find(page=page)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin:qedit:"))
+async def admin_qedit_open(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    parts = cb.data.split(":")
+    if len(parts) < 5:
+        await cb.answer("Помилка")
+        return
+
+    try:
+        qid = int(parts[2])
+        ret_kind = (parts[3] or "").strip()
+        ret_val = int(parts[4]) if (parts[4] or "0").lstrip("-").isdigit() else 0
+    except Exception:
+        await cb.answer("Помилка")
+        return
+
+    q = qb.by_id.get(qid)
+    if not q:
+        await cb.answer("Питання не знайдено")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    st[ADMIN_QEDIT] = {
+        "qid": int(qid),
+        "ret_kind": ret_kind,
+        "ret_val": int(ret_val),
+        "await": None,
+    }
+    st.pop(ADMIN_QWORK_AWAITING, None)
+    await store.set_state(uid, st)
+
+    text, kb = screen_admin_qedit(q)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin:qedit_set:"))
+async def admin_qedit_set_field(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    field = (cb.data.split(":")[2] or "").strip().lower()
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    qedit = st.get(ADMIN_QEDIT) or {}
+    qid = qedit.get("qid")
+
+    q = qb.by_id.get(int(qid)) if qid is not None else None
+    if not q:
+        await cb.answer("Питання не знайдено")
+        return
+
+    qedit["await"] = field
+    st[ADMIN_QEDIT] = qedit
+    await store.set_state(uid, st)
+
+    text, kb = screen_admin_qedit_prompt(q, field)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data == "admin:qedit_cancel")
+async def admin_qedit_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    qedit = st.get(ADMIN_QEDIT) or {}
+    qedit["await"] = None
+    st[ADMIN_QEDIT] = qedit
+    await store.set_state(uid, st)
+
+    qid = qedit.get("qid")
+    q = qb.by_id.get(int(qid)) if qid is not None else None
+    if not q:
+        await cb.answer("Питання не знайдено")
+        return
+
+    text, kb = screen_admin_qedit(q)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data == "admin:qedit_back")
+async def admin_qedit_back(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    qedit = st.get(ADMIN_QEDIT) or {}
+    ret_kind = (qedit.get("ret_kind") or "").strip().lower()
+    ret_val = int(qedit.get("ret_val") or 0)
+
+    # прибираємо overlay
+    st.pop(ADMIN_QEDIT, None)
+    st.pop(ADMIN_QWORK_AWAITING, None)
+    await store.set_state(uid, st)
+
+    if ret_kind == "qwork":
+        text, kb = screen_admin_qwork(qb, page=ret_val)
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
+    if ret_kind == "qpick":
+        # повертаємось до списку питань (pretest)
+        sel = int(st.get("selected") or 0)
+        header, qids = pretest_mode(st, qb)
+        total = len(qids)
+        text, kb = screen_qpick_grid(header, total, selected=sel)
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
+    # sess або все інше — просто показати поточне питання сесії
+    await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
+    await cb.answer()
+
+
+
 @router.callback_query(F.data.startswith("admin:users:"))
 async def admin_users(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
     uid = cb.from_user.id
@@ -3791,11 +4289,13 @@ async def admin_users_clear(cb: CallbackQuery, bot: Bot, store: "Storage", admin
     await cb.answer("Очищено")
 
 
+
 @router.message(F.text)
 async def admin_users_search_input(
     message: Message,
     bot: Bot,
     store: "Storage",
+    qb: QuestionBank,
     admin_ids: set[int],
 ):
     uid = message.from_user.id
@@ -3804,40 +4304,161 @@ async def admin_users_search_input(
 
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
-    if st.get(ADMIN_USERS_AWAITING) != "admin_users_phone":
-        raise SkipHandler()
 
-    back_offset = int(st.get(ADMIN_USERS_BACK_OFFSET) or 0)
+    # 1) Адмін: пошук користувачів по телефону (існуючий функціонал)
+    if st.get(ADMIN_USERS_AWAITING) == "admin_users_phone":
+        raw = (message.text or "").strip()
+        digits = "".join(ch for ch in raw if ch.isdigit())
 
-    digits = "".join(ch for ch in (message.text or "").strip() if ch.isdigit())
+        # чистимо чат — якщо можемо
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
-    # прибрати повідомлення з номером (щоб не світити)
-    try:
-        await message.delete()
-    except Exception:
-        pass
+        if len(digits) < 5:
+            st[ADMIN_USERS_AWAITING] = "admin_users_phone"
+            await store.set_state(uid, st)
+            await render_admin_users_search_prompt(
+                bot, store, uid,
+                st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
+                error="Введіть хоча б 5 цифр номера.",
+                message=None,
+            )
+            return
 
-    if not digits:
-        await render_admin_users_search_prompt(
+        st[ADMIN_USERS_QUERY] = digits
+        st.pop(ADMIN_USERS_AWAITING, None)
+        st.pop(ADMIN_USERS_BACK_OFFSET, None)
+        await store.set_state(uid, st)
+
+        await render_admin_users_list(
             bot, store, uid,
             st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
-            back_offset,
+            0,
             message=None,
-            error="Введи хоча б одну цифру",
         )
         return
 
-    st[ADMIN_USERS_QUERY] = digits
-    st.pop(ADMIN_USERS_AWAITING, None)
-    st.pop(ADMIN_USERS_BACK_OFFSET, None)
-    await store.set_state(uid, st)
+    # 2) Адмін: відкрити питання по ID (з вкладки "Робота над питаннями")
+    if st.get(ADMIN_QWORK_AWAITING) == "qid":
+        page = int(st.get(ADMIN_QWORK_PAGE) or 0)
+        qid = _parse_int_from_text(message.text or "")
 
-    await render_admin_users_list(
-        bot, store, uid,
-        st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
-        0,
-        message=None,
-    )
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        if not qid or qid not in qb.by_id:
+            text, kb = screen_admin_qwork_find(page=page, error="Не бачу такого ID. Спробуй ще раз.")
+            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            return
+
+        q = qb.by_id[qid]
+        st.pop(ADMIN_QWORK_AWAITING, None)
+        st[ADMIN_QEDIT] = {"qid": int(qid), "ret_kind": "qwork", "ret_val": int(page), "await": None}
+        await store.set_state(uid, st)
+
+        text, kb = screen_admin_qedit(q)
+        await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+        return
+
+    # 3) Адмін: редагування поля питання
+    qedit = st.get(ADMIN_QEDIT) or {}
+    field = (qedit.get("await") or "").strip().lower()
+    qid = qedit.get("qid")
+
+    if field in ("question", "choices", "correct") and qid:
+        q = qb.by_id.get(int(qid))
+        if not q:
+            raise SkipHandler()
+
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        if field == "question":
+            new_text = (message.text or "").strip()
+            if not new_text:
+                text, kb = screen_admin_qedit_prompt(q, field, error="Текст не може бути порожнім.")
+                await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                return
+
+            after = await store.update_question_content(int(qid), question=new_text, changed_by=f"admin:{uid}")
+            if after:
+                q.question = after["question"]
+                q.correct_texts = list(after.get("correct_texts") or q.correct_texts)
+
+            qedit["await"] = None
+            st[ADMIN_QEDIT] = qedit
+            await store.set_state(uid, st)
+
+            text, kb = screen_admin_qedit(q, note="✅ Збережено")
+            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            return
+
+        if field == "choices":
+            choices, correct_maybe = _parse_choices_and_optional_correct(message.text or "")
+            if len(choices) < 2:
+                text, kb = screen_admin_qedit_prompt(q, field, error="Потрібно мінімум 2 варіанти.")
+                await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                return
+
+            if correct_maybe is None:
+                filtered = [int(x) for x in (q.correct or []) if 1 <= int(x) <= len(choices)]
+                if not filtered:
+                    text, kb = screen_admin_qedit_prompt(
+                        q, field,
+                        error="Після зміни варіантів треба вказати правильні. Додай рядок: correct: 2 або 1,3",
+                    )
+                    await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                    return
+                correct_to_set = filtered
+            else:
+                correct_to_set = correct_maybe
+
+            after = await store.update_question_content(
+                int(qid),
+                choices=choices,
+                correct=correct_to_set,
+                changed_by=f"admin:{uid}",
+            )
+            if after:
+                q.choices = list(after.get("choices") or [])
+                q.correct = list(after.get("correct") or [])
+                q.correct_texts = list(after.get("correct_texts") or [])
+
+            qedit["await"] = None
+            st[ADMIN_QEDIT] = qedit
+            await store.set_state(uid, st)
+
+            text, kb = screen_admin_qedit(q, note="✅ Збережено")
+            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            return
+
+        if field == "correct":
+            corr = _parse_correct_list(message.text or "", len(q.choices or []))
+            if not corr:
+                text, kb = screen_admin_qedit_prompt(q, field, error="Не бачу номерів або вони поза діапазоном.")
+                await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+                return
+
+            after = await store.update_question_content(int(qid), correct=corr, changed_by=f"admin:{uid}")
+            if after:
+                q.correct = list(after.get("correct") or [])
+                q.correct_texts = list(after.get("correct_texts") or [])
+
+            qedit["await"] = None
+            st[ADMIN_QEDIT] = qedit
+            await store.set_state(uid, st)
+
+            text, kb = screen_admin_qedit(q, note="✅ Збережено")
+            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+            return
+
+    raise SkipHandler()
 
 @router.callback_query(F.data.startswith("admin:user:"))
 async def admin_user_detail(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
