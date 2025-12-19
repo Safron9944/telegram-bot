@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from html import escape as hescape
+from difflib import SequenceMatcher
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.client.default import DefaultBotProperties
@@ -64,6 +65,7 @@ ADMIN_USERS_BACK_OFFSET = "admin_users_back_offset"
 ADMIN_QWORK_AWAITING = "admin_qwork_awaiting"
 ADMIN_QWORK_PAGE = "admin_qwork_page"
 ADMIN_QEDIT = "admin_qedit"
+ADMIN_QWORK_QUERY = "admin_qwork_query"
 
 def get_admin_contact_url(admin_ids: set[int]) -> str:
     """URL for 'contact admin' button.
@@ -2207,10 +2209,15 @@ def kb_feedback(edit_cb: Optional[str] = None) -> InlineKeyboardMarkup:
 
 
 def kb_leave_confirm() -> InlineKeyboardMarkup:
-    return kb_inline([
-        ("⬅️ Продовжити", "leave:back"),
-        ("🚪 Вийти в меню", "leave:yes"),
-    ], row=1)
+    return kb_inline(
+        [
+            ("⬅️ Продовжити", "leave:back"),
+            ("🚪 Вийти в меню", "leave:yes"),
+        ],
+        row=1,
+        single_row_prefixes=None,
+        single_row_exact=None,
+    )
 # -------------------- Main app logic --------------------
 
 router = Router()
@@ -3929,8 +3936,7 @@ def _q_snip(s: str, max_len: int = 46) -> str:
         return s
     return s[: max(0, max_len - 1)] + "…"
 
-
-def screen_admin_qwork(qb: QuestionBank, page: int = 0, page_size: int = 10) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_admin_qwork(qb: "QuestionBank", page: int = 0, page_size: int = 10) -> Tuple[str, InlineKeyboardMarkup]:
     ids = sorted(list(qb.by_id.keys()))
     total = len(ids)
     if total == 0:
@@ -3951,7 +3957,7 @@ def screen_admin_qwork(qb: QuestionBank, page: int = 0, page_size: int = 10) -> 
     text = (
         "✏️ <b>Робота над питаннями</b>\n"
         f"Сторінка <b>{page + 1}</b>/<b>{pages}</b> • Питань: <b>{total}</b>\n\n"
-        "Натисни на питання, щоб відкрити редагування, або введи ID."
+        "Натисни на питання, щоб відкрити редагування, або введи назву/частину питання (кнопка пошуку)."
     )
 
     b = InlineKeyboardBuilder()
@@ -3967,25 +3973,60 @@ def screen_admin_qwork(qb: QuestionBank, page: int = 0, page_size: int = 10) -> 
 
     nav_row: list[InlineKeyboardButton] = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton(text="⬅️ Попередня", callback_data=clamp_callback(f"admin:qwork:{page - 1}")))
+        nav_row.append(InlineKeyboardButton(text="⬅️ Попер...едня", callback_data=clamp_callback(f"admin:qwork:{page - 1}")))
     if page + 1 < pages:
         nav_row.append(InlineKeyboardButton(text="Наступна ➡️", callback_data=clamp_callback(f"admin:qwork:{page + 1}")))
     if nav_row:
         b.row(*nav_row)
 
-    b.row(InlineKeyboardButton(text="🔎 Відкрити по ID", callback_data=clamp_callback(f"admin:qwork_find:{int(page)}")))
+    # було "Відкрити по ID" — тепер пошук по назві
+    b.row(InlineKeyboardButton(text="🔎 Пошук по назві", callback_data=clamp_callback(f"admin:qwork_find:{int(page)}")))
     b.row(InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu"))
     return text, b.as_markup()
 
 
+# залишаю назву screen_admin_qwork_find, щоб менше міняти по файлу — по факту це "пошук по назві"
 def screen_admin_qwork_find(page: int = 0, error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
     page = max(0, int(page))
-    text = "🔎 <b>Відкрити питання по ID</b>\n\nНадішли ID питання одним повідомленням."
+    text = (
+        "🔎 <b>Пошук питання за назвою</b>\n\n"
+        "Надішли <b>частину тексту питання</b> одним повідомленням.\n"
+        "Напр.: <code>строк дії</code> або <code>хто має право</code>"
+    )
     if error:
         text += f"\n\n❗️ {hescape(error)}"
     kb = kb_inline([("⬅️ Назад", f"admin:qwork:{page}")], row=1)
     return text, kb
 
+def screen_admin_qwork_results(qb: "QuestionBank", query: str, page: int = 0, limit: int = 12) -> Tuple[str, InlineKeyboardMarkup]:
+    page = max(0, int(page))
+    query = (query or "").strip()
+    qids = find_question_ids_by_title(qb, query, limit=limit)
+
+    if not qids:
+        return screen_admin_qwork_find(page=page, error="Нічого схожого не знайшов. Спробуй інші слова.")
+
+    text = (
+        "🔎 <b>Знайдені схожі питання</b>\n\n"
+        f"Запит: <code>{hescape(query)}</code>\n"
+        f"Показую: <b>{len(qids)}</b>\n\n"
+        "Обери потрібне:"
+    )
+
+    b = InlineKeyboardBuilder()
+    for qid in qids:
+        q = qb.by_id.get(int(qid))
+        title = f"{qid} • {_q_snip(q.question if q else '')}"
+        b.row(
+            InlineKeyboardButton(
+                text=title,
+                callback_data=clamp_callback(f"admin:qedit:{int(qid)}:qsearch:{int(page)}"),
+            )
+        )
+
+    b.row(InlineKeyboardButton(text="🔎 Новий пошук", callback_data=clamp_callback(f"admin:qwork_find:{int(page)}")))
+    b.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"admin:qwork:{int(page)}")))
+    return text, b.as_markup()
 
 def _fmt_q_choices(q: Q) -> str:
     lines = []
@@ -4030,6 +4071,43 @@ def screen_admin_qedit(q: Q, note: str = "") -> Tuple[str, InlineKeyboardMarkup]
         row=1,
     )
     return text, kb
+
+def _norm_qsearch(s: str) -> str:
+    s = (s or "").lower().strip()
+    s = re.sub(r"[^\w\s]", " ", s, flags=re.U)
+    s = re.sub(r"\s+", " ", s, flags=re.U)
+    return s.strip()
+
+def find_question_ids_by_title(qb: "QuestionBank", query: str, limit: int = 12) -> List[int]:
+    qn = _norm_qsearch(query)
+    if not qn:
+        return []
+
+    q_tokens = [t for t in qn.split() if t]
+    res: List[Tuple[float, int]] = []
+
+    for qid, q in qb.by_id.items():
+        qt = _norm_qsearch(getattr(q, "question", "") or "")
+        if not qt:
+            continue
+
+        # швидкий фільтр (щоб не рахувати схожість на всіх)
+        if q_tokens and not any(t in qt for t in q_tokens):
+            continue
+
+        ratio = SequenceMatcher(None, qn, qt).ratio()
+        if qn in qt:
+            ratio = max(ratio, 0.95)
+
+        qtoks = set(qt.split())
+        qs = set(q_tokens)
+        jacc = (len(qs & qtoks) / max(1, len(qs | qtoks))) if qs else 0.0
+
+        score = 0.75 * ratio + 0.25 * jacc
+        res.append((score, int(qid)))
+
+    res.sort(key=lambda x: x[0], reverse=True)
+    return [qid for _, qid in res[: max(1, int(limit))]]
 
 
 
@@ -4251,8 +4329,9 @@ async def admin_qwork_find_prompt(cb: CallbackQuery, bot: Bot, store: "Storage",
 
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
-    st[ADMIN_QWORK_AWAITING] = "qid"
+    st[ADMIN_QWORK_AWAITING] = "qsearch"
     st[ADMIN_QWORK_PAGE] = page
+    st.pop(ADMIN_QWORK_QUERY, None)
     await store.set_state(uid, st)
 
     text, kb = screen_admin_qwork_find(page=page)
@@ -4517,6 +4596,16 @@ async def admin_qedit_back(cb: CallbackQuery, bot: Bot, store: "Storage", qb: Qu
         await cb.answer()
         return
 
+    if ret_kind == "qsearch":
+        query = (st.get(ADMIN_QWORK_QUERY) or "").strip()
+        if not query:
+            text, kb = screen_admin_qwork(qb, page=ret_val)
+        else:
+            text, kb = screen_admin_qwork_results(qb, query=query, page=ret_val, limit=12)
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
     if ret_kind == "qpick":
         # повертаємось до списку питань (pretest)
         sel = int(st.get("selected") or 0)
@@ -4653,27 +4742,25 @@ async def admin_users_search_input(
         return
 
     # 2) Адмін: відкрити питання по ID (з вкладки "Робота над питаннями")
-    if st.get(ADMIN_QWORK_AWAITING) == "qid":
+    if st.get(ADMIN_QWORK_AWAITING) == "qsearch":
         page = int(st.get(ADMIN_QWORK_PAGE) or 0)
-        qid = _parse_int_from_text(message.text or "")
+        query = (message.text or "").strip()
 
         try:
             await message.delete()
         except Exception:
             pass
 
-        if not qid or qid not in qb.by_id:
-            text, kb = screen_admin_qwork_find(page=page, error="Не бачу такого ID. Спробуй ще раз.")
-            await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
+        if len(_norm_qsearch(query)) < 3:
+            text, kb = screen_admin_qwork_find(page=page, error="Введи хоча б 3 символи для пошуку.")
+            await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
             return
 
-        q = qb.by_id[qid]
-        st.pop(ADMIN_QWORK_AWAITING, None)
-        st[ADMIN_QEDIT] = {"qid": int(qid), "ret_kind": "qwork", "ret_val": int(page), "await": None}
+        st[ADMIN_QWORK_QUERY] = query
         await store.set_state(uid, st)
 
-        text, kb = screen_admin_qedit(q)
-        await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
+        text, kb = screen_admin_qwork_results(qb, query=query, page=page, limit=12)
+        await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
         return
 
     # 3) Адмін: редагування поля питання
