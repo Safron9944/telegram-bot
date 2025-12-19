@@ -2961,6 +2961,11 @@ async def start_test_from_pretest(
     pre: Dict[str, Any],
     admin_ids: Optional[set[int]] = None,
 ):
+    """Запуск сесії з екрана підготовки (qpick).
+
+    ВАЖЛИВО: для «навчання» потрібен режим 'learn', бо саме він показує екран
+    з правильною відповіддю та кнопку «Зрозуміло / Продовжити» після помилки.
+    """
     qids = list(pre.get("qids", []) or [])
     if not qids:
         return
@@ -2968,25 +2973,20 @@ async def start_test_from_pretest(
     selected = int(pre.get("selected", 0) or 0)
     selected = max(0, min(selected, len(qids) - 1))
 
-    # start from selected question
+    # стартуємо з вибраного питання
     ordered = qids[selected:] + qids[:selected]
 
-    st = {
-        "mode": "test",
-        "header": pre.get("header", "📝 <b>Тестування</b>"),
-        "pending": ordered,
-        "skipped": [],
-        "phase": "pending",
-        "feedback": None,
-        "current_qid": None,
-        "correct_count": 0,
-        "total": len(ordered),
-        "started_at": dt_to_iso(now()),
-        "answers": {},
-        "meta": pre.get("meta", {}) or {},
-    }
-    await store.set_state(uid, st)
-    await show_next_in_session(bot, store, qb, uid, chat_id, message, admin_ids=admin_ids)
+    header = pre.get("header", "📝 <b>Тестування</b>")
+    meta = pre.get("meta", {}) or {}
+
+    await start_learning_session(
+        bot, store, qb,
+        uid, chat_id, message,
+        qids=ordered,
+        header=header,
+        save_meta=meta,
+        admin_ids=admin_ids,
+    )
 
 
 @router.callback_query(F.data == "qpick:show")
