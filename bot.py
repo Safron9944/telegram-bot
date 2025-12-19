@@ -89,7 +89,6 @@ def get_admin_contact_url(admin_ids: set[int]) -> str:
     return ""
 
 
-
 def now() -> datetime:
     return datetime.now(TZ)
 
@@ -113,7 +112,6 @@ def clamp_callback(s: str, max_bytes: int = 64) -> str:
     if len(b) <= max_bytes:
         return s
     return b[:max_bytes].decode("utf-8", errors="ignore")
-
 
 
 def normalize_postgres_dsn(dsn: str) -> tuple[str, object | None]:
@@ -1665,7 +1663,6 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
     text = (
         "🏠 <b>Головне меню</b>\n"
         f"{FILL}\n"
-        "Оберіть розділ:\n\n"
         "ℹ️ <b>Підказка</b>:\n"
         "• 📚 <b>Навчання</b> — розділ для вивчення матеріалів (законодавство та ОК-модулі).\n"
         "• 📝 <b>Тестування</b> — розділ для перевірки знань за законодавством і ОК-модулями."
@@ -2019,8 +2016,6 @@ def screen_ok_menu(
     kb = kb_inline(buttons, row=1)
     return text, kb
 
-
-
 def screen_ok_modules_pick(selected: List[str], all_mods: List[str]) -> Tuple[str, InlineKeyboardMarkup]:
     text = "🧩 <b>Оберіть модулі ОК</b>\n\nПозначте потрібні модулі:"
     b = InlineKeyboardBuilder()
@@ -2088,11 +2083,12 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
         lvl = int(temp_levels.get(m, available[0]))
         if lvl not in available:
             lvl = available[0]
-        buttons.append((f"🧩 {ok_full_label(m)} • Рівень {lvl}", f"testlvl:modi:{i}"))
+        code = ok_extract_code(m)
+        label = f"🧩 [{code}] • Рівень {lvl}" if code else f"🧩 {ok_full_label(m)} • Рівень {lvl}"
+        buttons.append((label, f"testlvl:modi:{i}"))
 
     buttons += [("📖 Почати тест", "test:start"), ("⬅️ Меню", "nav:menu")]
     return "\n".join(lines), kb_inline(buttons, row=1)
-
 
 def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Optional[int]) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
@@ -2202,8 +2198,6 @@ def kb_answers(n: int, allow_skip: bool = True, edit_cb: Optional[str] = None) -
     return b.as_markup()
 
 
-
-
 def kb_feedback(edit_cb: Optional[str] = None) -> InlineKeyboardMarkup:
     buttons: List[Tuple[str, str]] = []
     if edit_cb:
@@ -2214,16 +2208,12 @@ def kb_feedback(edit_cb: Optional[str] = None) -> InlineKeyboardMarkup:
 
 def kb_leave_confirm() -> InlineKeyboardMarkup:
     return kb_inline([
-        ("🚪 Вийти в меню", "leave:yes"),
         ("⬅️ Продовжити", "leave:back"),
+        ("🚪 Вийти в меню", "leave:yes"),
     ], row=1)
-
-
-
 # -------------------- Main app logic --------------------
 
 router = Router()
-
 
 @router.message(F.text == "/start")
 async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
@@ -3109,9 +3099,10 @@ async def learn_start(
         qids = all_qids[start:start + 50]
 
         title = qb.law_group_title(group_key)
-        header = f"📜 <b>Законодавство</b> • {hescape(title)}"
-        if len(all_qids) > 50:
-            header += f" • частина {part}"
+
+        # ✅ Було: "📜 Законодавство • <title> • частина N"
+        # ✅ Тепер: тільки назва (без "частина", без "Законодавство")
+        header = hescape(title)
 
         await start_pretest(
             bot, store, qb,
@@ -3130,7 +3121,9 @@ async def learn_start(
         qids = qb.pick_random(all_qids, min(50, len(all_qids)))
 
         title = qb.law_group_title(group_key)
-        header = f"📜 <b>Законодавство</b> • {hescape(title)} • 🎲"
+
+        # ✅ Теж без "Законодавство", тільки назва + 🎲
+        header = f"{hescape(title)} • 🎲"
 
         await start_pretest(
             bot, store, qb,
@@ -3188,7 +3181,9 @@ async def learn_start(
         # запамʼятовуємо останній рівень (як було)
         await store.set_ok_last_level(uid, module, int(level))
 
-        header = f"🧠 <b>ОК</b> • {hescape(module)} • Рівень {int(level)}"
+        # ✅ Було: "🧠 ОК • ОК-12 • Рівень 1"
+        # ✅ Тепер: "ОК-12 • Рівень 1"
+        header = f"{hescape(module)} • Рівень {int(level)}"
 
         await start_pretest(
             bot, store, qb,
@@ -4026,6 +4021,7 @@ def screen_admin_qedit(q: Q, note: str = "") -> Tuple[str, InlineKeyboardMarkup]
     return text, kb
 
 
+
 def screen_admin_qedit_choices(q: Q, note: str = "", error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
     """Меню редагування варіантів: вибір конкретного варіанту."""
     corr_set = set(int(x) for x in (q.correct or []))
@@ -4070,6 +4066,54 @@ def screen_admin_qedit_choices(q: Q, note: str = "", error: Optional[str] = None
         adjust_list.append(remainder)
     adjust_list.append(len(controls))
     b.adjust(*adjust_list)
+    return text, b.as_markup()
+
+def screen_admin_qedit_correct(q: Q, note: str = "", error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    corr_set = set(int(x) for x in (q.correct or []))
+
+    head = "✅ <b>Вибір правильних відповідей</b>"
+    if note:
+        head += f"\n{note}"
+
+    # текст зі списком варіантів і галочками
+    lines_out: list[str] = []
+    for i, c in enumerate(q.choices or [], start=1):
+        mark = "✅" if i in corr_set else "▫️"
+        lines_out.append(f"{mark} <b>{i}.</b> {hescape(c)}")
+    choices_text = "\n".join(lines_out) if lines_out else "—"
+
+    corr = ", ".join(str(x) for x in sorted(corr_set)) or "—"
+
+    text = (
+        f"{head}\n"
+        f"ID: <code>{int(q.id)}</code>\n\n"
+        f"Натискай на кнопки нижче — галочка перемикається, зміни зберігаються одразу.\n\n"
+        f"<b>Питання:</b>\n{hescape(q.question)}\n\n"
+        f"<b>Варіанти:</b>\n{choices_text}\n\n"
+        f"<b>Зараз правильні:</b> <code>{hescape(corr)}</code>"
+    )
+    if error:
+        text += f"\n\n❗️ {hescape(error)}"
+
+    b = InlineKeyboardBuilder()
+    n = len(q.choices or [])
+
+    # кнопки-перемикачі
+    for i in range(1, n + 1):
+        mark = "✅" if i in corr_set else "▫️"
+        b.button(text=f"{mark} {i}", callback_data=clamp_callback(f"admin:qedit_corr:{i}"))
+
+    # керування
+    b.button(text="⬅️ Назад", callback_data="admin:qedit_cancel")
+
+    # розкладка: по 4 в ряд, потім одна кнопка "Назад"
+    full_rows, remainder = divmod(n, 4)
+    adjust_list = [4] * full_rows
+    if remainder:
+        adjust_list.append(remainder)
+    adjust_list.append(1)
+    b.adjust(*adjust_list)
+
     return text, b.as_markup()
 
 
@@ -4267,8 +4311,7 @@ async def admin_qedit_set_field(cb: CallbackQuery, bot: Bot, store: "Storage", q
         await cb.answer("Питання не знайдено")
         return
 
-    # ✅ Новий підхід: варіанти редагуємо по одному (окремим меню), а не списком.
-    # Підтримуємо стару кнопку (admin:qedit_set:choices), але перенаправляємо в меню.
+    # choices -> як і було
     if field == "choices":
         qedit["await"] = None
         st[ADMIN_QEDIT] = qedit
@@ -4279,11 +4322,75 @@ async def admin_qedit_set_field(cb: CallbackQuery, bot: Bot, store: "Storage", q
         await cb.answer()
         return
 
+    # ✅ correct -> тепер не просимо текст, а відкриваємо меню з галочками
+    if field == "correct":
+        qedit["await"] = None
+        st[ADMIN_QEDIT] = qedit
+        await store.set_state(uid, st)
+
+        text, kb = screen_admin_qedit_correct(q)
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
+    # інші поля -> як і було (через введення текстом)
     qedit["await"] = field
     st[ADMIN_QEDIT] = qedit
     await store.set_state(uid, st)
 
     text, kb = screen_admin_qedit_prompt(q, field)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("admin:qedit_corr:"))
+async def admin_qedit_correct_toggle(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    try:
+        idx = int(cb.data.split(":")[2])
+    except Exception:
+        await cb.answer("Помилка")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    qedit = st.get(ADMIN_QEDIT) or {}
+    qid = qedit.get("qid")
+
+    q = qb.by_id.get(int(qid)) if qid is not None else None
+    if not q:
+        await cb.answer("Питання не знайдено")
+        return
+
+    n = len(q.choices or [])
+    if not (1 <= idx <= n):
+        text, kb = screen_admin_qedit_correct(q, error="Невірний номер варіанту.")
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
+    corr = set(int(x) for x in (q.correct or []))
+
+    # не даємо зняти останню правильну
+    if idx in corr:
+        if len(corr) == 1:
+            await cb.answer("Має бути хоча б 1 правильна відповідь")
+            return
+        corr.remove(idx)
+    else:
+        corr.add(idx)
+
+    new_corr = sorted(corr)
+
+    after = await store.update_question_content(int(q.id), correct=new_corr, changed_by=f"admin:{uid}")
+    if after:
+        q.correct = list(after.get("correct") or [])
+        q.correct_texts = list(after.get("correct_texts") or [])
+
+    text, kb = screen_admin_qedit_correct(q, note="✅ Збережено")
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
