@@ -67,7 +67,9 @@ def _parse_int_env(name: str, default: int = 0) -> int:
 SUPPORT_CHAT_ID = _parse_int_env("SUPPORT_CHAT_ID", _parse_int_env("ADMIN_CHAT_ID", 0))
 
 # How many days to add on "✅ Продовжити" (receipt approval). Default: 30.
-SUPPORT_SUB_DAYS = int((os.getenv("SUPPORT_SUB_DAYS", "30") or "30").strip() or "30")
+SUPPORT_SUB_DAYS = _parse_int_env("SUPPORT_SUB_DAYS", 30)
+if SUPPORT_SUB_DAYS <= 0:
+    SUPPORT_SUB_DAYS = 30
 
 SUPPORT_REPLY_REMINDER_TEXT = (
     "Відповідайте, будь ласка, через Reply на звернення/чек — так бот зрозуміє юзера."
@@ -82,6 +84,42 @@ ADMIN_QWORK_AWAITING = "admin_qwork_awaiting"
 ADMIN_QWORK_PAGE = "admin_qwork_page"
 ADMIN_QEDIT = "admin_qedit"
 ADMIN_QWORK_QUERY = "admin_qwork_query"
+
+
+def parse_int_set(value: str) -> set[int]:
+    """Parse a set of ints from env-like strings.
+
+    Accepts:
+    - "123,456"
+    - "123 456"
+    - "123;456"
+    - "[123, 456]" (JSON)
+    """
+    s = (value or "").strip()
+    if not s:
+        return set()
+    # JSON list support
+    if s.startswith("[") and s.endswith("]"):
+        try:
+            arr = json.loads(s)
+            out = set()
+            for x in arr if isinstance(arr, list) else []:
+                try:
+                    out.add(int(x))
+                except Exception:
+                    pass
+            return out
+        except Exception:
+            # fall through to regex
+            pass
+    # Generic: pull all integers
+    out = set()
+    for m in re.finditer(r"-?\d+", s):
+        try:
+            out.add(int(m.group(0)))
+        except Exception:
+            pass
+    return out
 
 def get_admin_contact_url(admin_ids: set[int]) -> str:
     """URL for 'contact admin' button.
@@ -1862,11 +1900,20 @@ def screen_help(admin_url: str, support_enabled: bool = False) -> Tuple[str, Inl
 
 
 def screen_no_access(user: Dict[str, Any], admin_url: str, support_enabled: bool = False) -> Tuple[str, InlineKeyboardMarkup]:
+    uid = int(user.get("user_id") or 0)
+    if support_enabled and SUPPORT_CHAT_ID:
+        tail = "Натисніть «💳 Продовжити підписку» або зверніться до адміністратора."
+    else:
+        tail = (
+            "Зверніться до адміністратора і вкажіть ваш 🆔. "
+            f"Ваш ID: <code>{uid}</code>"
+        )
+
     text = (
         "⛔️ <b>Підписка неактивна</b>\n"
         f"{fmt_access_line(user)}\n\n"
         "Термін дії підписки завершився.\n"
-        "Натисніть «💳 Продовжити підписку» або зверніться до адміністратора."
+        f"{tail}"
     )
 
     b = InlineKeyboardBuilder()
@@ -1874,7 +1921,7 @@ def screen_no_access(user: Dict[str, Any], admin_url: str, support_enabled: bool
         b.button(text="💳 Продовжити підписку", callback_data="support:renew")
         b.button(text="📩 Написати адміну", callback_data="support:start")
     elif admin_url:
-        b.button(text="💳 Продовжити підписку", url=admin_url)
+        # Без support-чату не робимо кнопку "Продовжити" з редіректом (щоб не губився юзер).
         b.button(text="📩 Написати адміну", url=admin_url)
     b.button(text="⬅️ Меню", callback_data="nav:menu")
     b.adjust(1)
@@ -2407,6 +2454,24 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
 
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, chat_id, text, kb)
+
+
+@router.message(F.text.startswith("/id"))
+async def cmd_id(message: Message):
+    """Show IDs to simplify Railway setup (SUPPORT_CHAT_ID / ADMIN_IDS)."""
+    uid = message.from_user.id if message.from_user else 0
+    chat_id = message.chat.id
+    chat_type = getattr(message.chat, "type", "")
+
+    text = (
+        "🆔 <b>ID довідка</b>\n\n"
+        f"• Ваш user_id: <code>{uid}</code>\n"
+        f"• chat_id цього чату: <code>{chat_id}</code> (<code>{chat_type}</code>)\n\n"
+        "Для Railway → Variables:\n"
+        f"• <code>SUPPORT_CHAT_ID={chat_id}</code> (якщо це адмін-група/канал)\n"
+        f"• <code>ADMIN_IDS={uid}</code> (додайте інших через кому)"
+    )
+    await message.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 @router.callback_query(F.data == "nav:menu")
 async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
@@ -3086,7 +3151,7 @@ async def support_action_ok(cb: CallbackQuery, bot: Bot, store: Storage, admin_i
         return
 
     user_id = int(ticket["user_id"])
-    user = await store.get_user(user_id)
+    user = await store.get_user(user_id) or {}
 
     # extend from max(now, existing sub_end)
     base = now()
@@ -5602,13 +5667,12 @@ async def main():
     if not token:
         raise RuntimeError("Set BOT_TOKEN env var")
 
-    admin_ids_env = os.getenv("ADMIN_IDS", "").strip()
-    admin_ids = set()
-    if admin_ids_env:
-        for x in admin_ids_env.split(","):
-            x = x.strip()
-            if x.isdigit():
-                admin_ids.add(int(x))
+    # Admins (can be comma/space/semicolon separated or JSON list).
+    # Railway tip: paste like "123,456" or "[123,456]".
+    admin_ids: set[int] = set()
+    admin_ids |= parse_int_set(os.getenv("ADMIN_IDS", ""))
+    admin_ids |= parse_int_set(os.getenv("ADMIN_ID", ""))
+    admin_ids |= parse_int_set(os.getenv("OWNER_ID", ""))
 
     dsn = (
         os.getenv("DATABASE_URL")
@@ -5649,6 +5713,20 @@ async def main():
         raise RuntimeError("No questions loaded from DB. Fill table 'questions' first.")
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+    # If support is enabled but ADMIN_IDS is empty, try to auto-detect group admins.
+    # This removes a common setup pain on Railway.
+    if support_is_enabled() and not admin_ids:
+        try:
+            admins = await bot.get_chat_administrators(SUPPORT_CHAT_ID)
+            for a in admins:
+                u = getattr(a, "user", None)
+                if u and getattr(u, "id", None):
+                    admin_ids.add(int(u.id))
+            if admin_ids:
+                print(f"[bootstrap] ADMIN_IDS auto-detected: {sorted(admin_ids)}")
+        except Exception as e:
+            print(f"[bootstrap] Cannot auto-detect admins for SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}: {e}")
     dp = Dispatcher()
     dp["store"] = store
     dp["qb"] = qb
