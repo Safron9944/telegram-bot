@@ -1855,13 +1855,15 @@ def screen_no_access(user: Dict[str, Any], admin_url: str, support_enabled: bool
         "⛔️ <b>Підписка неактивна</b>\n"
         f"{fmt_access_line(user)}\n\n"
         "Термін дії підписки завершився.\n"
-        "Для продовження вам надано доступ лише для звернення до адміністратора."
+        "Натисніть «💳 Продовжити підписку» або зверніться до адміністратора."
     )
 
     b = InlineKeyboardBuilder()
     if support_enabled and SUPPORT_CHAT_ID:
+        b.button(text="💳 Продовжити підписку", callback_data="support:renew")
         b.button(text="📩 Написати адміну", callback_data="support:start")
     elif admin_url:
+        b.button(text="💳 Продовжити підписку", url=admin_url)
         b.button(text="📩 Написати адміну", url=admin_url)
     b.button(text="⬅️ Меню", callback_data="nav:menu")
     b.adjust(1)
@@ -2698,6 +2700,72 @@ async def support_start(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: 
         chat_id=cb.message.chat.id,
         text=f"🧑‍💻 Режим підтримки увімкнено. Напишіть повідомлення (текст/фото/файли) — бот передасть адміну в {support_ticket_tag(ticket_id)}.",
         reply_markup=kb_support_user_mode(),
+    )
+    await cb.answer()
+
+
+@router.callback_query(F.data == "support:renew")
+async def support_renew(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+    """Швидкий запит на продовження підписки.
+
+    Створює/відкриває звернення і одразу шле адміну повідомлення з кнопками дій.
+    """
+    if not support_is_enabled():
+        await cb.answer("Підтримка не налаштована (немає SUPPORT_CHAT_ID).", show_alert=True)
+        return
+
+    uid = cb.from_user.id
+    await store.ensure_user(
+        uid,
+        is_admin=(uid in admin_ids),
+        first_name=cb.from_user.first_name,
+        last_name=cb.from_user.last_name,
+    )
+
+    # ensure ticket + support state
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    t = await _get_or_create_support_ticket(store, uid)
+    ticket_id = int(t.get("id") or 0)
+    if not ticket_id:
+        await cb.answer("Помилка створення звернення.", show_alert=True)
+        return
+
+    st["support"] = {"mode": 1, "ticket_id": ticket_id}
+    await store.set_state(uid, st)
+
+    # push to admin
+    user = await store.get_user(uid) or {"user_id": uid, "first_name": cb.from_user.first_name, "last_name": cb.from_user.last_name}
+    card_id = await _ensure_support_card(bot, store, t, user, first_message=None)
+
+    mention = tg_user_mention(uid, user.get("first_name"), user.get("last_name"))
+    header = support_header_line(ticket_id, mention, uid)
+    sent = await bot.send_message(
+        chat_id=SUPPORT_CHAT_ID,
+        text=f"{header}\n\n💳 Запит на продовження підписки.",
+        reply_to_message_id=card_id,
+        reply_markup=kb_support_actions(ticket_id),
+        disable_web_page_preview=True,
+    )
+    try:
+        await store.link_support_message(
+            admin_chat_id=SUPPORT_CHAT_ID,
+            admin_message_id=int(sent.message_id),
+            ticket_id=int(ticket_id),
+            kind="renew_req",
+        )
+    except Exception:
+        pass
+
+    await bot.send_message(
+        chat_id=cb.message.chat.id,
+        text=(
+            "✅ Запит на продовження підписки відправлено адміну.\n\n"
+            "Якщо вже оплатили — надішліть чек/скрін/деталі одним повідомленням сюди, бот передасть адміну."
+        ),
+        reply_markup=kb_support_user_mode(),
+        disable_web_page_preview=True,
     )
     await cb.answer()
 
