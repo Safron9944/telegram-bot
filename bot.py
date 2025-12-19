@@ -2902,6 +2902,14 @@ def screen_qpick_preview(
 
     return text, kb_inline(buttons, row=2)
 
+def pretest_questions_limit(meta: dict) -> int:
+    # за замовчуванням 50, але ОК-17 має 70
+    if str(meta.get("kind") or "").lower() == "ok":
+        module = str(meta.get("module") or "")
+        if ok_extract_code(module) == "ОК-17":
+            return 70
+    return 50
+
 
 async def start_pretest(
     bot: Bot,
@@ -2916,7 +2924,8 @@ async def start_pretest(
     back_cb: Optional[str] = None,
 ):
     # limit to 50 questions (as requested)
-    qids = list(qids or [])[:50]
+    limit = pretest_questions_limit(meta)
+    qids = list(qids or [])[:limit]
 
     if not qids:
         await render_main(
@@ -3176,7 +3185,9 @@ async def learn_start(
             return
 
         qids = (qb.ok_modules.get(module, {}) or {}).get(int(level), []) or []
-        qids = list(qids)[:50]  # рівно 50 (або менше, якщо немає)
+        limit = 70 if ok_extract_code(module) == "ОК-17" else 50
+        qids = list(qids)[:limit]
+        # рівно 50 (або менше, якщо немає)
 
         # запамʼятовуємо останній рівень (як було)
         await store.set_ok_last_level(uid, module, int(level))
