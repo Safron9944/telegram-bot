@@ -2236,7 +2236,8 @@ async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await store.set_state(uid, {})
     await cb.answer()
-@router.callback_query(F.data == "nav:help")@router.callback_query(F.data == "nav:help")
+
+@router.callback_query(F.data == "nav:help")
 async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
@@ -2246,6 +2247,7 @@ async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
 
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
+
 
 @router.callback_query(F.data == "nav:learn")
 async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
