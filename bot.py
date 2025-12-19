@@ -51,31 +51,6 @@ def normalize_tme_url(s: str) -> str:
 # Links (can be overridden via env vars)
 GROUP_URL = normalize_tme_url(os.getenv("GROUP_URL", "t.me/mytnytsia_test"))
 
-
-# --- Support (admin chat relay) ---
-def _parse_int_env(name: str, default: int = 0) -> int:
-    v = (os.getenv(name, "") or "").strip()
-    if not v:
-        return default
-    try:
-        return int(v)
-    except Exception:
-        return default
-
-# Admin/support chat where tickets are created (group/supergroup/channel id).
-# Set SUPPORT_CHAT_ID (preferred) or ADMIN_CHAT_ID.
-SUPPORT_CHAT_ID = _parse_int_env("SUPPORT_CHAT_ID", _parse_int_env("ADMIN_CHAT_ID", 0))
-
-# How many days to add on "✅ Продовжити" (receipt approval). Default: 30.
-SUPPORT_SUB_DAYS = _parse_int_env("SUPPORT_SUB_DAYS", 30)
-if SUPPORT_SUB_DAYS <= 0:
-    SUPPORT_SUB_DAYS = 30
-
-SUPPORT_REPLY_REMINDER_TEXT = (
-    "Відповідайте, будь ласка, через Reply на звернення/чек — так бот зрозуміє юзера."
-)
-
-
 # --- keys у state ---
 ADMIN_PANEL_MSG_ID = "admin_panel_msg_id"
 ADMIN_PANEL_CHAT_ID = "admin_panel_chat_id"
@@ -84,42 +59,6 @@ ADMIN_QWORK_AWAITING = "admin_qwork_awaiting"
 ADMIN_QWORK_PAGE = "admin_qwork_page"
 ADMIN_QEDIT = "admin_qedit"
 ADMIN_QWORK_QUERY = "admin_qwork_query"
-
-
-def parse_int_set(value: str) -> set[int]:
-    """Parse a set of ints from env-like strings.
-
-    Accepts:
-    - "123,456"
-    - "123 456"
-    - "123;456"
-    - "[123, 456]" (JSON)
-    """
-    s = (value or "").strip()
-    if not s:
-        return set()
-    # JSON list support
-    if s.startswith("[") and s.endswith("]"):
-        try:
-            arr = json.loads(s)
-            out = set()
-            for x in arr if isinstance(arr, list) else []:
-                try:
-                    out.add(int(x))
-                except Exception:
-                    pass
-            return out
-        except Exception:
-            # fall through to regex
-            pass
-    # Generic: pull all integers
-    out = set()
-    for m in re.finditer(r"-?\d+", s):
-        try:
-            out.add(int(m.group(0)))
-        except Exception:
-            pass
-    return out
 
 def get_admin_contact_url(admin_ids: set[int]) -> str:
     """URL for 'contact admin' button.
@@ -295,33 +234,6 @@ class Storage:
             """)
             await con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_question_revisions_qid_version ON question_revisions(qid, version);")
             await con.execute("CREATE INDEX IF NOT EXISTS idx_question_revisions_qid ON question_revisions(qid);")
-
-            # --- Support tickets (admin chat relay) ---
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS support_tickets (
-                    id BIGSERIAL PRIMARY KEY,
-                    user_id BIGINT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'open',
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    closed_at TIMESTAMPTZ,
-                    admin_chat_id BIGINT,
-                    admin_card_message_id BIGINT
-                );
-            """)
-            await con.execute("CREATE INDEX IF NOT EXISTS idx_support_tickets_user_id ON support_tickets(user_id);")
-            await con.execute("CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);")
-
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS support_links (
-                    admin_chat_id BIGINT NOT NULL,
-                    admin_message_id BIGINT NOT NULL,
-                    ticket_id BIGINT NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
-                    kind TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    PRIMARY KEY (admin_chat_id, admin_message_id)
-                );
-            """)
-            await con.execute("CREATE INDEX IF NOT EXISTS idx_support_links_ticket_id ON support_links(ticket_id);")
 
             # ✅ Виклик міграції після CREATE TABLE
             await self._maybe_migrate_question_revisions_changed_by(con)
@@ -513,79 +425,6 @@ class Storage:
         await self._exec("""
             UPDATE users SET sub_end=$1, sub_infinite=$2 WHERE user_id=$3
         """, sub_end, 1 if infinite else 0, user_id)
-
-    # -------------------- Support tickets (admin chat relay) --------------------
-
-    async def get_open_support_ticket(self, user_id: int, *, admin_chat_id: Optional[int] = None) -> Optional[dict]:
-        sql = """
-            SELECT * FROM support_tickets
-            WHERE user_id=$1 AND status='open'
-        """
-        params = [int(user_id)]
-        if admin_chat_id is not None:
-            sql += " AND admin_chat_id=$2"
-            params.append(int(admin_chat_id))
-        sql += " ORDER BY id DESC LIMIT 1"
-        r = await self._fetchrow(sql, *params)
-        return dict(r) if r else None
-
-    async def create_support_ticket(self, user_id: int, *, admin_chat_id: Optional[int] = None) -> dict:
-        r = await self._fetchrow(
-            """
-            INSERT INTO support_tickets (user_id, status, created_at, admin_chat_id)
-            VALUES ($1, 'open', $2, $3)
-            RETURNING *
-            """,
-            int(user_id), now(), (int(admin_chat_id) if admin_chat_id is not None else None),
-        )
-        return dict(r) if r else {}
-
-    async def get_support_ticket(self, ticket_id: int) -> Optional[dict]:
-        r = await self._fetchrow("SELECT * FROM support_tickets WHERE id=$1", int(ticket_id))
-        return dict(r) if r else None
-
-    async def set_support_ticket_card(self, ticket_id: int, *, admin_chat_id: int, card_message_id: int) -> None:
-        await self._exec(
-            """
-            UPDATE support_tickets
-            SET admin_chat_id=$2, admin_card_message_id=$3
-            WHERE id=$1
-            """,
-            int(ticket_id), int(admin_chat_id), int(card_message_id),
-        )
-
-    async def close_support_ticket(self, ticket_id: int) -> None:
-        await self._exec(
-            "UPDATE support_tickets SET status='closed', closed_at=now() WHERE id=$1",
-            int(ticket_id),
-        )
-
-    async def link_support_message(
-        self,
-        *,
-        admin_chat_id: int,
-        admin_message_id: int,
-        ticket_id: int,
-        kind: Optional[str] = None,
-    ) -> None:
-        await self._exec(
-            """
-            INSERT INTO support_links (admin_chat_id, admin_message_id, ticket_id, kind)
-            VALUES ($1,$2,$3,$4)
-            ON CONFLICT (admin_chat_id, admin_message_id) DO UPDATE SET
-                ticket_id=EXCLUDED.ticket_id,
-                kind=EXCLUDED.kind
-            """,
-            int(admin_chat_id), int(admin_message_id), int(ticket_id), (kind or None),
-        )
-
-    async def find_support_ticket_id_by_admin_message(self, admin_chat_id: int, admin_message_id: int) -> Optional[int]:
-        r = await self._fetchrow(
-            "SELECT ticket_id FROM support_links WHERE admin_chat_id=$1 AND admin_message_id=$2",
-            int(admin_chat_id), int(admin_message_id),
-        )
-        return int(r["ticket_id"]) if r and r.get("ticket_id") is not None else None
-
 
     async def get_ui(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM ui_state WHERE user_id=$1", user_id)
@@ -1826,59 +1665,7 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
 
 
 
-
-def support_is_enabled() -> bool:
-    return SUPPORT_CHAT_ID != 0
-
-def support_ticket_tag(ticket_id: int) -> str:
-    return f"#A{int(ticket_id)}"
-
-def tg_user_mention(user_id: int, first_name: Optional[str] = None, last_name: Optional[str] = None) -> str:
-    name = " ".join([x for x in [(first_name or '').strip(), (last_name or '').strip()] if x]).strip()
-    if not name:
-        name = f"User {user_id}"
-    return f'<a href="tg://user?id={int(user_id)}">{hescape(name)}</a>'
-
-def support_header_line(ticket_id: int, mention_html: str, user_id: int, dt: Optional[datetime] = None) -> str:
-    dt = dt or now()
-    ts = dt.strftime('%d.%m.%Y %H:%M')
-    return f"{support_ticket_tag(ticket_id)} 👤 {mention_html} | 🆔 <code>{int(user_id)}</code> | 🕒 {ts}"
-
-def kb_support_user_mode() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="❌ Вийти з підтримки", callback_data="support:stop")
-    b.button(text="⬅️ Меню", callback_data="nav:menu")
-    b.adjust(1, 1)
-    return b.as_markup()
-
-def kb_support_card(ticket_id: int) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="💬 Чат", callback_data=clamp_callback(f"support:chat:{int(ticket_id)}"))
-    b.button(text="✍️ Уточнити", callback_data=clamp_callback(f"support:ask:{int(ticket_id)}"))
-    b.button(text="🔒 Закрити", callback_data=clamp_callback(f"support:close:{int(ticket_id)}"))
-    b.adjust(1, 2)
-    return b.as_markup()
-
-def kb_support_actions(ticket_id: int) -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.button(text="✅ Продовжити", callback_data=clamp_callback(f"support:ok:{int(ticket_id)}"))
-    b.button(text="❌ Відхилити", callback_data=clamp_callback(f"support:rej:{int(ticket_id)}"))
-    b.button(text="💬 Чат", callback_data=clamp_callback(f"support:chat:{int(ticket_id)}"))
-    b.button(text="✍️ Уточнити", callback_data=clamp_callback(f"support:ask:{int(ticket_id)}"))
-    b.button(text="🔒 Закрити", callback_data=clamp_callback(f"support:close:{int(ticket_id)}"))
-    b.adjust(2, 2, 1)
-    return b.as_markup()
-
-
-def kb_support_admin_chat_mode(ticket_id: int) -> InlineKeyboardMarkup:
-    """Клавіатура для адміна в режимі чату в боті (без Reply)."""
-    b = InlineKeyboardBuilder()
-    b.button(text="❌ Вийти з чату", callback_data="support:chatstop")
-    b.button(text="🔒 Закрити тикет", callback_data=clamp_callback(f"support:close:{int(ticket_id)}"))
-    b.adjust(1, 1)
-    return b.as_markup()
-
-def screen_help(admin_url: str, support_enabled: bool = False) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_help(admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "❓ <b>Допомога</b>\n\n"
         "Тут ви можете:\n"
@@ -1889,9 +1676,7 @@ def screen_help(admin_url: str, support_enabled: bool = False) -> Tuple[str, Inl
     b = InlineKeyboardBuilder()
     if GROUP_URL:
         b.button(text="🔗 Telegram-група", url=GROUP_URL)
-    if support_enabled and SUPPORT_CHAT_ID:
-        b.button(text="📩 Написати адміну", callback_data="support:start")
-    elif admin_url:
+    if admin_url:
         b.button(text="📩 Написати адміну", url=admin_url)
 
     b.button(text="⬅️ Меню", callback_data="nav:menu")
@@ -1899,29 +1684,16 @@ def screen_help(admin_url: str, support_enabled: bool = False) -> Tuple[str, Inl
     return text, b.as_markup()
 
 
-def screen_no_access(user: Dict[str, Any], admin_url: str, support_enabled: bool = False) -> Tuple[str, InlineKeyboardMarkup]:
-    uid = int(user.get("user_id") or 0)
-    if support_enabled and SUPPORT_CHAT_ID:
-        tail = "Натисніть «💳 Продовжити підписку» або зверніться до адміністратора."
-    else:
-        tail = (
-            "Зверніться до адміністратора і вкажіть ваш 🆔. "
-            f"Ваш ID: <code>{uid}</code>"
-        )
-
+def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "⛔️ <b>Підписка неактивна</b>\n"
         f"{fmt_access_line(user)}\n\n"
         "Термін дії підписки завершився.\n"
-        f"{tail}"
+        "Для продовження вам надано доступ лише для звернення до адміністратора."
     )
 
     b = InlineKeyboardBuilder()
-    if support_enabled and SUPPORT_CHAT_ID:
-        b.button(text="💳 Продовжити підписку", callback_data="support:renew")
-        b.button(text="📩 Написати адміну", callback_data="support:start")
-    elif admin_url:
-        # Без support-чату не робимо кнопку "Продовжити" з редіректом (щоб не губився юзер).
+    if admin_url:
         b.button(text="📩 Написати адміну", url=admin_url)
     b.button(text="⬅️ Меню", callback_data="nav:menu")
     b.adjust(1)
@@ -2455,24 +2227,6 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, chat_id, text, kb)
 
-
-@router.message(F.text.startswith("/id"))
-async def cmd_id(message: Message):
-    """Show IDs to simplify Railway setup (SUPPORT_CHAT_ID / ADMIN_IDS)."""
-    uid = message.from_user.id if message.from_user else 0
-    chat_id = message.chat.id
-    chat_type = getattr(message.chat, "type", "")
-
-    text = (
-        "🆔 <b>ID довідка</b>\n\n"
-        f"• Ваш user_id: <code>{uid}</code>\n"
-        f"• chat_id цього чату: <code>{chat_id}</code> (<code>{chat_type}</code>)\n\n"
-        "Для Railway → Variables:\n"
-        f"• <code>SUPPORT_CHAT_ID={chat_id}</code> (якщо це адмін-група/канал)\n"
-        f"• <code>ADMIN_IDS={uid}</code> (додайте інших через кому)"
-    )
-    await message.answer(text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
-
 @router.callback_query(F.data == "nav:menu")
 async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = cb.from_user.id
@@ -2489,819 +2243,10 @@ async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
     user = await store.get_user(uid)
 
     admin_url = get_admin_contact_url(admin_ids)
-    text, kb = screen_help(admin_url, support_enabled=support_is_enabled())
+    text, kb = screen_help(admin_url)
 
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
-
-
-
-# -------------------- Support: user ↔ admin relay --------------------
-
-_SUPPORT_LOCKS: Dict[int, asyncio.Lock] = {}
-_SUPPORT_MEDIA_BUFFER: Dict[Tuple[int, str], Dict[str, Any]] = {}
-
-def _support_lock(user_id: int) -> asyncio.Lock:
-    lk = _SUPPORT_LOCKS.get(int(user_id))
-    if lk is None:
-        lk = asyncio.Lock()
-        _SUPPORT_LOCKS[int(user_id)] = lk
-    return lk
-
-def _safe_message_id(obj: Any) -> Optional[int]:
-    # aiogram can return Message or MessageId-like objects from send/copy operations
-    if obj is None:
-        return None
-    if isinstance(obj, int):
-        return obj
-    mid = getattr(obj, "message_id", None)
-    if isinstance(mid, int):
-        return mid
-    return None
-
-async def _get_or_create_support_ticket(store: "Storage", user_id: int) -> dict:
-    t = await store.get_open_support_ticket(int(user_id), admin_chat_id=SUPPORT_CHAT_ID if SUPPORT_CHAT_ID else None)
-    if t:
-        return t
-    return await store.create_support_ticket(int(user_id), admin_chat_id=SUPPORT_CHAT_ID if SUPPORT_CHAT_ID else None)
-
-async def _ensure_support_card(
-    bot: Bot,
-    store: "Storage",
-    ticket: dict,
-    user: Dict[str, Any],
-    first_message: Optional[Message] = None,
-) -> int:
-    card_id = int(ticket.get("admin_card_message_id") or 0)
-    if card_id:
-        return card_id
-
-    uid = int(ticket["user_id"])
-    mention = tg_user_mention(uid, user.get("first_name"), user.get("last_name"))
-    acc_line = fmt_access_line(user)
-
-    first_text = ""
-    if first_message is not None:
-        first_text = (first_message.text or first_message.caption or "").strip()
-        if not first_text:
-            if first_message.photo:
-                first_text = "🧾 Фото/чек"
-            elif first_message.document:
-                fn = first_message.document.file_name or "файл"
-                first_text = f"📎 {hescape(fn)}"
-            else:
-                first_text = f"📨 {hescape(getattr(first_message, 'content_type', '') or 'повідомлення')}"
-
-    ts = now().strftime("%d.%m.%Y %H:%M")
-    card = (
-        f"📩 <b>Звернення</b> {support_ticket_tag(int(ticket['id']))}\n"
-        f"👤 {mention}\n"
-        f"🆔 <code>{uid}</code>\n"
-        f"{acc_line}\n"
-        f"🕒 {ts}\n"
-    )
-    if first_text:
-        card += "\n<b>Перше повідомлення:</b>\n" + hescape(first_text)
-    card += "\n\n<i>Адмін: відповідайте Reply на будь-яке повідомлення цього звернення.</i>"
-
-    sent = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=card,
-        reply_markup=kb_support_card(int(ticket["id"])),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    card_id = int(sent.message_id)
-
-    await store.set_support_ticket_card(int(ticket["id"]), admin_chat_id=SUPPORT_CHAT_ID, card_message_id=card_id)
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=card_id, ticket_id=int(ticket["id"]), kind="card")
-    return card_id
-
-async def _send_user_message_to_admin(
-    bot: Bot,
-    store: "Storage",
-    ticket_id: int,
-    card_id: int,
-    user: Dict[str, Any],
-    message: Message,
-    *,
-    force_actions: bool = False,
-) -> None:
-    uid = int(user["user_id"])
-    mention = tg_user_mention(uid, user.get("first_name"), user.get("last_name"))
-    header = support_header_line(int(ticket_id), mention, uid)
-
-    # Album (media group) handled separately
-    if message.media_group_id and (message.photo or message.video or message.document):
-        return
-
-    # Text
-    if (message.text or "").strip():
-        text = f"{header}\n\n{hescape((message.text or '').strip())}"
-        sent = await bot.send_message(
-            chat_id=SUPPORT_CHAT_ID,
-            text=text,
-            reply_to_message_id=card_id,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket_id), kind="user_text")
-        return
-
-    # Photo
-    if message.photo:
-        cap = header
-        if (message.caption or "").strip():
-            cap += "\n\n" + hescape(message.caption.strip())
-        sent = await bot.send_photo(
-            chat_id=SUPPORT_CHAT_ID,
-            photo=message.photo[-1].file_id,
-            caption=cap,
-            reply_to_message_id=card_id,
-            reply_markup=kb_support_actions(int(ticket_id)) if force_actions else None,
-            parse_mode=ParseMode.HTML,
-        )
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket_id), kind="user_photo")
-        return
-
-    # Document
-    if message.document:
-        cap = header
-        if (message.caption or "").strip():
-            cap += "\n\n" + hescape(message.caption.strip())
-        sent = await bot.send_document(
-            chat_id=SUPPORT_CHAT_ID,
-            document=message.document.file_id,
-            caption=cap,
-            reply_to_message_id=card_id,
-            reply_markup=kb_support_actions(int(ticket_id)) if force_actions else None,
-            parse_mode=ParseMode.HTML,
-        )
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket_id), kind="user_document")
-        return
-
-    # Video
-    if message.video:
-        cap = header
-        if (message.caption or "").strip():
-            cap += "\n\n" + hescape(message.caption.strip())
-        sent = await bot.send_video(
-            chat_id=SUPPORT_CHAT_ID,
-            video=message.video.file_id,
-            caption=cap,
-            reply_to_message_id=card_id,
-            reply_markup=kb_support_actions(int(ticket_id)) if force_actions else None,
-            parse_mode=ParseMode.HTML,
-        )
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket_id), kind="user_video")
-        return
-
-    # Audio / voice
-    if message.voice:
-        cap = header
-        sent = await bot.send_voice(
-            chat_id=SUPPORT_CHAT_ID,
-            voice=message.voice.file_id,
-            caption=cap,
-            reply_to_message_id=card_id,
-            parse_mode=ParseMode.HTML,
-        )
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket_id), kind="user_voice")
-        return
-
-    if message.audio:
-        cap = header
-        if (message.caption or "").strip():
-            cap += "\n\n" + hescape(message.caption.strip())
-        sent = await bot.send_audio(
-            chat_id=SUPPORT_CHAT_ID,
-            audio=message.audio.file_id,
-            caption=cap,
-            reply_to_message_id=card_id,
-            parse_mode=ParseMode.HTML,
-        )
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket_id), kind="user_audio")
-        return
-
-    # Fallback: header + copy
-    sent_hdr = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=header,
-        reply_to_message_id=card_id,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent_hdr.message_id, ticket_id=int(ticket_id), kind="user_hdr")
-
-    copied = await bot.copy_message(chat_id=SUPPORT_CHAT_ID, from_chat_id=message.chat.id, message_id=message.message_id, reply_to_message_id=card_id)
-    mid = _safe_message_id(copied)
-    if mid:
-        await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=mid, ticket_id=int(ticket_id), kind="user_copy")
-
-async def _flush_media_group(
-    bot: Bot,
-    store: "Storage",
-    user: Dict[str, Any],
-    ticket: dict,
-    card_id: int,
-    key: Tuple[int, str],
-    delay: float = 1.2,
-) -> None:
-    await asyncio.sleep(delay)
-    buf = _SUPPORT_MEDIA_BUFFER.pop(key, None)
-    if not buf:
-        return
-
-    messages: List[Message] = buf.get("messages") or []
-    if not messages:
-        return
-
-    uid = int(user["user_id"])
-    mention = tg_user_mention(uid, user.get("first_name"), user.get("last_name"))
-    header = support_header_line(int(ticket["id"]), mention, uid)
-
-    # Service message (recommended) so admin won't lose context
-    service_text = f"🧾 <b>Чек (альбом)</b>\n{header}"
-    service_msg = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=service_text,
-        reply_to_message_id=card_id,
-        reply_markup=kb_support_actions(int(ticket["id"])),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.link_support_message(
-        admin_chat_id=SUPPORT_CHAT_ID,
-        admin_message_id=service_msg.message_id,
-        ticket_id=int(ticket["id"]),
-        kind="album_service",
-    )
-
-    for m in messages:
-        if m.photo:
-            sent = await bot.send_photo(
-                chat_id=SUPPORT_CHAT_ID,
-                photo=m.photo[-1].file_id,
-                caption=(hescape((m.caption or "").strip())[:900] if (m.caption or "").strip() else None),
-                reply_to_message_id=service_msg.message_id,
-            )
-            await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket["id"]), kind="album_photo")
-        elif m.document:
-            sent = await bot.send_document(
-                chat_id=SUPPORT_CHAT_ID,
-                document=m.document.file_id,
-                caption=(hescape((m.caption or "").strip())[:900] if (m.caption or "").strip() else None),
-                reply_to_message_id=service_msg.message_id,
-            )
-            await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=sent.message_id, ticket_id=int(ticket["id"]), kind="album_doc")
-        else:
-            copied = await bot.copy_message(
-                chat_id=SUPPORT_CHAT_ID,
-                from_chat_id=m.chat.id,
-                message_id=m.message_id,
-                reply_to_message_id=service_msg.message_id,
-            )
-            mid = _safe_message_id(copied)
-            if mid:
-                await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=mid, ticket_id=int(ticket["id"]), kind="album_copy")
-
-
-@router.callback_query(F.data == "support:start")
-async def support_start(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    if not support_is_enabled():
-        await cb.answer("Підтримка не налаштована (немає SUPPORT_CHAT_ID).", show_alert=True)
-        return
-
-    uid = cb.from_user.id
-    await store.ensure_user(
-        uid,
-        is_admin=(uid in admin_ids),
-        first_name=cb.from_user.first_name,
-        last_name=cb.from_user.last_name,
-    )
-
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-
-    t = await _get_or_create_support_ticket(store, uid)
-    ticket_id = int(t.get("id") or 0)
-    if not ticket_id:
-        await cb.answer("Помилка створення звернення.", show_alert=True)
-        return
-
-    st["support"] = {"mode": 1, "ticket_id": ticket_id}
-    await store.set_state(uid, st)
-
-    await bot.send_message(
-        chat_id=cb.message.chat.id,
-        text=f"🧑‍💻 Режим підтримки увімкнено. Напишіть повідомлення (текст/фото/файли) — бот передасть адміну в {support_ticket_tag(ticket_id)}.",
-        reply_markup=kb_support_user_mode(),
-    )
-    await cb.answer()
-
-
-@router.callback_query(F.data == "support:renew")
-async def support_renew(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    """Швидкий запит на продовження підписки.
-
-    Створює/відкриває звернення і одразу шле адміну повідомлення з кнопками дій.
-    """
-    if not support_is_enabled():
-        await cb.answer("Підтримка не налаштована (немає SUPPORT_CHAT_ID).", show_alert=True)
-        return
-
-    uid = cb.from_user.id
-    await store.ensure_user(
-        uid,
-        is_admin=(uid in admin_ids),
-        first_name=cb.from_user.first_name,
-        last_name=cb.from_user.last_name,
-    )
-
-    # ensure ticket + support state
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-
-    t = await _get_or_create_support_ticket(store, uid)
-    ticket_id = int(t.get("id") or 0)
-    if not ticket_id:
-        await cb.answer("Помилка створення звернення.", show_alert=True)
-        return
-
-    st["support"] = {"mode": 1, "ticket_id": ticket_id}
-    await store.set_state(uid, st)
-
-    # push to admin
-    user = await store.get_user(uid) or {"user_id": uid, "first_name": cb.from_user.first_name, "last_name": cb.from_user.last_name}
-    card_id = await _ensure_support_card(bot, store, t, user, first_message=None)
-
-    mention = tg_user_mention(uid, user.get("first_name"), user.get("last_name"))
-    header = support_header_line(ticket_id, mention, uid)
-    sent = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=f"{header}\n\n💳 Запит на продовження підписки.",
-        reply_to_message_id=card_id,
-        reply_markup=kb_support_actions(ticket_id),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    try:
-        await store.link_support_message(
-            admin_chat_id=SUPPORT_CHAT_ID,
-            admin_message_id=int(sent.message_id),
-            ticket_id=int(ticket_id),
-            kind="renew_req",
-        )
-    except Exception:
-        pass
-
-    await bot.send_message(
-        chat_id=cb.message.chat.id,
-        text=(
-            "✅ Запит на продовження підписки відправлено адміну.\n\n"
-            "Якщо вже оплатили — надішліть чек/скрін/деталі одним повідомленням сюди, бот передасть адміну."
-        ),
-        reply_markup=kb_support_user_mode(),
-        disable_web_page_preview=True,
-    )
-    await cb.answer()
-
-
-@router.callback_query(F.data.startswith("support:chat:"))
-async def support_admin_chat_start(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    """Вмикає для адміна режим чату в боті (без Reply).
-
-    Працює у приватному чаті з ботом (коли SUPPORT_CHAT_ID = id адміна).
-    """
-    if cb.from_user.id not in admin_ids or cb.message.chat.id != SUPPORT_CHAT_ID:
-        await cb.answer("Немає доступу")
-        return
-
-    # У групі/каналі безпечніше використовувати Reply-режим.
-    if cb.message.chat.type != "private":
-        await cb.answer("У групі відповідайте через Reply.", show_alert=True)
-        return
-
-    try:
-        ticket_id = int(cb.data.split(":", 2)[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ticket = await store.get_support_ticket(ticket_id)
-    if not ticket or ticket.get("status") != "open":
-        await cb.answer("Ticket не знайдено або вже закрито", show_alert=True)
-        return
-
-    user_id = int(ticket["user_id"])
-    user = await store.get_user(user_id) or {"user_id": user_id}
-    mention = tg_user_mention(user_id, user.get("first_name"), user.get("last_name"))
-
-    # save admin chat state
-    admin_uid = cb.from_user.id
-    ui = await store.get_ui(admin_uid)
-    st = ui.get("state", {}) or {}
-    st["support_admin"] = {"mode": 1, "ticket_id": int(ticket_id), "user_id": int(user_id)}
-    await store.set_state(admin_uid, st)
-
-    await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=(
-            f"💬 <b>Режим чату увімкнено</b> для {support_ticket_tag(ticket_id)}\n"
-            f"👤 {mention}\n"
-            f"🆔 <code>{user_id}</code>\n\n"
-            "Тепер просто пишіть сюди — бот пересилатиме повідомлення користувачу."
-        ),
-        reply_markup=kb_support_admin_chat_mode(ticket_id),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await cb.answer("Чат увімкнено")
-
-
-@router.callback_query(F.data == "support:chatstop")
-async def support_admin_chat_stop(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    if cb.from_user.id not in admin_ids or cb.message.chat.id != SUPPORT_CHAT_ID:
-        await cb.answer("Немає доступу")
-        return
-
-    admin_uid = cb.from_user.id
-    ui = await store.get_ui(admin_uid)
-    st = ui.get("state", {}) or {}
-    st.pop("support_admin", None)
-    await store.set_state(admin_uid, st)
-
-    await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text="✅ Режим чату вимкнено.",
-        disable_web_page_preview=True,
-    )
-    await cb.answer()
-
-
-@router.callback_query(F.data == "support:stop")
-async def support_stop(cb: CallbackQuery, bot: Bot, store: Storage):
-    uid = cb.from_user.id
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    sup = st.get("support") or {}
-    ticket_id = int(sup.get("ticket_id") or 0)
-    sup["mode"] = 0
-    st["support"] = sup
-    await store.set_state(uid, st)
-
-    if ticket_id:
-        await store.close_support_ticket(ticket_id)
-        if SUPPORT_CHAT_ID:
-            try:
-                log = await bot.send_message(
-                    chat_id=SUPPORT_CHAT_ID,
-                    text=f"{support_ticket_tag(ticket_id)} 🔒 Юзер <code>{uid}</code> закрив діалог.",
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,
-                )
-                await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=log.message_id, ticket_id=ticket_id, kind="bot_log")
-            except Exception:
-                pass
-
-    await bot.send_message(chat_id=cb.message.chat.id, text="✅ Режим підтримки вимкнено.", reply_markup=None)
-    await cb.answer()
-
-
-@router.message()
-async def support_user_inbox(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
-    if not support_is_enabled():
-        raise SkipHandler()
-
-    if message.chat.type != "private":
-        raise SkipHandler()
-
-    uid = message.from_user.id
-    if uid in admin_ids:
-        raise SkipHandler()
-
-    # Let commands (/start etc.) go to other handlers
-    if (message.text or "").startswith("/"):
-        raise SkipHandler()
-
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    sup = st.get("support") or {}
-    if not sup or not sup.get("mode"):
-        # If state was cleared, but ticket is still open — keep support working.
-        t0 = await store.get_open_support_ticket(uid, admin_chat_id=SUPPORT_CHAT_ID if SUPPORT_CHAT_ID else None)
-        if not t0:
-            raise SkipHandler()
-        sup = {"mode": 1, "ticket_id": int(t0.get("id") or 0)}
-        st["support"] = sup
-        await store.set_state(uid, st)
-
-    async with _support_lock(uid):
-        t = await _get_or_create_support_ticket(store, uid)
-        ticket_id = int(t.get("id") or 0)
-        if not ticket_id:
-            raise SkipHandler()
-
-        # keep state in sync
-        st["support"] = {"mode": 1, "ticket_id": ticket_id}
-        await store.set_state(uid, st)
-
-        user = await store.get_user(uid)
-        card_id = await _ensure_support_card(bot, store, t, user, first_message=message)
-
-        # First message (text-only) is inside the card
-        if not t.get("admin_card_message_id") and (message.text or "").strip() and not (message.photo or message.document or message.video or message.voice or message.audio):
-            return
-
-        # Media group (album) – buffer and flush once
-        if message.media_group_id and (message.photo or message.video or message.document):
-            key = (uid, str(message.media_group_id))
-            buf = _SUPPORT_MEDIA_BUFFER.get(key)
-            if not buf:
-                buf = {"messages": [], "task": None}
-                _SUPPORT_MEDIA_BUFFER[key] = buf
-            buf["messages"].append(message)
-            if not buf.get("task"):
-                buf["task"] = asyncio.create_task(_flush_media_group(bot, store, user, t, card_id, key))
-            return
-
-        force_actions = bool(message.photo or message.document or message.video)
-        await _send_user_message_to_admin(bot, store, ticket_id, card_id, user, message, force_actions=force_actions)
-
-
-@router.message()
-async def support_admin_inbox(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
-    if not support_is_enabled():
-        raise SkipHandler()
-
-    if message.chat.id != SUPPORT_CHAT_ID:
-        raise SkipHandler()
-
-    if not message.from_user or message.from_user.is_bot:
-        raise SkipHandler()
-
-    admin_uid = message.from_user.id
-    if admin_uid not in admin_ids:
-        raise SkipHandler()
-
-    # Don't intercept commands in admin chat
-    if (message.text or "").startswith("/"):
-        return
-
-    # --- Admin chat mode (works in private admin chat) ---
-    # If enabled, admin can write without Reply and bot will forward to the выбраному тикету.
-    if not message.reply_to_message and message.chat.type == "private":
-        ui = await store.get_ui(admin_uid)
-        st = ui.get("state", {}) or {}
-        am = st.get("support_admin") or {}
-        if int(am.get("mode") or 0) == 1:
-            active_ticket_id = int(am.get("ticket_id") or 0)
-            if active_ticket_id:
-                ticket = await store.get_support_ticket(active_ticket_id)
-                if not ticket or ticket.get("status") != "open":
-                    st.pop("support_admin", None)
-                    await store.set_state(admin_uid, st)
-                    await bot.send_message(
-                        chat_id=SUPPORT_CHAT_ID,
-                        text="❗️Тикет вже закрито/не знайдено. Режим чату вимкнено.",
-                        disable_web_page_preview=True,
-                    )
-                    return
-
-                user_id = int(ticket["user_id"])
-                try:
-                    await bot.copy_message(chat_id=user_id, from_chat_id=message.chat.id, message_id=message.message_id)
-                except TelegramBadRequest:
-                    await bot.send_message(
-                        chat_id=SUPPORT_CHAT_ID,
-                        text=f"{support_ticket_tag(active_ticket_id)} ❗️Не можу доставити повідомлення користувачу (<code>{user_id}</code>).",
-                        parse_mode=ParseMode.HTML,
-                        disable_web_page_preview=True,
-                    )
-                    return
-
-                # Link admin message to this ticket too
-                await store.link_support_message(
-                    admin_chat_id=SUPPORT_CHAT_ID,
-                    admin_message_id=message.message_id,
-                    ticket_id=active_ticket_id,
-                    kind="admin_chat",
-                )
-                return
-
-    # Admin message must be Reply to something inside the ticket chain
-    if not message.reply_to_message:
-        # Only remind for "real" messages
-        if (message.text or message.caption or "") and not (message.text or "").startswith("/"):
-            try:
-                await bot.send_message(chat_id=SUPPORT_CHAT_ID, text=SUPPORT_REPLY_REMINDER_TEXT, reply_to_message_id=message.message_id)
-            except Exception:
-                pass
-        return
-
-    reply_mid = int(message.reply_to_message.message_id)
-    ticket_id = await store.find_support_ticket_id_by_admin_message(SUPPORT_CHAT_ID, reply_mid)
-
-    # Fallback: if replied message is itself a reply, try its parent
-    if not ticket_id and getattr(message.reply_to_message, "reply_to_message", None):
-        parent_mid = int(message.reply_to_message.reply_to_message.message_id)
-        ticket_id = await store.find_support_ticket_id_by_admin_message(SUPPORT_CHAT_ID, parent_mid)
-
-    if not ticket_id:
-        await bot.send_message(chat_id=SUPPORT_CHAT_ID, text="❗️Не бачу, якого юзера стосується цей Reply.", reply_to_message_id=message.message_id)
-        return
-
-    ticket = await store.get_support_ticket(int(ticket_id))
-    if not ticket:
-        await bot.send_message(chat_id=SUPPORT_CHAT_ID, text="❗️Не знайшов ticket у БД.", reply_to_message_id=message.message_id)
-        return
-
-    user_id = int(ticket["user_id"])
-    try:
-        await bot.copy_message(chat_id=user_id, from_chat_id=SUPPORT_CHAT_ID, message_id=message.message_id)
-    except TelegramBadRequest:
-        await bot.send_message(
-            chat_id=SUPPORT_CHAT_ID,
-            text=f"{support_ticket_tag(int(ticket_id))} ❗️Не можу доставити повідомлення користувачу (<code>{user_id}</code>).",
-            reply_to_message_id=int(ticket.get("admin_card_message_id") or reply_mid),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-        return
-
-    # Link admin message too (so other admins can reply-to it)
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=message.message_id, ticket_id=int(ticket_id), kind="admin_reply")
-
-
-@router.callback_query(F.data.startswith("support:ok:"))
-async def support_action_ok(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    if cb.from_user.id not in admin_ids or cb.message.chat.id != SUPPORT_CHAT_ID:
-        await cb.answer("Немає доступу")
-        return
-
-    try:
-        ticket_id = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ticket = await store.get_support_ticket(ticket_id)
-    if not ticket:
-        await cb.answer("Ticket не знайдено")
-        return
-
-    user_id = int(ticket["user_id"])
-    user = await store.get_user(user_id) or {}
-
-    # extend from max(now, existing sub_end)
-    base = now()
-    cur_end = user.get("sub_end")
-    if cur_end and isinstance(cur_end, datetime) and cur_end > base:
-        base = cur_end
-    new_end = base + timedelta(days=SUPPORT_SUB_DAYS)
-
-    await store.set_subscription(user_id, new_end, infinite=False)
-
-    try:
-        await bot.send_message(chat_id=user_id, text=f"✅ Підписку активовано до {new_end.strftime('%d.%m.%Y %H:%M')}.")
-    except Exception:
-        pass
-
-    reply_to = int(ticket.get("admin_card_message_id") or cb.message.message_id)
-    log = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=f"{support_ticket_tag(ticket_id)} ✅ Підписку продовжено для <code>{user_id}</code> до {new_end.strftime('%d.%m.%Y %H:%M')}.",
-        reply_to_message_id=reply_to,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=log.message_id, ticket_id=ticket_id, kind="bot_log")
-
-    await cb.answer("Ок")
-
-
-@router.callback_query(F.data.startswith("support:rej:"))
-async def support_action_rej(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    if cb.from_user.id not in admin_ids or cb.message.chat.id != SUPPORT_CHAT_ID:
-        await cb.answer("Немає доступу")
-        return
-
-    try:
-        ticket_id = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ticket = await store.get_support_ticket(ticket_id)
-    if not ticket:
-        await cb.answer("Ticket не знайдено")
-        return
-
-    user_id = int(ticket["user_id"])
-    try:
-        await bot.send_message(chat_id=user_id, text="❌ Чек відхилено. Будь ласка, надішліть чек ще раз або уточніть деталі оплати.")
-    except Exception:
-        pass
-
-    reply_to = int(ticket.get("admin_card_message_id") or cb.message.message_id)
-    log = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=f"{support_ticket_tag(ticket_id)} ❌ Чек відхилено для <code>{user_id}</code>.",
-        reply_to_message_id=reply_to,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=log.message_id, ticket_id=ticket_id, kind="bot_log")
-    await cb.answer("Ок")
-
-
-@router.callback_query(F.data.startswith("support:ask:"))
-async def support_action_ask(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    if cb.from_user.id not in admin_ids or cb.message.chat.id != SUPPORT_CHAT_ID:
-        await cb.answer("Немає доступу")
-        return
-
-    try:
-        ticket_id = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ticket = await store.get_support_ticket(ticket_id)
-    if not ticket:
-        await cb.answer("Ticket не знайдено")
-        return
-
-    user_id = int(ticket["user_id"])
-    try:
-        await bot.send_message(chat_id=user_id, text="✍️ Потрібно уточнення. Напишіть, будь ласка, деталі (сума/дата/банк або що саме ви хотіли зробити).")
-    except Exception:
-        pass
-
-    reply_to = int(ticket.get("admin_card_message_id") or cb.message.message_id)
-    log = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=f"{support_ticket_tag(ticket_id)} ✍️ Запит на уточнення надіслано юзеру <code>{user_id}</code>.",
-        reply_to_message_id=reply_to,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=log.message_id, ticket_id=ticket_id, kind="bot_log")
-    await cb.answer("Ок")
-
-
-@router.callback_query(F.data.startswith("support:close:"))
-async def support_action_close(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
-    if cb.from_user.id not in admin_ids or cb.message.chat.id != SUPPORT_CHAT_ID:
-        await cb.answer("Немає доступу")
-        return
-
-    try:
-        ticket_id = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ticket = await store.get_support_ticket(ticket_id)
-    if not ticket:
-        await cb.answer("Ticket не знайдено")
-        return
-
-    user_id = int(ticket["user_id"])
-
-    # Turn off support mode for user (so they won't write to support after a week)
-    ui = await store.get_ui(user_id)
-    st = ui.get("state", {}) or {}
-    sup = st.get("support") or {}
-    if int(sup.get("ticket_id") or 0) == int(ticket_id):
-        sup["mode"] = 0
-        st["support"] = sup
-        await store.set_state(user_id, st)
-
-    await store.close_support_ticket(ticket_id)
-
-    try:
-        await bot.send_message(chat_id=user_id, text="🔒 Діалог з підтримкою закрито.")
-    except Exception:
-        pass
-
-    reply_to = int(ticket.get("admin_card_message_id") or cb.message.message_id)
-    log = await bot.send_message(
-        chat_id=SUPPORT_CHAT_ID,
-        text=f"{support_ticket_tag(ticket_id)} 🔒 Діалог закрито (юзер <code>{user_id}</code>).",
-        reply_to_message_id=reply_to,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.link_support_message(admin_chat_id=SUPPORT_CHAT_ID, admin_message_id=log.message_id, ticket_id=ticket_id, kind="bot_log")
-
-    # try remove buttons
-    try:
-        await cb.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-
-    await cb.answer("Закрито")
 
 
 @router.callback_query(F.data == "nav:learn")
@@ -3311,7 +2256,7 @@ async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
     ok_access, _ = access_status(user)
     if not ok_access:
         admin_url = get_admin_contact_url(admin_ids)
-        text, kb = screen_no_access(user, admin_url, support_enabled=support_is_enabled())
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
@@ -3956,7 +2901,7 @@ async def learn_start(
         # доступ закінчився — зупиняємо будь-яку сесію і показуємо екран без доступу
         await store.set_state(uid, {})
         admin_url = get_admin_contact_url(admin_ids)
-        text, kb = screen_no_access(user, admin_url, support_enabled=support_is_enabled())
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer("Доступ завершився. Потрібна підписка.", show_alert=True)
         return
@@ -4099,7 +3044,7 @@ async def guard_access_in_session(
     # доступ закінчився — зупиняємо сесію і показуємо екран без доступу
     await store.set_state(uid, {})
     admin_url = get_admin_contact_url(admin_ids)
-    text, kb = screen_no_access(user, admin_url, support_enabled=support_is_enabled())
+    text, kb = screen_no_access(user, admin_url)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
 
     await cb.answer("Доступ завершився. Потрібна підписка.", show_alert=True)
@@ -4248,7 +3193,7 @@ async def learn_mistakes(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     ok_access, _ = access_status(user)
     if not ok_access:
         admin_url = get_admin_contact_url(admin_ids)
-        text, kb = screen_no_access(user, admin_url, support_enabled=support_is_enabled())
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
@@ -4288,7 +3233,7 @@ async def nav_test(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank
     ok_access, _ = access_status(user)
     if not ok_access:
         admin_url = get_admin_contact_url(admin_ids)
-        text, kb = screen_no_access(user, admin_url, support_enabled=support_is_enabled())
+        text, kb = screen_no_access(user, admin_url)
         await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
         await cb.answer()
         return
@@ -5667,12 +4612,13 @@ async def main():
     if not token:
         raise RuntimeError("Set BOT_TOKEN env var")
 
-    # Admins (can be comma/space/semicolon separated or JSON list).
-    # Railway tip: paste like "123,456" or "[123,456]".
-    admin_ids: set[int] = set()
-    admin_ids |= parse_int_set(os.getenv("ADMIN_IDS", ""))
-    admin_ids |= parse_int_set(os.getenv("ADMIN_ID", ""))
-    admin_ids |= parse_int_set(os.getenv("OWNER_ID", ""))
+    admin_ids_env = os.getenv("ADMIN_IDS", "").strip()
+    admin_ids = set()
+    if admin_ids_env:
+        for x in admin_ids_env.split(","):
+            x = x.strip()
+            if x.isdigit():
+                admin_ids.add(int(x))
 
     dsn = (
         os.getenv("DATABASE_URL")
@@ -5713,20 +4659,6 @@ async def main():
         raise RuntimeError("No questions loaded from DB. Fill table 'questions' first.")
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-
-    # If support is enabled but ADMIN_IDS is empty, try to auto-detect group admins.
-    # This removes a common setup pain on Railway.
-    if support_is_enabled() and not admin_ids:
-        try:
-            admins = await bot.get_chat_administrators(SUPPORT_CHAT_ID)
-            for a in admins:
-                u = getattr(a, "user", None)
-                if u and getattr(u, "id", None):
-                    admin_ids.add(int(u.id))
-            if admin_ids:
-                print(f"[bootstrap] ADMIN_IDS auto-detected: {sorted(admin_ids)}")
-        except Exception as e:
-            print(f"[bootstrap] Cannot auto-detect admins for SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}: {e}")
     dp = Dispatcher()
     dp["store"] = store
     dp["qb"] = qb
