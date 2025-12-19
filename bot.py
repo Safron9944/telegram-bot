@@ -4017,9 +4017,80 @@ def screen_admin_qedit(q: Q, note: str = "") -> Tuple[str, InlineKeyboardMarkup]
     kb = kb_inline(
         [
             ("✏️ Змінити текст", "admin:qedit_set:question"),
-            ("🧩 Змінити варіанти", "admin:qedit_set:choices"),
+            ("🧩 Редагувати варіанти", "admin:qedit_choices"),
             ("✅ Змінити правильні", "admin:qedit_set:correct"),
             ("⬅️ Назад", "admin:qedit_back"),
+        ],
+        row=1,
+    )
+    return text, kb
+
+
+def screen_admin_qedit_choices(q: Q, note: str = "", error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    """Меню редагування варіантів: вибір конкретного варіанту."""
+    corr_set = set(int(x) for x in (q.correct or []))
+
+    head = "🧩 <b>Редагування варіантів</b>"
+    if note:
+        head += f"\n{note}"
+
+    lines: list[str] = []
+    for i, c in enumerate(q.choices or [], start=1):
+        mark = "✅" if i in corr_set else "▫️"
+        lines.append(f"{mark} <b>{i}.</b> {hescape(c)}")
+
+    choices_text = "\n".join(lines) if lines else "—"
+
+    text = (
+        f"{head}\n"
+        f"ID: <code>{int(q.id)}</code>\n\n"
+        f"Натисни номер варіанту, який треба відредагувати.\n\n"
+        f"<b>Питання:</b>\n{hescape(q.question)}\n\n"
+        f"<b>Варіанти:</b>\n{choices_text}"
+    )
+    if error:
+        text += f"\n\n❗️ {hescape(error)}"
+
+    b = InlineKeyboardBuilder()
+    n = len(q.choices or [])
+
+    for i in range(n):
+        b.button(text=str(i + 1), callback_data=clamp_callback(f"admin:qedit_choice:{i + 1}"))
+
+    controls: list[tuple[str, str]] = [
+        ("✅ Змінити правильні", "admin:qedit_set:correct"),
+        ("⬅️ Назад", "admin:qedit_cancel"),
+    ]
+    for t, cb in controls:
+        b.button(text=t, callback_data=cb)
+
+    full_rows, remainder = divmod(n, 4)
+    adjust_list = [4] * full_rows
+    if remainder:
+        adjust_list.append(remainder)
+    adjust_list.append(len(controls))
+    b.adjust(*adjust_list)
+    return text, b.as_markup()
+
+
+def screen_admin_qedit_choice_prompt(q: Q, idx: int, error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    idx = int(idx)
+    current = "—"
+    if 1 <= idx <= len(q.choices or []):
+        current = hescape((q.choices or [])[idx - 1])
+
+    text = (
+        f"✏️ <b>Редагування варіанту</b> (ID <code>{int(q.id)}</code>)\n\n"
+        f"Надішли новий текст для варіанту <b>{idx}</b> одним повідомленням.\n\n"
+        f"<b>Поточне:</b>\n{current}"
+    )
+    if error:
+        text += f"\n\n❗️ {hescape(error)}"
+
+    kb = kb_inline(
+        [
+            ("⬅️ До варіантів", "admin:qedit_choices"),
+            ("⬅️ До питання", "admin:qedit_cancel"),
         ],
         row=1,
     )
@@ -4196,6 +4267,18 @@ async def admin_qedit_set_field(cb: CallbackQuery, bot: Bot, store: "Storage", q
         await cb.answer("Питання не знайдено")
         return
 
+    # ✅ Новий підхід: варіанти редагуємо по одному (окремим меню), а не списком.
+    # Підтримуємо стару кнопку (admin:qedit_set:choices), але перенаправляємо в меню.
+    if field == "choices":
+        qedit["await"] = None
+        st[ADMIN_QEDIT] = qedit
+        await store.set_state(uid, st)
+
+        text, kb = screen_admin_qedit_choices(q)
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
     qedit["await"] = field
     st[ADMIN_QEDIT] = qedit
     await store.set_state(uid, st)
@@ -4205,6 +4288,68 @@ async def admin_qedit_set_field(cb: CallbackQuery, bot: Bot, store: "Storage", q
     await cb.answer()
 
 
+@router.callback_query(F.data == "admin:qedit_choices")
+async def admin_qedit_choices_menu(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    qedit = st.get(ADMIN_QEDIT) or {}
+    qid = qedit.get("qid")
+
+    q = qb.by_id.get(int(qid)) if qid is not None else None
+    if not q:
+        await cb.answer("Питання не знайдено")
+        return
+
+    qedit["await"] = None
+    st[ADMIN_QEDIT] = qedit
+    await store.set_state(uid, st)
+
+    text, kb = screen_admin_qedit_choices(q)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("admin:qedit_choice:"))
+async def admin_qedit_choice_pick(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
+    uid = cb.from_user.id
+    if uid not in admin_ids:
+        await cb.answer("Немає доступу")
+        return
+
+    try:
+        idx = int(cb.data.split(":")[2])
+    except Exception:
+        await cb.answer("Помилка")
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    qedit = st.get(ADMIN_QEDIT) or {}
+    qid = qedit.get("qid")
+
+    q = qb.by_id.get(int(qid)) if qid is not None else None
+    if not q:
+        await cb.answer("Питання не знайдено")
+        return
+
+    if not (1 <= idx <= len(q.choices or [])):
+        text, kb = screen_admin_qedit_choices(q, error="Невірний номер варіанту.")
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
+    qedit["await"] = f"choice:{idx}"
+    st[ADMIN_QEDIT] = qedit
+    await store.set_state(uid, st)
+
+    text, kb = screen_admin_qedit_choice_prompt(q, idx)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
 @router.callback_query(F.data == "admin:qedit_cancel")
 async def admin_qedit_cancel(cb: CallbackQuery, bot: Bot, store: "Storage", qb: QuestionBank, admin_ids: set[int]):
     uid = cb.from_user.id
@@ -4418,7 +4563,7 @@ async def admin_users_search_input(
     field = (qedit.get("await") or "").strip().lower()
     qid = qedit.get("qid")
 
-    if field in ("question", "choices", "correct") and qid:
+    if qid and field and (field in ("question", "correct") or field == "choices" or field.startswith("choice:")):
         q = qb.by_id.get(int(qid))
         if not q:
             raise SkipHandler()
@@ -4427,6 +4572,17 @@ async def admin_users_search_input(
             await message.delete()
         except Exception:
             pass
+
+        # Legacy: якщо десь залишилось очікування "choices" — просто показуємо меню
+        # редагування варіантів (по одному), без режиму заміни всього списку.
+        if field == "choices":
+            qedit["await"] = None
+            st[ADMIN_QEDIT] = qedit
+            await store.set_state(uid, st)
+
+            text, kb = screen_admin_qedit_choices(q, note="Оберіть варіант для редагування")
+            await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
+            return
 
         if field == "question":
             new_text = (message.text or "").strip()
@@ -4448,30 +4604,34 @@ async def admin_users_search_input(
             await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
             return
 
-        if field == "choices":
-            choices, correct_maybe = _parse_choices_and_optional_correct(message.text or "")
-            if len(choices) < 2:
-                text, kb = screen_admin_qedit_prompt(q, field, error="Потрібно мінімум 2 варіанти.")
+        if field.startswith("choice:"):
+            try:
+                idx = int(field.split(":", 1)[1])
+            except Exception:
+                idx = 0
+
+            if not (1 <= idx <= len(q.choices or [])):
+                qedit["await"] = None
+                st[ADMIN_QEDIT] = qedit
+                await store.set_state(uid, st)
+
+                text, kb = screen_admin_qedit_choices(q, error="Невірний номер варіанту.")
                 await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
                 return
 
-            if correct_maybe is None:
-                filtered = [int(x) for x in (q.correct or []) if 1 <= int(x) <= len(choices)]
-                if not filtered:
-                    text, kb = screen_admin_qedit_prompt(
-                        q, field,
-                        error="Після зміни варіантів треба вказати правильні. Додай рядок: correct: 2 або 1,3",
-                    )
-                    await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
-                    return
-                correct_to_set = filtered
-            else:
-                correct_to_set = correct_maybe
+            new_text = (message.text or "").strip()
+            if not new_text:
+                text, kb = screen_admin_qedit_choice_prompt(q, idx, error="Текст не може бути порожнім.")
+                await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
+                return
+
+            new_choices = list(q.choices or [])
+            new_choices[idx - 1] = new_text
 
             after = await store.update_question_content(
                 int(qid),
-                choices=choices,
-                correct=correct_to_set,
+                choices=new_choices,
+                correct=list(q.correct or []),
                 changed_by=f"admin:{uid}",
             )
             if after:
@@ -4483,7 +4643,7 @@ async def admin_users_search_input(
             st[ADMIN_QEDIT] = qedit
             await store.set_state(uid, st)
 
-            text, kb = screen_admin_qedit(q, note="✅ Збережено")
+            text, kb = screen_admin_qedit_choices(q, note="✅ Збережено")
             await render_admin_qedit(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb)
             return
 
