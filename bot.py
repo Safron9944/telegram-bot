@@ -25,9 +25,6 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
-    KeyboardButton,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -57,10 +54,6 @@ GROUP_URL = normalize_tme_url(os.getenv("GROUP_URL", "t.me/mytnytsia_test"))
 # --- keys у state ---
 ADMIN_PANEL_MSG_ID = "admin_panel_msg_id"
 ADMIN_PANEL_CHAT_ID = "admin_panel_chat_id"
-
-ADMIN_USERS_QUERY = "admin_users_query"
-ADMIN_USERS_AWAITING = "awaiting"
-ADMIN_USERS_BACK_OFFSET = "admin_users_back_offset"
 
 ADMIN_QWORK_AWAITING = "admin_qwork_awaiting"
 ADMIN_QWORK_PAGE = "admin_qwork_page"
@@ -163,7 +156,6 @@ class Storage:
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
-                    phone TEXT,
                     first_name TEXT,
                     last_name TEXT,
                     is_admin INT DEFAULT 0,
@@ -364,12 +356,6 @@ class Storage:
                 last_name=COALESCE(EXCLUDED.last_name, users.last_name)
         """, user_id, 1 if is_admin else 0, now(), fn, ln)
 
-    async def show_registration_gate(bot: Bot, store: Storage, uid: int, chat_id: int,
-                                     message: Optional[Message] = None):
-        text, kb = screen_need_registration()
-        await render_main(bot, store, uid, chat_id, text, kb, message=message)
-        await show_contact_request(bot, store, uid, chat_id)
-
     async def get_user(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
         if not r:
@@ -379,26 +365,49 @@ class Storage:
         d["ok_last_levels"] = json.loads(d.get("ok_last_levels_json") or "{}")
         return d
 
-    async def set_phone_and_trial(
+
+    async def start_trial_if_needed(
             self,
             user_id: int,
-            phone: str,
+            *,
+            days: int = 3,
             first_name: Optional[str] = None,
             last_name: Optional[str] = None,
     ):
+        """Start trial once for users who never had it (registration removed)."""
+        r = await self._fetchrow(
+            "SELECT trial_start, trial_end, sub_end, sub_infinite FROM users WHERE user_id=$1",
+            user_id,
+        )
+        if not r:
+            return
+    
+        # already started or had trial before
+        if r.get("trial_start") or r.get("trial_end"):
+            return
+    
+        # do not start trial for users who have/had subscription records
+        if r.get("sub_end") is not None or bool(r.get("sub_infinite")):
+            return
+    
         ts = now()
-        te = ts + timedelta(days=3)
+        te = ts + timedelta(days=int(days))
+    
         fn = (first_name or "").strip() or None
         ln = (last_name or "").strip() or None
-
-        await self._exec("""
+    
+        await self._exec(
+            """
             UPDATE users
-            SET phone=$1, trial_start=$2, trial_end=$3,
-                first_name=COALESCE($4, first_name),
-                last_name=COALESCE($5, last_name)
-            WHERE user_id=$6
-        """, phone, ts, te, fn, ln, user_id)
-
+            SET trial_start=$1,
+                trial_end=$2,
+                first_name=COALESCE($3, first_name),
+                last_name=COALESCE($4, last_name)
+            WHERE user_id=$5
+            """,
+            ts, te, fn, ln, user_id
+        )
+    
     async def set_ok_modules(self, user_id: int, modules: list[str]):
         await self._exec("""
             UPDATE users SET ok_modules_json=$1 WHERE user_id=$2
@@ -477,23 +486,11 @@ class Storage:
 
     async def list_users(self, offset: int, limit: int) -> list[dict]:
         rows = await self._fetch("""
-            SELECT user_id, phone, first_name, last_name, trial_end, sub_end, sub_infinite, created_at
+            SELECT user_id, first_name, last_name, trial_end, sub_end, sub_infinite, created_at
             FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
         """, limit, offset)
         return [dict(r) for r in rows]
 
-    async def search_users_by_phone(self, phone_digits: str, offset: int, limit: int) -> list[dict]:
-        q = "".join(ch for ch in (phone_digits or "").strip() if ch.isdigit())
-        if not q:
-            return []
-        rows = await self._fetch("""
-            SELECT user_id, phone, first_name, last_name, trial_end, sub_end, sub_infinite, created_at
-            FROM users
-            WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%' || $1 || '%'
-            ORDER BY created_at DESC
-            LIMIT $2 OFFSET $3
-        """, q, limit, offset)
-        return [dict(r) for r in rows]
     # -------------------- Questions (DB) --------------------
 
     async def questions_count(self) -> int:
@@ -1502,8 +1499,7 @@ class QuestionBank:
 # -------------------- Access --------------------
 
 def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
-    # registered?
-    if not user or not user.get("phone"):
+    if not user:
         return False, "not_registered"
 
     t_end: Optional[datetime] = user.get("trial_end")
@@ -1560,8 +1556,6 @@ def kb_inline(
 
 def fmt_access_line(user: Dict[str, Any]) -> str:
     ok, st = access_status(user)
-    if not user.get("phone"):
-        return "Статус: ❌ не зареєстровано"
     if ok and st == "trial":
         te = user.get("trial_end")
         return f"Статус: 🟡 тріал до {te.strftime('%d.%m.%Y %H:%M')}"
@@ -1646,19 +1640,6 @@ async def render_main(
 
 # -------------------- Screens --------------------
 
-def screen_need_registration() -> Tuple[str, InlineKeyboardMarkup]:
-    text = (
-        "Щоб користуватись ботом, потрібна реєстрація.\n\n"
-        "Натисни кнопку внизу 👇"
-    )
-    # Кнопка «Поділитися номером» показується як ReplyKeyboard (request_contact),
-    # тому тут залишаємо лише допоміжні кнопки.
-    kb = kb_inline([
-        ("❓ Допомога", "nav:help"),
-    ], row=1)
-    return text, kb
-
-
 def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineKeyboardMarkup]:
     FILL = "\u2800" * 30
 
@@ -1683,15 +1664,14 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def screen_help(admin_url: str, registered: bool) -> Tuple[str, InlineKeyboardMarkup]:
+
+def screen_help(admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
     text = (
         "❓ <b>Допомога</b>\n\n"
         "Тут ви можете:\n"
         "▪ приєднатися до Telegram-групи\n"
         "▪ звернутися до адміністратора\n"
     )
-    if not registered:
-        text += "▪ зареєструватися (поділитися номером)\n"
 
     b = InlineKeyboardBuilder()
     if GROUP_URL:
@@ -1699,11 +1679,7 @@ def screen_help(admin_url: str, registered: bool) -> Tuple[str, InlineKeyboardMa
     if admin_url:
         b.button(text="📩 Написати адміну", url=admin_url)
 
-    if registered:
-        b.button(text="⬅️ Меню", callback_data="nav:menu")
-    else:
-        b.button(text="⬅️ Реєстрація", callback_data="nav:reg")
-
+    b.button(text="⬅️ Меню", callback_data="nav:menu")
     b.adjust(1)
     return text, b.as_markup()
 
@@ -2222,6 +2198,7 @@ def kb_leave_confirm() -> InlineKeyboardMarkup:
 
 router = Router()
 
+
 @router.message(F.text == "/start")
 async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     uid = message.from_user.id
@@ -2231,6 +2208,13 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
         first_name=message.from_user.first_name,
         last_name=message.from_user.last_name
     )
+    # ✅ Авто-старт тріалу для нових користувачів (без реєстрації)
+    await store.start_trial_if_needed(
+        uid,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+    )
+
     user = await store.get_user(uid)
     chat_id = message.chat.id
 
@@ -2240,25 +2224,6 @@ async def cmd_start(message: Message, bot: Bot, store: Storage, qb: QuestionBank
     except Exception:
         pass
 
-    ui = await store.get_ui(uid)
-
-    st = ui.get("state", {}) or {}
-
-    # якщо вже є телефон — прибираємо можливе “тимчасове” повідомлення з reply-клавіатурою
-    if user.get("phone") and st.get("reg_tmp_msg_id"):
-        try:
-            await bot.delete_message(chat_id, st["reg_tmp_msg_id"])
-        except Exception:
-            pass
-        st.pop("reg_tmp_msg_id", None)
-        await store.set_state(uid, st)
-
-    if not user.get("phone"):
-        text, kb = screen_need_registration()
-        await render_main(bot, store, uid, chat_id, text, kb)
-        await show_contact_request(bot, store, uid, chat_id)
-        return
-
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, chat_id, text, kb)
 
@@ -2267,41 +2232,20 @@ async def nav_menu(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
     uid = cb.from_user.id
     user = await store.get_user(uid)
 
-    # 🔒 якщо не зареєстрований — показуємо тільки реєстрацію
-    if not user.get("phone"):
-        await store.set_state(uid, {})
-        await Storage.show_registration_gate(bot, store, uid, cb.message.chat.id, message=cb.message)
-        await cb.answer()
-        return
-
     text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await store.set_state(uid, {})
     await cb.answer()
-
-
-@router.callback_query(F.data == "nav:help")
+@router.callback_query(F.data == "nav:help")@router.callback_query(F.data == "nav:help")
 async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
     uid = cb.from_user.id
     user = await store.get_user(uid)
 
     admin_url = get_admin_contact_url(admin_ids)
-    text, kb = screen_help(admin_url, registered=bool(user.get("phone")))
+    text, kb = screen_help(admin_url)
 
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
-
-@router.callback_query(F.data == "nav:reg")
-async def nav_reg(cb: CallbackQuery, bot: Bot, store: Storage):
-    uid = cb.from_user.id
-    chat_id = cb.message.chat.id
-
-    text, kb = screen_need_registration()
-    await render_main(bot, store, uid, chat_id, text, kb, message=cb.message)
-    await show_contact_request(bot, store, uid, chat_id)
-
-    await cb.answer()
-
 
 @router.callback_query(F.data == "nav:learn")
 async def nav_learn(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
@@ -2468,153 +2412,6 @@ async def testlaw_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     text, kb = screen_test_config(mod_list, qb, temp_levels, include_law=include_law)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
-
-
-async def show_contact_request(bot: Bot, store: Storage, uid: int, chat_id: int):
-    """Shows ReplyKeyboard with request_contact button (temporary message)."""
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-
-    # delete previous temp message (if any) to avoid duplicates
-    tmp_id = st.get("reg_tmp_msg_id")
-    if tmp_id:
-        try:
-            await bot.delete_message(chat_id, tmp_id)
-        except Exception:
-            pass
-
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 Поділитися номером", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
-    )
-
-    msg = (
-        "🛡️ Безпечна реєстрація\n\n"
-        "Зараз Telegram покаже стандартне вікно підтвердження «Поділитися номером» — це нормально.\n\n"
-        "✅ Важливо:\n"
-        "• Ми НІКОЛИ не просимо SMS-коди, пароль чи код входу в Telegram\n"
-        "• Нічого вводити не потрібно — лише натисни «Поділитися»\n\n"
-        "⚠️ Якщо хтось/щось раптом просить ввести код Telegram — одразу закрий. Наш бот кодів не запитує ніколи.\n\n"
-        "📱 Номер використовується тільки для прив’язки акаунта і захисту від фейкових реєстрацій.\n"
-        "🔒 Не телефонуємо, не спамимо і не передаємо номер третім особам."
-    )
-
-    tmp = await bot.send_message(chat_id, msg, reply_markup=kb)
-
-    # remember temp message id so we can delete it after registration
-    st["reg_tmp_msg_id"] = tmp.message_id
-    st["reg_awaiting"] = True
-    await store.set_state(uid, st)
-
-
-# -------- Registration (contact) --------
-
-@router.callback_query(F.data == "reg:request")
-async def reg_request(cb: CallbackQuery, bot: Bot, store: Storage):
-    await cb.answer()  # <-- одразу, щоб не було таймауту
-
-    uid = cb.from_user.id
-    chat_id = cb.message.chat.id
-
-    # main message stays the same, but we must show a ReplyKeyboard (contact) -> temporary message
-    await render_main(
-        bot, store, uid, chat_id,
-        "📱 <b>Реєстрація</b>\n\nНатисни кнопку внизу, щоб поділитися номером.",
-        kb_inline([("⬅️ Назад", "nav:menu")], row=1),
-        message=cb.message
-    )
-
-    await show_contact_request(bot, store, uid, chat_id)
-
-@router.message(F.contact)
-async def on_contact(message: Message, bot: Bot, store: Storage, admin_ids: set[int]):
-    uid = message.from_user.id
-    chat_id = message.chat.id
-
-    await store.ensure_user(
-        uid,
-        is_admin=(uid in admin_ids),
-        first_name=message.from_user.first_name,
-        last_name=message.from_user.last_name,
-    )
-
-    c = message.contact
-    if not c or not c.phone_number:
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
-        await bot.send_message(chat_id, "Не бачу номер. Спробуй ще раз.")
-        await show_contact_request(bot, store, uid, chat_id)
-        return
-
-    # якщо Telegram передав contact.user_id і це не користувач — відхиляємо
-    if c.user_id is not None and c.user_id != uid:
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
-        await bot.send_message(chat_id, "Поділись, будь ласка, СВОЇМ номером через кнопку знизу.")
-        await show_contact_request(bot, store, uid, chat_id)
-        return
-
-    phone = c.phone_number
-    first_name = (c.first_name or message.from_user.first_name or "").strip() or None
-    last_name = (c.last_name or message.from_user.last_name or "").strip() or None
-
-    await store.set_phone_and_trial(uid, phone, first_name=first_name, last_name=last_name)
-
-    # прибираємо повідомлення користувача з контактом (там видно номер)
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    # прибираємо тимчасове повідомлення з кнопкою "Поділитися номером"
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    tmp_id = st.pop("reg_tmp_msg_id", None)
-    st.pop("reg_awaiting", None)
-    old_main_id = ui.get("main_message_id")
-
-    if tmp_id:
-        try:
-            await bot.delete_message(chat_id, tmp_id)
-        except Exception:
-            pass
-
-    await store.set_state(uid, st)
-
-    # прибираємо ReplyKeyboard (кнопку знизу)
-    cleanup = await bot.send_message(chat_id, "✅", reply_markup=ReplyKeyboardRemove())
-    try:
-        await bot.delete_message(chat_id, cleanup.message_id)
-    except Exception:
-        pass
-
-    # (опційно) видаляємо старе "головне" повідомлення (екран реєстрації), щоб не лишалось вище
-    if old_main_id:
-        try:
-            await bot.delete_message(chat_id, old_main_id)
-        except Exception:
-            pass
-
-    # показуємо меню НОВИМ повідомленням внизу (щоб його точно було видно)
-    user = await store.get_user(uid)
-    text, kb = screen_main_menu(user, is_admin=(uid in admin_ids))
-
-    sent = await bot.send_message(
-        chat_id,
-        text,
-        reply_markup=kb,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-    await store.set_ui(uid, chat_id, sent.message_id)
-
 
 
 # -------- Learning / Testing sessions --------
@@ -3625,12 +3422,9 @@ async def nav_stats(cb: CallbackQuery, bot: Bot, store: Storage):
 
 # -------- Admin: users --------
 
-def _admin_user_icon(u: Dict[str, Any]) -> str:
-    # 🟢 активна підписка | 🟡 тріал | 🔴 без доступу | ⚪️ без номера
-    phone = u.get("phone")
-    if not phone:
-        return "⚪️"
 
+def _admin_user_icon(u: Dict[str, Any]) -> str:
+    # 🟢 активна підписка | 🟡 тріал | 🔴 без доступу
     t_end = u.get("trial_end")
     s_end = u.get("sub_end")
     inf = bool(u.get("sub_infinite"))
@@ -3644,13 +3438,13 @@ def _admin_user_icon(u: Dict[str, Any]) -> str:
     return "🔴"
 
 
-
 def fmt_user_row(u: Dict[str, Any]) -> str:
-    phone = u.get("phone") or "без номера"
+    uid = u.get("user_id")
     fn = (u.get("first_name") or "").strip()
     ln = (u.get("last_name") or "").strip()
     full = " ".join([x for x in [fn, ln] if x]).strip() or "—"
-    return f"{_admin_user_icon(u)} {phone} | {full}"
+    return f"{_admin_user_icon(u)} {uid} | {full}"
+
 
 def _is_not_modified_error(e: TelegramBadRequest) -> bool:
     return "message is not modified" in (str(e) or "").lower()
@@ -3751,6 +3545,7 @@ async def render_admin_qedit(
     await render_main(bot, store, uid, chat_id, text, keyboard, message=None)
 
 # --- renders ---
+
 async def render_admin_users_list(
     bot: Bot,
     store: "Storage",
@@ -3759,60 +3554,32 @@ async def render_admin_users_list(
     offset: int,
     message: Optional[Message] = None,
 ):
-    ui = await store.get_ui(admin_uid)
-    st = ui.get("state", {}) or {}
-    query_digits = (st.get(ADMIN_USERS_QUERY) or "").strip()
-
     limit = 10
 
     # беремо limit+1 щоб визначити чи є "next"
-    if query_digits:
-        items = await store.search_users_by_phone(query_digits, offset, limit + 1)
-        search_line = f"\n🔎 Пошук: <code>{hescape(query_digits)}</code>\n"
-    else:
-        items = await store.list_users(offset, limit + 1)
-        search_line = ""
+    items = await store.list_users(offset, limit + 1)
 
     has_next = len(items) > limit
     users = items[:limit]
 
-    c_green = c_yellow = c_red = c_white = 0
+    c_green = c_yellow = c_red = 0
     for u in users:
         ic = _admin_user_icon(u)
         if ic == "🟢":
             c_green += 1
         elif ic == "🟡":
             c_yellow += 1
-        elif ic == "🔴":
-            c_red += 1
         else:
-            c_white += 1
+            c_red += 1
 
     text = (
         "🛠 <b>Користувачі</b>\n"
-        "🟢 підписка | 🟡 тріал | 🔴 без доступу | ⚪️ без номера\n"
-        f"У цьому списку: 🟢{c_green} 🟡{c_yellow} 🔴{c_red} ⚪️{c_white}"
-        f"{search_line}\n"
+        "🟢 підписка | 🟡 тріал | 🔴 без доступу\n"
+        f"У цьому списку: 🟢{c_green} 🟡{c_yellow} 🔴{c_red}\n\n"
         "Оберіть користувача:"
     )
 
     rows: list[list[InlineKeyboardButton]] = []
-
-    # пошук
-    top = [
-        InlineKeyboardButton(
-            text="🔎 Пошук по номеру",
-            callback_data=clamp_callback(f"admin:users_search:{offset}"),
-        )
-    ]
-    if query_digits:
-        top.append(
-            InlineKeyboardButton(
-                text="❌ Очистити",
-                callback_data=clamp_callback(f"admin:users_clear:{offset}"),
-            )
-        )
-    rows.append(top)
 
     # користувачі
     if users:
@@ -3854,30 +3621,6 @@ async def render_admin_users_list(
     await render_admin_view(bot, store, admin_uid, chat_id, text, kb, message=message)
 
 
-async def render_admin_users_search_prompt(
-    bot: Bot,
-    store: "Storage",
-    uid: int,
-    chat_id: int,
-    back_offset: int,
-    message: Optional[Message] = None,
-    error: Optional[str] = None,
-):
-    err = f"\n\n⚠️ {hescape(error)}" if error else ""
-    text = (
-        "🔎 <b>Пошук по номеру</b>\n\n"
-        "Надішли номер (можна частину).\n"
-        "Я шукаю по цифрах, наприклад: <code>38067</code> або <code>067</code>."
-        f"{err}"
-    )
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"admin:users:{back_offset}"))]
-        ]
-    )
-    await render_admin_view(bot, store, uid, chat_id, text, kb, message=message)
-
-
 async def render_admin_user_detail(
     bot: Bot,
     store: "Storage",
@@ -3889,14 +3632,12 @@ async def render_admin_user_detail(
 ):
     user = await store.get_user(target_id)
 
-    phone_html = hescape(user.get("phone") or "—")
     first_html = hescape(user.get("first_name") or "—")
     last_html = hescape(user.get("last_name") or "—")
 
     text = (
         "👤 <b>Користувач</b>\n\n"
         f"ID: <b>{target_id}</b>\n"
-        f"Телефон: <b>{phone_html}</b>\n"
         f"Ім'я: <b>{first_html}</b>\n"
         f"Прізвище: <b>{last_html}</b>\n"
         f"{fmt_access_line(user)}"
@@ -4656,54 +4397,6 @@ async def admin_users(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: 
     await cb.answer()
 
 
-@router.callback_query(F.data.startswith("admin:users_search:"))
-async def admin_users_search_prompt(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
-    uid = cb.from_user.id
-    if uid not in admin_ids:
-        await cb.answer("Немає доступу")
-        return
-
-    try:
-        back_offset = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    st[ADMIN_USERS_AWAITING] = "admin_users_phone"
-    st[ADMIN_USERS_BACK_OFFSET] = back_offset
-    await store.set_state(uid, st)
-
-    await render_admin_users_search_prompt(bot, store, uid, cb.message.chat.id, back_offset, message=cb.message)
-    await cb.answer()
-
-
-@router.callback_query(F.data.startswith("admin:users_clear:"))
-async def admin_users_clear(cb: CallbackQuery, bot: Bot, store: "Storage", admin_ids: set[int]):
-    uid = cb.from_user.id
-    if uid not in admin_ids:
-        await cb.answer("Немає доступу")
-        return
-
-    try:
-        back_offset = int(cb.data.split(":")[2])
-    except Exception:
-        await cb.answer("Помилка")
-        return
-
-    ui = await store.get_ui(uid)
-    st = ui.get("state", {}) or {}
-    st.pop(ADMIN_USERS_QUERY, None)
-    st.pop(ADMIN_USERS_AWAITING, None)
-    st.pop(ADMIN_USERS_BACK_OFFSET, None)
-    await store.set_state(uid, st)
-
-    await render_admin_users_list(bot, store, uid, cb.message.chat.id, back_offset, message=cb.message)
-    await cb.answer("Очищено")
-
-
-
 @router.message(F.text)
 async def admin_users_search_input(
     message: Message,
@@ -4718,41 +4411,6 @@ async def admin_users_search_input(
 
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
-
-    # 1) Адмін: пошук користувачів по телефону (існуючий функціонал)
-    if st.get(ADMIN_USERS_AWAITING) == "admin_users_phone":
-        raw = (message.text or "").strip()
-        digits = "".join(ch for ch in raw if ch.isdigit())
-
-        # чистимо чат — якщо можемо
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
-        if len(digits) < 5:
-            st[ADMIN_USERS_AWAITING] = "admin_users_phone"
-            await store.set_state(uid, st)
-            await render_admin_users_search_prompt(
-                bot, store, uid,
-                st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
-                error="Введіть хоча б 5 цифр номера.",
-                message=None,
-            )
-            return
-
-        st[ADMIN_USERS_QUERY] = digits
-        st.pop(ADMIN_USERS_AWAITING, None)
-        st.pop(ADMIN_USERS_BACK_OFFSET, None)
-        await store.set_state(uid, st)
-
-        await render_admin_users_list(
-            bot, store, uid,
-            st.get(ADMIN_PANEL_CHAT_ID) or message.chat.id,
-            0,
-            message=None,
-        )
-        return
 
     # 2) Адмін: відкрити питання по ID (з вкладки "Робота над питаннями")
     if st.get(ADMIN_QWORK_AWAITING) == "qsearch":
