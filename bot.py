@@ -422,17 +422,38 @@ class Storage:
         """, json.dumps(mp, ensure_ascii=False), user_id)
 
     async def set_subscription(self, user_id: int, sub_end: datetime | None, infinite: bool):
-        await self._exec("""
-            UPDATE users SET sub_end=$1, sub_infinite=$2 WHERE user_id=$3
-        """, sub_end, 1 if infinite else 0, user_id)
+        """Set subscription flags.
 
-    async def get_ui(self, user_id: int) -> dict:
-        r = await self._fetchrow("SELECT * FROM ui_state WHERE user_id=$1", user_id)
-        if not r:
-            return {}
-        d = dict(r)
-        d["state"] = json.loads(d.get("state_json") or "{}")
-        return d
+        Якщо адмін/підтримка надає підписку (навіть безкінечну), то тріал більше не потрібен:
+        ми "закриваємо" тріал (ставимо trial_end у минуле), щоб після скасування підписки
+        користувач не повертався у тріал.
+        """
+        # When granting subscription — close any trial (mark as already used/expired).
+        if infinite or (sub_end is not None):
+            kill_ts = now() - timedelta(seconds=1)
+            await self._exec(
+                """
+                UPDATE users
+                SET sub_end=$1,
+                    sub_infinite=$2,
+                    trial_start=COALESCE(trial_start, $4),
+                    trial_end=CASE
+                        WHEN trial_end IS NULL THEN $4
+                        ELSE LEAST(trial_end, $4)
+                    END
+                WHERE user_id=$3
+                """,
+                sub_end, 1 if infinite else 0, user_id, kill_ts
+            )
+            return
+
+        # Cancel subscription only (do not touch trial fields here)
+        await self._exec(
+            """
+            UPDATE users SET sub_end=$1, sub_infinite=$2 WHERE user_id=$3
+            """,
+            sub_end, 0, user_id
+        )
 
     async def set_ui(self, user_id: int, chat_id: int, main_message_id: int):
         await self._exec("""
