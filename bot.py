@@ -2038,8 +2038,37 @@ def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, Inli
     return text, kb_levels
 
 
-def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[str, int],
-                       include_law: bool = True, law_count: int = 50) -> Tuple[str, InlineKeyboardMarkup]:
+def screen_test_config(
+        modules: List[str],
+        qb: QuestionBank,
+        temp_levels: Dict[str, Any],
+        include_law: bool = True,
+        law_count: int = 50
+) -> Tuple[str, InlineKeyboardMarkup]:
+    def _norm_levels(raw: Any, available: List[int]) -> List[int]:
+        # підтримка старого формату (int) і нового (list[int])
+        if isinstance(raw, int):
+            levels = [raw]
+        elif isinstance(raw, list):
+            levels = []
+            for x in raw:
+                try:
+                    levels.append(int(x))
+                except Exception:
+                    pass
+        else:
+            # наприклад None/str
+            try:
+                levels = [int(raw)]
+            except Exception:
+                levels = []
+
+        levels = [lvl for lvl in levels if lvl in available]
+        levels = sorted(set(levels))
+        if not levels and available:
+            levels = [available[0]]
+        return levels
+
     lines = [
         "📝 <b>Тестування</b>",
         "",
@@ -2047,7 +2076,7 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
         "<i>Під час тестування: при вірній відповіді система автоматично переходить до наступного питання, "
         "при невірній — відображається екран з поясненням помилки.</i>",
         "",
-        "Оберіть рівень для кожного модуля ОК (за потреби):",
+        "Оберіть <b>рівні</b> для кожного модуля ОК (можна кілька).",
         "Потім натисніть «Почати тест».",
     ]
 
@@ -2057,32 +2086,60 @@ def screen_test_config(modules: List[str], qb: QuestionBank, temp_levels: Dict[s
 
     pairs = [(i, m) for i, m in enumerate(modules) if m in qb.ok_modules]
     pairs.sort(key=lambda p: ok_sort_key(p[1]))
+
     for i, m in pairs:
         levels_map = qb.ok_modules.get(m, {})
         if not levels_map:
             continue
         available = sorted(levels_map.keys())
-        lvl = int(temp_levels.get(m, available[0]))
-        if lvl not in available:
-            lvl = available[0]
+
+        selected = _norm_levels(temp_levels.get(m), available)
+        if len(selected) == 1:
+            lvl_label = f"Рівень {selected[0]}"
+        else:
+            lvl_label = "Рівні " + ", ".join(str(x) for x in selected)
+
         code = ok_extract_code(m)
-        label = f"🧩 [{code}] • Рівень {lvl}" if code else f"🧩 {ok_full_label(m)} • Рівень {lvl}"
+        label = f"🧩 [{code}] • {lvl_label}" if code else f"🧩 {ok_full_label(m)} • {lvl_label}"
         buttons.append((label, f"testlvl:modi:{i}"))
 
     buttons += [("📖 Почати тест", "test:start"), ("⬅️ Меню", "nav:menu")]
     return "\n".join(lines), kb_inline(buttons, row=1)
 
 
-def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Optional[int]) -> Tuple[
-    str, InlineKeyboardMarkup]:
+
+def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Optional[Any]) -> Tuple[str, InlineKeyboardMarkup]:
     levels = sorted(qb.ok_modules.get(module, {}).keys())
-    text = f"🧩 <b>{ok_full_label(module)}</b>\n\nОберіть рівень для тесту:"
+
+    def _norm_current(raw: Any) -> List[int]:
+        if isinstance(raw, int):
+            out = [raw]
+        elif isinstance(raw, list):
+            out = []
+            for x in raw:
+                try:
+                    out.append(int(x))
+                except Exception:
+                    pass
+        else:
+            try:
+                out = [int(raw)]
+            except Exception:
+                out = []
+        out = [x for x in out if x in levels]
+        return sorted(set(out))
+
+    current_levels = set(_norm_current(current))
+
+    text = f"🧩 <b>{ok_full_label(module)}</b>\n\nОберіть рівні для тесту (можна кілька):"
     buttons: List[Tuple[str, str]] = []
     for lvl in levels:
-        mark = "✅ " if current == lvl else ""
-        buttons.append((f"{mark}Рівень {lvl}", f"testlvl:seti:{idx}:{lvl}"))
+        mark = "✅ " if lvl in current_levels else ""
+        buttons.append((f"{mark}Рівень {lvl}", f"testlvl:togglei:{idx}:{lvl}"))
+
     buttons.append(("⬅️ Назад", "testlvl:back"))
     return text, kb_inline(buttons, row=2)
+
 
 
 # -------------------- Session rendering --------------------
@@ -2426,6 +2483,7 @@ async def testlaw_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     text, kb = screen_test_config(mod_list, qb, temp_levels, include_law=include_law)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
+
 
 
 # -------- Learning / Testing sessions --------
@@ -3259,7 +3317,8 @@ async def nav_test(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank
     modules = user.get("ok_modules", [])
     last_levels = user.get("ok_last_levels", {}) or {}
 
-    temp_levels: Dict[str, int] = {}
+    # тепер зберігаємо список рівнів (можна кілька)
+    temp_levels: Dict[str, List[int]] = {}
     for m in modules:
         levels_map = qb.ok_modules.get(m, {})
         if not levels_map:
@@ -3268,18 +3327,19 @@ async def nav_test(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank
         lvl = int(last_levels.get(m, available[0]))
         if lvl not in available:
             lvl = available[0]
-        temp_levels[m] = lvl
+        temp_levels[m] = [lvl]
 
     ui = await store.get_ui(uid)
     st = ui.get("state", {}) or {}
-    st["test_mod_list"] = list(modules)  # щоб індекси в callback працювали
+    st["test_mod_list"] = list(modules)
     st["test_levels_temp"] = dict(temp_levels)
-    st["test_include_law"] = True  # тимчасовий вибір рівнів
+    st["test_include_law"] = True
     await store.set_state(uid, st)
 
-    text, kb = screen_test_config(modules, qb, temp_levels)
+    text, kb = screen_test_config(modules, qb, temp_levels, include_law=True)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
+
 
 
 @router.callback_query(F.data.startswith("testlvl:modi:"))
@@ -3302,9 +3362,8 @@ async def testlvl_pick_module(cb: CallbackQuery, bot: Bot, store: Storage, qb: Q
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 
-
-@router.callback_query(F.data.startswith("testlvl:seti:"))
-async def testlvl_set_level(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
+@router.callback_query(F.data.startswith("testlvl:togglei:"))
+async def testlvl_toggle_level(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
     uid = cb.from_user.id
     parts = cb.data.split(":")
     idx = int(parts[2])
@@ -3318,15 +3377,49 @@ async def testlvl_set_level(cb: CallbackQuery, bot: Bot, store: Storage, qb: Que
         return
 
     module = mod_list[idx]
+    levels_map = qb.ok_modules.get(module, {}) or {}
+    available = sorted(levels_map.keys())
+    if lvl not in available:
+        await cb.answer("Рівень не знайдено")
+        return
+
     temp_levels = dict(st.get("test_levels_temp", {}) or {})
-    temp_levels[module] = lvl
+    raw = temp_levels.get(module)
+
+    # normalize
+    if isinstance(raw, int):
+        selected = [raw]
+    elif isinstance(raw, list):
+        selected = []
+        for x in raw:
+            try:
+                selected.append(int(x))
+            except Exception:
+                pass
+    else:
+        selected = []
+    selected = [x for x in selected if x in available]
+    selected = sorted(set(selected)) or [available[0]]
+
+    # toggle
+    if lvl in selected:
+        if len(selected) == 1:
+            await cb.answer("Має бути хоча б один рівень", show_alert=True)
+            return
+        selected = [x for x in selected if x != lvl]
+    else:
+        selected.append(lvl)
+
+    selected = sorted(set(selected))
+    temp_levels[module] = selected
     st["test_levels_temp"] = temp_levels
     await store.set_state(uid, st)
 
-    # повертаємось на екран конфігурації
-    text, kb = screen_test_config(mod_list, qb, temp_levels)
+    # лишаємось на екрані вибору рівнів (щоб можна було вибрати кілька)
+    text, kb = screen_test_pick_level(idx, module, qb, selected)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
-    await cb.answer("Збережено")
+    await cb.answer()
+
 
 
 @router.callback_query(F.data == "testlvl:back")
@@ -3336,10 +3429,12 @@ async def testlvl_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: Question
     st = ui.get("state", {}) or {}
     mod_list = st.get("test_mod_list", []) or []
     temp_levels = st.get("test_levels_temp", {}) or {}
+    include_law = bool(st.get("test_include_law", True))
 
-    text, kb = screen_test_config(mod_list, qb, temp_levels)
+    text, kb = screen_test_config(mod_list, qb, temp_levels, include_law=include_law)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
+
 
 
 @router.callback_query(F.data == "test:start")
@@ -3349,7 +3444,6 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
         return
 
     uid = cb.from_user.id
-
     ui = await store.get_ui(uid)
     pre = ui.get("state", {}) or {}
 
@@ -3361,18 +3455,47 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
     picked_levels = pre.get("test_levels_temp", {}) or {}
 
     ok_qids: List[int] = []
+
     for m in modules:
         levels_map = qb.ok_modules.get(m, {})
         if not levels_map:
             continue
         available = sorted(levels_map.keys())
 
-        lvl = int(picked_levels.get(m, last_levels.get(m, available[0])))
-        if lvl not in available:
-            lvl = available[0]
+        raw = picked_levels.get(m, None)
+        if raw is None:
+            raw = last_levels.get(m, available[0])
 
-        qids = levels_map.get(lvl, [])
-        ok_qids.extend(qb.pick_random(qids, 20))
+        # normalize to list[int]
+        if isinstance(raw, int):
+            selected = [raw]
+        elif isinstance(raw, list):
+            selected = []
+            for x in raw:
+                try:
+                    selected.append(int(x))
+                except Exception:
+                    pass
+        else:
+            try:
+                selected = [int(raw)]
+            except Exception:
+                selected = []
+
+        selected = [lvl for lvl in selected if lvl in available]
+        selected = sorted(set(selected))
+        if not selected:
+            selected = [available[0]]
+
+        pool: List[int] = []
+        for lvl in selected:
+            pool.extend(levels_map.get(lvl, []) or [])
+
+        # на всякий випадок прибираємо дублікати
+        pool = list(dict.fromkeys(pool))
+
+        # ✅ рівно 20 питань з обраних рівнів (на модуль)
+        ok_qids.extend(qb.pick_random(pool, 20))
 
     all_qids = law_qids + ok_qids
 
