@@ -2567,9 +2567,15 @@ def _format_test_blocks(blocks: dict[str, list[int]], answers: dict) -> str:
     return "\n".join(out_lines)
 
 
-
-async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: int, chat_id: int, message: Message,
-                               admin_ids: Optional[set[int]] = None):
+async def show_next_in_session(
+    bot: Bot,
+    store: Storage,
+    qb: QuestionBank,
+    uid: int,
+    chat_id: int,
+    message: Message,
+    admin_ids: Optional[set[int]] = None
+):
     ui = await store.get_ui(uid)
     st = ui.get("state", {})
     mode = st.get("mode")
@@ -2635,15 +2641,41 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
                 "📌 <b>Підсумок:</b>\n"
                 f"✅ <b>{correct}</b> з <b>{total}</b> питань\n"
                 f"📈 <b>{percent:.1f}%</b>\n"
-                f"🎯 Прохідний поріг: <b>60%</b>\n\n"
                 f"<b>{'✅ Тест складено' if passed else '❌ Тест не складено'}</b>"
             )
 
-            await store.set_state(uid, {})
+            # --- NEW: зберігаємо результат + дані для review ---
+            answers = st.get("answers", {}) or {}
+            chosen_map = st.get("chosen", {}) or {}
+
+            # список неправильних qid (int)
+            wrong_qids = []
+            for qid_s, ok in answers.items():
+                try:
+                    if not bool(ok):
+                        wrong_qids.append(int(qid_s))
+                except Exception:
+                    pass
+
+            # кнопки результату
+            btns = []
+            if wrong_qids:
+                btns.append(("📋 Показати помилки", "testrev:start"))
+            btns.append(("⬅️ Головне меню", "nav:menu"))
+
+            # ✅ Замість очищення — зберігаємо result + дані для review
+            result_state = {
+                "mode": "test_result",
+                "result_text": text,
+                "wrong_qids": wrong_qids,
+                "chosen": chosen_map,
+            }
+            await store.set_state(uid, result_state)
+
             await render_main(
                 bot, store, uid, chat_id,
                 text,
-                kb_inline([("⬅️ Головне меню", "nav:menu")], row=1),
+                kb_inline(btns, row=1),
                 message=message
             )
             return
@@ -2665,8 +2697,11 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
                 f"Залишилось у помилках: <b>{len(wrong_ids)}</b>"
             )
             await store.set_state(uid, {})
-            await render_main(bot, store, uid, chat_id, text, kb_inline([("⬅️ Навчання", "nav:learn")], row=1),
-                              message=message)
+            await render_main(
+                bot, store, uid, chat_id, text,
+                kb_inline([("⬅️ Навчання", "nav:learn")], row=1),
+                message=message
+            )
             return
 
         # learn finish
@@ -2721,6 +2756,7 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
             message=message
         )
         return
+
     # ---------- показ поточного питання ----------
     # pending НЕ змінюємо тут — його оновлює on_answer / skip.
     # Тут прибираємо лише "биті" qid (нема питання / нема варіантів).
@@ -3219,14 +3255,19 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         return
 
     if mode == "test":
-        # <-- ДОДАЛИ збереження відповіді по qid
+        # як було: зберігали лише True/False
         answers = st.get("answers", {}) or {}
         answers[str(qid)] = bool(is_correct)
         st["answers"] = answers
 
-        st.setdefault("total", st.get("total", 0))
+        # ✅ ДОДАЙ: зберігаємо який варіант вибрав користувач (0-based)
+        chosen_map = st.get("chosen", {}) or {}
+        chosen_map[str(qid)] = int(choice)
+        st["chosen"] = chosen_map
+
         if is_correct:
             st["correct_count"] = int(st.get("correct_count", 0)) + 1
+
         await store.set_state(uid, st)
         await cb.answer()
         await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
@@ -3640,6 +3681,130 @@ async def nav_stats(cb: CallbackQuery, bot: Bot, store: Storage):
         message=cb.message
     )
     await cb.answer()
+
+async def _render_test_review(bot: Bot, store: Storage, qb: QuestionBank, uid: int, chat_id: int, message: Message):
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    wrong_qids = list(st.get("wrong_qids", []) or [])
+    chosen_map = st.get("chosen", {}) or {}
+    i = int(st.get("review_index", 0) or 0)
+
+    if not wrong_qids:
+        await render_main(
+            bot, store, uid, chat_id,
+            "✅ У цьому тесті немає помилок.",
+            kb_inline([("⬅️ Головне меню", "nav:menu")], row=1),
+            message=message
+        )
+        return
+
+    i = max(0, min(i, len(wrong_qids) - 1))
+    qid = int(wrong_qids[i])
+    q = qb.by_id.get(qid)
+
+    if not q:
+        # пропускаємо “биті” питання
+        st["wrong_qids"] = [x for x in wrong_qids if int(x) != qid]
+        st["review_index"] = min(i, max(0, len(st["wrong_qids"]) - 1))
+        st["mode"] = "test_review"
+        await store.set_state(uid, st)
+        await _render_test_review(bot, store, qb, uid, chat_id, message)
+        return
+
+    chosen = chosen_map.get(str(qid))
+    chosen_idx = int(chosen) if chosen is not None else 10**9  # щоб нічого не підсвітилось, якщо нема
+
+    text = (
+        "📋 <b>Помилки тесту</b>\n"
+        f"<b>Питання {i + 1}/{len(wrong_qids)}</b>\n\n"
+        + build_feedback_text(q, "", chosen_idx)
+    )
+    if chosen is None:
+        text += "\n\n<i>Ваш вибір не збережено (старий тест або бот перезапускався).</i>"
+
+    buttons = []
+    if i > 0:
+        buttons.append(("◀️ Попереднє", "testrev:prev"))
+    if i < len(wrong_qids) - 1:
+        buttons.append(("▶️ Наступне", "testrev:next"))
+    buttons.append(("⬅️ До результату", "testrev:back"))
+    buttons.append(("⬅️ Головне меню", "nav:menu"))
+
+    await render_main(bot, store, uid, chat_id, text, kb_inline(buttons, row=2), message=message)
+
+
+@router.callback_query(F.data == "testrev:start")
+async def testrev_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    if not st.get("wrong_qids"):
+        await cb.answer("Немає помилок", show_alert=True)
+        return
+
+    st["mode"] = "test_review"
+    st["review_index"] = 0
+    await store.set_state(uid, st)
+    await cb.answer()
+    await _render_test_review(bot, store, qb, uid, cb.message.chat.id, cb.message)
+
+
+@router.callback_query(F.data == "testrev:next")
+async def testrev_next(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    st["mode"] = "test_review"
+    st["review_index"] = int(st.get("review_index", 0) or 0) + 1
+    await store.set_state(uid, st)
+    await cb.answer()
+    await _render_test_review(bot, store, qb, uid, cb.message.chat.id, cb.message)
+
+
+@router.callback_query(F.data == "testrev:prev")
+async def testrev_prev(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    st["mode"] = "test_review"
+    st["review_index"] = int(st.get("review_index", 0) or 0) - 1
+    await store.set_state(uid, st)
+    await cb.answer()
+    await _render_test_review(bot, store, qb, uid, cb.message.chat.id, cb.message)
+
+
+@router.callback_query(F.data == "testrev:back")
+async def testrev_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
+    if not await guard_access_in_session(cb, bot, store, admin_ids):
+        return
+    uid = cb.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    text = st.get("result_text") or "📝 <b>Результат тесту</b>"
+    wrong_qids = list(st.get("wrong_qids", []) or [])
+
+    btns = []
+    if wrong_qids:
+        btns.append(("📋 Показати помилки", "testrev:start"))
+    btns.append(("⬅️ Головне меню", "nav:menu"))
+
+    st["mode"] = "test_result"
+    await store.set_state(uid, st)
+
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb_inline(btns, row=1), message=cb.message)
+    await cb.answer()
+
 
 
 # -------- Admin: users --------
