@@ -2526,6 +2526,43 @@ async def start_learning_session(
     await store.set_state(uid, state)
     await show_next_in_session(bot, store, qb, uid, chat_id, message, admin_ids=admin_ids)
 
+_BLOCK_NUM_RE = re.compile(r"(\d+)")
+
+def _test_block_sort_key(name: str) -> tuple:
+    low = (name or "").lower().strip()
+    is_law = low.startswith("закон") or low.startswith("law")
+    m = _BLOCK_NUM_RE.search(low)
+    num = int(m.group(1)) if m else 10**9
+    return (1 if is_law else 0, num, low)
+
+def _derive_test_blocks_from_answers(qb: "QuestionBank", answers: dict) -> dict[str, list[int]]:
+    """
+    Fallback: якщо test_blocks не збережено, групуємо по q.ok / Законодавство з answers.
+    """
+    blocks: dict[str, list[int]] = {}
+    for qid_s in (answers or {}).keys():
+        try:
+            qid = int(qid_s)
+        except Exception:
+            continue
+        q = qb.by_id.get(qid)
+        name = (q.ok if (q and q.ok) else "Законодавство")
+        blocks.setdefault(name, []).append(qid)
+    return blocks
+
+def _format_test_blocks(blocks: dict[str, list[int]], answers: dict) -> str:
+    if not blocks:
+        return ""
+
+    out_lines: list[str] = []
+    for name in sorted(blocks.keys(), key=_test_block_sort_key):
+        qids = blocks.get(name) or []
+        total = len(qids)
+        correct = sum(1 for qid in qids if answers.get(str(qid)) is True)
+        out_lines.append(f"• <b>{hescape(str(name))}</b>: ✅ <b>{correct}</b> з <b>{total}</b>")
+    return "\n".join(out_lines)
+
+
 
 async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: int, chat_id: int, message: Message,
                                admin_ids: Optional[set[int]] = None):
@@ -2575,24 +2612,36 @@ async def show_next_in_session(bot: Bot, store: Storage, qb: QuestionBank, uid: 
             total = int(st.get("total", 0))
             percent = (correct / total * 100.0) if total else 0.0
             passed = percent >= 60.0
+
             started_at = iso_to_dt(st.get("started_at")) or now()
             finished_at = now()
             await store.save_test(uid, started_at, finished_at, total, correct)
 
-            # Обчислення відсотка для відображення
-            percent_display = f"{percent:.1f}%"
+            answers = st.get("answers", {}) or {}
+            blocks = st.get("test_blocks", {}) or {}
+            if not blocks and answers:
+                blocks = _derive_test_blocks_from_answers(qb, answers)
+
+            blocks_text = _format_test_blocks(blocks, answers)
+            blocks_section = (f"\n\n📦 <b>По блоках:</b>\n{blocks_text}" if blocks_text else "")
 
             text = (
-                "📝 <b>Тестування завершено</b>\n\n"
-                "📊 <b>Результати:</b>\n\n"
+                "📝 <b>Тестування завершено</b>\n"
+                f"{blocks_section}\n\n"
+                "📌 <b>Підсумок:</b>\n"
                 f"✅ <b>{correct}</b> з <b>{total}</b> питань\n"
-                f"📈 <b>{percent_display}</b> правильних відповідей\n"
+                f"📈 <b>{percent:.1f}%</b>\n"
                 f"🎯 Прохідний поріг: <b>60%</b>\n\n"
-                f"<b>{'🎉 Вітаємо! Тест складено!' if passed else '❌ Тест не складено. Потрібно ще попрацювати.'}</b>"
+                f"<b>{'✅ Тест складено' if passed else '❌ Тест не складено'}</b>"
             )
+
             await store.set_state(uid, {})
-            await render_main(bot, store, uid, chat_id, text, kb_inline([("⬅️ Головне меню", "nav:menu")], row=1),
-                              message=message)
+            await render_main(
+                bot, store, uid, chat_id,
+                text,
+                kb_inline([("⬅️ Головне меню", "nav:menu")], row=1),
+                message=message
+            )
             return
 
         if mode == "mistakes":
@@ -3166,6 +3215,11 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         return
 
     if mode == "test":
+        # <-- ДОДАЛИ збереження відповіді по qid
+        answers = st.get("answers", {}) or {}
+        answers[str(qid)] = bool(is_correct)
+        st["answers"] = answers
+
         st.setdefault("total", st.get("total", 0))
         if is_correct:
             st["correct_count"] = int(st.get("correct_count", 0)) + 1
@@ -3182,6 +3236,7 @@ async def on_answer(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBan
         await cb.answer()
         await show_next_in_session(bot, store, qb, uid, cb.message.chat.id, cb.message, admin_ids=admin_ids)
         return
+
 
 
 @router.callback_query(F.data == "skip")
@@ -3436,7 +3491,6 @@ async def testlvl_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: Question
     await cb.answer()
 
 
-
 @router.callback_query(F.data == "test:start")
 async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank, admin_ids: set[int]):
     user = await guard_access_in_session(cb, bot, store, admin_ids)
@@ -3455,6 +3509,11 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
     picked_levels = pre.get("test_levels_temp", {}) or {}
 
     ok_qids: List[int] = []
+    test_blocks: dict[str, list[int]] = {}
+
+    # Законодавство окремим блоком
+    if law_qids:
+        test_blocks["Законодавство"] = list(law_qids)
 
     for m in modules:
         levels_map = qb.ok_modules.get(m, {})
@@ -3491,11 +3550,14 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
         for lvl in selected:
             pool.extend(levels_map.get(lvl, []) or [])
 
-        # на всякий випадок прибираємо дублікати
+        # прибираємо дублікати
         pool = list(dict.fromkeys(pool))
 
-        # ✅ рівно 20 питань з обраних рівнів (на модуль)
-        ok_qids.extend(qb.pick_random(pool, 20))
+        # рівно 20 питань на модуль (або менше, якщо в пулі не вистачає)
+        picked = qb.pick_random(pool, 20)
+        if picked:
+            ok_qids.extend(picked)
+            test_blocks[str(m)] = list(picked)
 
     all_qids = law_qids + ok_qids
 
@@ -3516,6 +3578,8 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
         "correct_count": 0,
         "total": len(all_qids),
         "started_at": dt_to_iso(now()),
+        "answers": {},          # <-- додали
+        "test_blocks": test_blocks,  # <-- додали
     }
     await store.set_state(uid, st)
 
