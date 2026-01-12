@@ -2037,7 +2037,6 @@ def screen_ok_levels(module: str, idx: int, qb: QuestionBank) -> Tuple[str, Inli
     kb_levels.inline_keyboard.extend(kb_back.inline_keyboard)
     return text, kb_levels
 
-
 def screen_test_config(
         modules: List[str],
         qb: QuestionBank,
@@ -2046,6 +2045,10 @@ def screen_test_config(
         law_count: int = 50
 ) -> Tuple[str, InlineKeyboardMarkup]:
     def _norm_levels(raw: Any, available: List[int]) -> List[int]:
+        # None = ще не налаштовано -> беремо дефолтний рівень
+        if raw is None:
+            return [available[0]] if available else []
+
         # підтримка старого формату (int) і нового (list[int])
         if isinstance(raw, int):
             levels = [raw]
@@ -2057,17 +2060,13 @@ def screen_test_config(
                 except Exception:
                     pass
         else:
-            # наприклад None/str
             try:
                 levels = [int(raw)]
             except Exception:
                 levels = []
 
         levels = [lvl for lvl in levels if lvl in available]
-        levels = sorted(set(levels))
-        if not levels and available:
-            levels = [available[0]]
-        return levels
+        return sorted(set(levels))
 
     lines = [
         "📝 <b>Тестування</b>",
@@ -2077,6 +2076,7 @@ def screen_test_config(
         "при невірній — відображається екран з поясненням помилки.</i>",
         "",
         "Оберіть <b>рівні</b> для кожного модуля ОК (можна кілька).",
+        "Якщо зняти всі рівні в модулі — він <b>не потрапить</b> у тест.",
         "Потім натисніть «Почати тест».",
     ]
 
@@ -2093,8 +2093,11 @@ def screen_test_config(
             continue
         available = sorted(levels_map.keys())
 
-        selected = _norm_levels(temp_levels.get(m), available)
-        if len(selected) == 1:
+        selected = _norm_levels(temp_levels.get(m, None), available)
+
+        if not selected:
+            lvl_label = "❌ не включати"
+        elif len(selected) == 1:
             lvl_label = f"Рівень {selected[0]}"
         else:
             lvl_label = "Рівні " + ", ".join(str(x) for x in selected)
@@ -2105,6 +2108,7 @@ def screen_test_config(
 
     buttons += [("📖 Почати тест", "test:start"), ("⬅️ Меню", "nav:menu")]
     return "\n".join(lines), kb_inline(buttons, row=1)
+
 
 
 
@@ -3439,10 +3443,12 @@ async def testlvl_toggle_level(cb: CallbackQuery, bot: Bot, store: Storage, qb: 
         return
 
     temp_levels = dict(st.get("test_levels_temp", {}) or {})
-    raw = temp_levels.get(module)
+    raw = temp_levels.get(module, None)
 
     # normalize
-    if isinstance(raw, int):
+    if raw is None:
+        selected = [available[0]] if available else []
+    elif isinstance(raw, int):
         selected = [raw]
     elif isinstance(raw, list):
         selected = []
@@ -3453,29 +3459,27 @@ async def testlvl_toggle_level(cb: CallbackQuery, bot: Bot, store: Storage, qb: 
                 pass
     else:
         selected = []
-    selected = [x for x in selected if x in available]
-    selected = sorted(set(selected)) or [available[0]]
 
-    # toggle
+    selected = [x for x in selected if x in available]
+    selected = sorted(set(selected))
+
+    # toggle (тепер можна зняти ВСІ рівні)
     if lvl in selected:
-        if len(selected) == 1:
-            await cb.answer("Має бути хоча б один рівень", show_alert=True)
-            return
         selected = [x for x in selected if x != lvl]
     else:
         selected.append(lvl)
 
     selected = sorted(set(selected))
+
+    # якщо selected == [] -> модуль вимкнений у тесті
     temp_levels[module] = selected
     st["test_levels_temp"] = temp_levels
     await store.set_state(uid, st)
 
-    # лишаємось на екрані вибору рівнів (щоб можна було вибрати кілька)
+    # лишаємось на екрані вибору рівнів
     text, kb = screen_test_pick_level(idx, module, qb, selected)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
-
-
 
 @router.callback_query(F.data == "testlvl:back")
 async def testlvl_back(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBank):
@@ -3516,12 +3520,19 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
         test_blocks["Законодавство"] = list(law_qids)
 
     for m in modules:
-        levels_map = qb.ok_modules.get(m, {})
+        levels_map = qb.ok_modules.get(m, {}) or {}
         if not levels_map:
             continue
         available = sorted(levels_map.keys())
 
-        raw = picked_levels.get(m, None)
+        raw0 = picked_levels.get(m, None)
+
+        # ✅ НОВЕ: якщо користувач зняв ВСІ рівні — модуль НЕ включаємо у тест
+        if isinstance(raw0, list) and len(raw0) == 0:
+            continue
+
+        # якщо не налаштовував — беремо останній вибір або дефолт
+        raw = raw0
         if raw is None:
             raw = last_levels.get(m, available[0])
 
@@ -3543,6 +3554,8 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
 
         selected = [lvl for lvl in selected if lvl in available]
         selected = sorted(set(selected))
+
+        # якщо дані криві/порожні не через "[]" — підстрахуємось дефолтом
         if not selected:
             selected = [available[0]]
 
@@ -3578,8 +3591,8 @@ async def test_start(cb: CallbackQuery, bot: Bot, store: Storage, qb: QuestionBa
         "correct_count": 0,
         "total": len(all_qids),
         "started_at": dt_to_iso(now()),
-        "answers": {},          # <-- додали
-        "test_blocks": test_blocks,  # <-- додали
+        "answers": {},
+        "test_blocks": test_blocks,
     }
     await store.set_state(uid, st)
 
