@@ -7,9 +7,13 @@
     12px
     calc(12px + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto 1fr;
   gap: 10px;
   position: relative;
+}
+
+.topbar[hidden] {
+  display: none !important;
 }
 
 .topbar {
@@ -82,7 +86,7 @@
 }
 
 .ios-home {
-  min-height: calc(100dvh - 82px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  min-height: calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   grid-template-rows: auto auto 1fr;
   gap: 10px;
 }
