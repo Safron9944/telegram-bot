@@ -61,44 +61,6 @@ export function actionCard({ code, title, body, meta, screen, link, tone = "defa
   `;
 }
 
-export function screenBar(activeScreen, { isAdmin = false } = {}) {
-  const learningScreens = new Set(["learning", "law-learning", "ok-learning", "law-parts"]);
-  const items = [
-    { screen: "home", icon: "⌂", label: "Головна" },
-    { screen: "learning", icon: "📚", label: "Навчання" },
-    { screen: "testing", icon: "🧪", label: "Тест" },
-    { screen: "stats", icon: "📊", label: "Статистика" },
-    { screen: "help", icon: "💬", label: "Допомога" },
-  ];
-
-  if (isAdmin) {
-    items.push({ screen: "admin", icon: "⚙️", label: "Адмін" });
-  }
-
-  const buttons = items
-    .map((item) => {
-      const normalizedActive = String(activeScreen || "home");
-      const isActive =
-        item.screen === normalizedActive ||
-        (item.screen === "learning" && learningScreens.has(normalizedActive)) ||
-        (item.screen === "admin" && normalizedActive.startsWith("admin"));
-
-      return `
-        <button class="screen-bar__item${isActive ? " is-active" : ""}" type="button" data-screen-target="${escapeHtml(item.screen)}">
-          <span class="screen-bar__icon" aria-hidden="true">${escapeHtml(item.icon)}</span>
-          <span>${escapeHtml(item.label)}</span>
-        </button>
-      `;
-    })
-    .join("");
-
-  return `
-    <nav class="screen-bar" aria-label="Основні розділи">
-      ${buttons}
-    </nav>
-  `;
-}
-
 export function setChrome({ eyebrow, title, subtitle, showBack = false, showRefresh = false }) {
   if (refs.eyebrowNode) {
     refs.eyebrowNode.textContent = eyebrow || "";
