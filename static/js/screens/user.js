@@ -3,11 +3,22 @@ function openLawParts(ctx, group) {
   ctx.navigate("law-parts");
 }
 
+function compactAccessLabel(user) {
+  return user.access.has_access ? "Активний" : "Обмежено";
+}
+
+function selectedModules(catalog) {
+  return catalog.ok_modules.filter((item) => item.selected);
+}
+
+function percentLabel(value) {
+  return typeof value === "number" ? `${value.toFixed(0)}%` : "—";
+}
+
 export function renderHome(ctx) {
   const { user, catalog, stats } = ctx.state.bootstrap;
-  const selectedModules = catalog.ok_modules.filter((item) => item.selected);
-  const accessClass = user.access.has_access ? "is-active" : "is-danger";
-  const lastResult = stats.last ? `${stats.last.percent.toFixed(1)}%` : "Ще не було";
+  const modules = selectedModules(catalog);
+  const last = stats.last;
 
   ctx.setChrome({
     eyebrow: "Підготовка",
@@ -17,59 +28,81 @@ export function renderHome(ctx) {
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="app-screen home-screen">
-      <div class="screen-hero">
-        <span class="eyebrow">Підготовка</span>
-        <h2>Оберіть розділ</h2>
-        <p>Навчання, тестування, прогрес і підтримка відкриваються як окремі екрани — без змішування блоків на одній сторінці.</p>
-      </div>
-
-      <section class="app-menu-grid" aria-label="Головне меню">
-        ${ctx.actionCard({
-          code: "LE",
-          title: "Навчання",
-          body: "Окремий екран для законодавства, модулів ОК і повторення помилок.",
-          meta: `${catalog.law_groups.length} розділів`,
-          screen: "learning",
-        })}
-        ${ctx.actionCard({
-          code: "TE",
-          title: "Тестування",
-          body: "Окремий екран для конфігурації та запуску нового тесту.",
-          meta: "Новий екран",
-          screen: "testing",
-        })}
-        ${ctx.actionCard({
-          code: "PR",
-          title: "Прогрес",
-          body: "Результати тестів, середній бал і остання спроба.",
-          meta: lastResult,
-          screen: "stats",
-        })}
-        ${ctx.actionCard({
-          code: "HE",
-          title: "Підтримка",
-          body: "Контакти, Telegram-група, оновлення даних та адмінський режим.",
-          meta: "Допомога",
-          screen: "help",
-        })}
+    <section class="app-screen ios-home">
+      <section class="ios-hero-card">
+        <div class="ios-hero-card__top">
+          <span class="ios-avatar">${ctx.escapeHtml((user.first_name || "U").slice(0, 1).toUpperCase())}</span>
+          <div>
+            <span class="eyebrow">Exam Mini App</span>
+            <h2>Готові до старту</h2>
+          </div>
+          <span class="status-chip ${user.access.has_access ? "is-active" : "is-danger"}">${compactAccessLabel(user)}</span>
+        </div>
+        <div class="mini-stats-grid">
+          ${ctx.metricCard("Модулі", String(modules.length), "ОК")}
+          ${ctx.metricCard("Тести", String(stats.count), "історія")}
+          ${ctx.metricCard("Останній", last ? percentLabel(last.percent) : "—", "результат")}
+        </div>
       </section>
 
-      <section class="surface compact-status">
-        <div class="chips-row">
-          <span class="status-chip ${accessClass}">${user.access.has_access ? "Доступ активний" : "Доступ обмежений"}</span>
-          <span class="status-chip">${selectedModules.length} модулів ОК</span>
-          <span class="status-chip">${stats.count} тестів</span>
-        </div>
+      <section class="quick-actions" aria-label="Швидкі дії">
+        <button class="quick-action quick-action--primary" type="button" data-screen-target="testing">
+          <span>🧪</span>
+          <strong>Тестування</strong>
+        </button>
+        <button class="quick-action" type="button" data-screen-target="stats">
+          <span>📊</span>
+          <strong>Статистика</strong>
+        </button>
+        <button class="quick-action" type="button" data-screen-target="help">
+          <span>💬</span>
+          <strong>Підтримка</strong>
+        </button>
+      </section>
+
+      <section class="ios-tile-grid" aria-label="Головне меню">
+        ${ctx.actionCard({
+          code: "📚",
+          title: "Навчання",
+          body: "Законодавство, ОК-модулі та помилки.",
+          meta: `${catalog.law_groups.length} розд.` ,
+          screen: "learning",
+          tone: "blue",
+        })}
+        ${ctx.actionCard({
+          code: "🧪",
+          title: "Тестування",
+          body: "Швидка збірка нового тесту.",
+          meta: "Старт",
+          screen: "testing",
+          tone: "purple",
+        })}
+        ${ctx.actionCard({
+          code: "📊",
+          title: "Статистика",
+          body: "Середній бал і останні спроби.",
+          meta: last ? percentLabel(last.percent) : "—",
+          screen: "stats",
+          tone: "green",
+        })}
+        ${ctx.actionCard({
+          code: "💬",
+          title: "Підтримка",
+          body: "Група, адміністратор і сервіс.",
+          meta: "Help",
+          screen: "help",
+          tone: "orange",
+        })}
       </section>
     </section>
   `;
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
+
 export function renderLearning(ctx) {
   const { user, catalog } = ctx.state.bootstrap;
-  const selectedModules = catalog.ok_modules.filter((item) => item.selected);
+  const modules = selectedModules(catalog);
 
   ctx.setChrome({
     eyebrow: "Навчання",
@@ -79,32 +112,36 @@ export function renderLearning(ctx) {
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="app-screen learning-screen">
-      <div class="screen-hero">
-        <span class="eyebrow">Новий екран</span>
-        <h2>Навчання</h2>
-        <p>Оберіть законодавство, модуль ОК або повторення помилок. Це окремий робочий екран, не змішаний із головною.</p>
-        <div class="screen-hero__actions" id="learning-actions"></div>
-      </div>
-
-      <section class="surface screen-block">
+    <section class="app-screen learning-screen compact-screen">
+      <section class="ios-section ios-section--hero">
         <div class="section-header">
           <div class="section-copy">
-            <h2>Розділи законодавства</h2>
-            <p>Великі розділи автоматично діляться на частини по 50 питань.</p>
+            <span class="eyebrow">Study</span>
+            <h2>Навчання</h2>
+            <p>Обери блок і запускай підготовку.</p>
           </div>
-          <span class="status-chip ${user.access.has_access ? "is-active" : "is-danger"}">${user.access.has_access ? "Можна стартувати" : "Лише перегляд"}</span>
+          <span class="status-chip ${user.access.has_access ? "is-active" : "is-danger"}">${user.access.has_access ? "Старт" : "Перегляд"}</span>
         </div>
-        <div class="list-stack" id="law-groups-stack"></div>
+        <div class="button-row" id="learning-actions"></div>
       </section>
 
-      <section class="surface screen-block">
+      <section class="ios-section screen-block">
         <div class="section-header">
           <div class="section-copy">
-            <h2>Модулі ОК</h2>
-            <p>Збережіть потрібні модулі і запускайте рівні окремо.</p>
+            <h2>Законодавство</h2>
+            <p>Частини по 50 питань.</p>
           </div>
-          <span class="status-chip">${selectedModules.length} модулів</span>
+        </div>
+        <div class="list-stack compact-list" id="law-groups-stack"></div>
+      </section>
+
+      <section class="ios-section screen-block">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>ОК модулі</h2>
+            <p>Вибір модулів і рівнів.</p>
+          </div>
+          <span class="status-chip">${modules.length}</span>
         </div>
         <div class="section-stack" id="ok-modules-stack"></div>
       </section>
@@ -112,19 +149,18 @@ export function renderLearning(ctx) {
   `;
 
   ctx.refs.mainPanel.querySelector("#learning-actions").append(
-    ctx.actionButton("Перевірити помилки", ctx.startMistakesSession, "primary"),
-    ctx.actionButton("Налаштувати тест", async () => ctx.navigate("testing")),
+    ctx.actionButton("Помилки", ctx.startMistakesSession, "primary"),
+    ctx.actionButton("Тест", async () => ctx.navigate("testing")),
   );
 
   const lawStack = ctx.refs.mainPanel.querySelector("#law-groups-stack");
   catalog.law_groups.forEach((group) => {
     const node = document.createElement("article");
-    node.className = "list-item";
+    node.className = "list-item ios-list-item";
     node.innerHTML = `
       <div class="list-item__main">
-        <span class="list-item__eyebrow">Розділ</span>
         <strong>${ctx.escapeHtml(group.title)}</strong>
-        <span class="list-item__meta">${group.count} питань у банку</span>
+        <span class="list-item__meta">${group.count} питань</span>
       </div>
       <div class="button-row"></div>
     `;
@@ -132,29 +168,27 @@ export function renderLearning(ctx) {
     const actions = node.querySelector(".button-row");
     const partCount = Math.ceil(group.count / 50);
     if (partCount <= 1) {
-      actions.append(
-        ctx.actionButton("Підготовка", async () => ctx.startLearning({ kind: "law", group_key: group.key, part: 1 }), "primary"),
-      );
+      actions.append(ctx.actionButton("Старт", async () => ctx.startLearning({ kind: "law", group_key: group.key, part: 1 }), "primary"));
     } else {
-      actions.append(ctx.actionButton(`Частини (${partCount})`, async () => openLawParts(ctx, group), "primary"));
+      actions.append(ctx.actionButton(`${partCount} част.`, async () => openLawParts(ctx, group), "primary"));
     }
-    actions.append(ctx.actionButton("Рандом 50", async () => ctx.startLearning({ kind: "lawrand", group_key: group.key })));
+    actions.append(ctx.actionButton("Рандом", async () => ctx.startLearning({ kind: "lawrand", group_key: group.key })));
     lawStack.append(node);
   });
 
   const okStack = ctx.refs.mainPanel.querySelector("#ok-modules-stack");
   const editor = document.createElement("section");
-  editor.className = "inline-form module-picker";
+  editor.className = "inline-form module-picker ios-form";
   editor.innerHTML = `
     <div class="field">
-      <label>Оберіть модулі ОК</label>
+      <label>Модулі</label>
       <div class="chips-row" id="module-selector"></div>
     </div>
     <div class="button-row" id="module-selector-actions"></div>
   `;
   okStack.append(editor);
 
-  const selectedNames = new Set(selectedModules.map((item) => item.name));
+  const selectedNames = new Set(modules.map((item) => item.name));
   const selector = editor.querySelector("#module-selector");
   catalog.ok_modules.forEach((item) => {
     const button = document.createElement("button");
@@ -175,7 +209,7 @@ export function renderLearning(ctx) {
   });
 
   editor.querySelector("#module-selector-actions").append(
-    ctx.actionButton("Зберегти модулі", async () => {
+    ctx.actionButton("Зберегти", async () => {
       try {
         const response = await ctx.api("/api/preferences/ok-modules", {
           method: "POST",
@@ -183,7 +217,7 @@ export function renderLearning(ctx) {
         });
         ctx.state.bootstrap.user = response.user;
         ctx.state.bootstrap.catalog = response.catalog;
-        ctx.setMessage("success", "Модулі збережено.");
+        ctx.setMessage("success", "Збережено.");
         ctx.impact("medium");
         renderLearning(ctx);
       } catch (error) {
@@ -192,25 +226,24 @@ export function renderLearning(ctx) {
     }, "primary"),
   );
 
-  if (!selectedModules.length) {
+  if (!modules.length) {
     const note = document.createElement("div");
-    note.className = "empty-state";
+    note.className = "empty-state compact-empty";
     note.innerHTML = `
-      <h2>Поки що без модулів</h2>
-      <p>Позначте потрібні модулі вище, і тут з’являться кнопки запуску за рівнями.</p>
+      <h2>Оберіть модулі</h2>
+      <p>Після збереження тут з’являться рівні.</p>
     `;
     okStack.append(note);
     return;
   }
 
-  selectedModules.forEach((item) => {
+  modules.forEach((item) => {
     const card = document.createElement("article");
-    card.className = "list-item";
+    card.className = "list-item ios-list-item";
     card.innerHTML = `
       <div class="list-item__main">
-        <span class="list-item__eyebrow">Модуль ОК</span>
         <strong>${ctx.escapeHtml(item.label)}</strong>
-        <span class="list-item__meta">Доступні рівні: ${item.levels.map((entry) => entry.level).join(", ")}</span>
+        <span class="list-item__meta">Рівні: ${item.levels.map((entry) => entry.level).join(", ")}</span>
       </div>
       <div class="button-row"></div>
     `;
@@ -219,7 +252,7 @@ export function renderLearning(ctx) {
     item.levels.forEach((levelEntry) => {
       buttons.append(
         ctx.actionButton(
-          `Рівень ${levelEntry.level}`,
+          `L${levelEntry.level}`,
           async () => ctx.startLearning({ kind: "ok", module: item.name, level: levelEntry.level }),
           levelEntry.level === item.last_level ? "primary" : "secondary",
         ),
@@ -228,6 +261,7 @@ export function renderLearning(ctx) {
     okStack.append(card);
   });
 }
+
 export function renderLawParts(ctx) {
   const group = ctx.state.selectedLawGroup;
   if (!group) {
@@ -240,25 +274,28 @@ export function renderLawParts(ctx) {
   ctx.setChrome({
     eyebrow: "Навчання",
     title: group.title,
-    subtitle: `${group.count} питань у розділі.`,
+    subtitle: "",
     showBack: true,
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Частини розділу</h2>
-          <p>Оберіть конкретну частину або випадкову добірку з цього блоку.</p>
+    <section class="app-screen compact-screen">
+      <section class="ios-section ios-section--hero">
+        <div class="section-header">
+          <div class="section-copy">
+            <span class="eyebrow">${group.count} питань</span>
+            <h2>Частини</h2>
+            <p>Оберіть діапазон або випадкові 50.</p>
+          </div>
         </div>
-      </div>
-      <div class="button-row" id="law-parts-actions"></div>
+        <div class="button-row" id="law-parts-actions"></div>
+      </section>
+      <section class="cards-grid compact-card-grid" id="law-parts-grid"></section>
     </section>
-    <section class="cards-grid" id="law-parts-grid"></section>
   `;
 
   ctx.refs.mainPanel.querySelector("#law-parts-actions").append(
-    ctx.actionButton("До навчання", ctx.goBack),
+    ctx.actionButton("Назад", ctx.goBack),
     ctx.actionButton("Рандом 50", async () => ctx.startLearning({ kind: "lawrand", group_key: group.key }), "primary"),
   );
 
@@ -267,16 +304,16 @@ export function renderLawParts(ctx) {
     const start = (part - 1) * 50 + 1;
     const end = Math.min(part * 50, group.count);
     const card = document.createElement("article");
-    card.className = "grid-card";
+    card.className = "grid-card ios-grid-card";
     card.innerHTML = `
       <span class="eyebrow">Частина ${part}</span>
       <strong>${start}-${end}</strong>
-      <p class="muted">Питання ${start}–${end} цього розділу.</p>
+      <p class="muted">Питання ${start}–${end}</p>
     `;
 
     const actions = document.createElement("div");
     actions.className = "button-row";
-    actions.append(ctx.actionButton("Відкрити", async () => ctx.startLearning({ kind: "law", group_key: group.key, part }), "primary"));
+    actions.append(ctx.actionButton("Старт", async () => ctx.startLearning({ kind: "law", group_key: group.key, part }), "primary"));
     card.append(actions);
     grid.append(card);
   }
@@ -284,7 +321,7 @@ export function renderLawParts(ctx) {
 
 export function renderTesting(ctx) {
   const { catalog } = ctx.state.bootstrap;
-  const selectedModules = catalog.ok_modules.filter((item) => item.selected);
+  const modules = selectedModules(catalog);
 
   ctx.setChrome({
     eyebrow: "Тестування",
@@ -294,27 +331,29 @@ export function renderTesting(ctx) {
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="app-screen testing-screen">
-      <div class="screen-hero">
-        <span class="eyebrow">Новий екран</span>
-        <h2>Тестування</h2>
-        <p>Налаштуйте законодавство і рівні модулів ОК, а потім запустіть тест. Цей екран відокремлений від навчання.</p>
-      </div>
-
-      <section class="surface screen-block">
+    <section class="app-screen testing-screen compact-screen">
+      <section class="ios-section ios-section--hero">
         <div class="section-header">
           <div class="section-copy">
-            <h2>Конфігурація тесту</h2>
-            <p>Для кожного модуля можна лишити один або кілька рівнів. Якщо рівні не вибрані, модуль не потрапить у тест.</p>
+            <span class="eyebrow">Test</span>
+            <h2>Новий тест</h2>
+            <p>Законодавство + вибрані рівні ОК.</p>
           </div>
+          <span class="status-chip">${modules.length} мод.</span>
         </div>
-        <div class="inline-form test-config-form">
-          <div class="check-row">
+      </section>
+
+      <section class="ios-section screen-block">
+        <div class="inline-form test-config-form ios-form">
+          <label class="ios-switch-row" for="include-law">
+            <span>
+              <strong>Законодавство</strong>
+              <small>50 випадкових питань</small>
+            </span>
             <input id="include-law" type="checkbox" checked />
-            <label for="include-law">Додати 50 випадкових питань із законодавства</label>
-          </div>
-          <div id="test-module-config" class="list-stack"></div>
-          <div class="button-row" id="test-actions"></div>
+          </label>
+          <div id="test-module-config" class="list-stack compact-list"></div>
+          <div class="button-row sticky-actions" id="test-actions"></div>
         </div>
       </section>
     </section>
@@ -323,17 +362,16 @@ export function renderTesting(ctx) {
   const configNode = ctx.refs.mainPanel.querySelector("#test-module-config");
   const selections = {};
 
-  selectedModules.forEach((item) => {
+  modules.forEach((item) => {
     const initialLevel = item.last_level || item.levels[0]?.level;
     selections[item.name] = initialLevel ? [initialLevel] : [];
 
     const block = document.createElement("article");
-    block.className = "list-item";
+    block.className = "list-item ios-list-item";
     block.innerHTML = `
       <div class="list-item__main">
-        <span class="list-item__eyebrow">Модуль ОК</span>
         <strong>${ctx.escapeHtml(item.label)}</strong>
-        <span class="list-item__meta">Зніміть усі рівні, якщо хочете виключити модуль із цього тесту.</span>
+        <span class="list-item__meta">Виберіть рівні</span>
       </div>
       <div class="button-row"></div>
     `;
@@ -343,7 +381,7 @@ export function renderTesting(ctx) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `pill-button ${selections[item.name].includes(levelEntry.level) ? "is-selected" : ""}`;
-      button.textContent = `Рівень ${levelEntry.level}`;
+      button.textContent = `L${levelEntry.level}`;
       button.addEventListener("click", () => {
         ctx.impact("light");
         const set = new Set(selections[item.name]);
@@ -361,12 +399,12 @@ export function renderTesting(ctx) {
     configNode.append(block);
   });
 
-  if (!selectedModules.length) {
+  if (!modules.length) {
     const note = document.createElement("div");
-    note.className = "empty-state";
+    note.className = "empty-state compact-empty";
     note.innerHTML = `
-      <h2>Немає модулів для тесту</h2>
-      <p>Спочатку оберіть хоча б один модуль ОК у розділі «Навчання».</p>
+      <h2>Немає модулів</h2>
+      <p>Додайте ОК-модуль у «Навчанні».</p>
     `;
     configNode.append(note);
   }
@@ -387,49 +425,53 @@ export function renderTesting(ctx) {
         ctx.setMessage("error", error.message);
       }
     }, "primary"),
-    ctx.actionButton("До навчання", async () => ctx.navigate("learning")),
+    ctx.actionButton("Навчання", async () => ctx.navigate("learning")),
   );
 }
+
 export function renderStats(ctx) {
   const { stats } = ctx.state.bootstrap;
   const last = stats.last;
 
   ctx.setChrome({
-    eyebrow: "Прогрес",
-    title: "Прогрес",
-    subtitle: "Коротка історія спроб і ваш середній результат.",
+    eyebrow: "Статистика",
+    title: "Статистика",
+    subtitle: "",
     showBack: true,
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Зведення</h2>
-          <p>Останні тести і середній результат підтягуються із збереженої історії.</p>
+    <section class="app-screen compact-screen stats-screen">
+      <section class="ios-section ios-section--hero">
+        <div class="section-header">
+          <div class="section-copy">
+            <span class="eyebrow">Progress</span>
+            <h2>${last ? percentLabel(last.percent) : "Поки без тестів"}</h2>
+            <p>${last ? `Останній тест: ${last.correct}/${last.total}` : "Запустіть перший тест."}</p>
+          </div>
         </div>
-      </div>
-      <div class="metrics-grid">
-        ${ctx.metricCard("Тестів", String(stats.count), "Останні 50 спроб")}
-        ${ctx.metricCard("Середній результат", `${stats.avg.toFixed(1)}%`, "За завершеними тестами")}
-        ${ctx.metricCard("Останній тест", last ? `${last.correct}/${last.total}` : "—", last ? last.finished_at_label || "Без дати" : "Ще не було")}
-        ${ctx.metricCard("Останній відсоток", last ? `${last.percent.toFixed(1)}%` : "—", last ? "Останній завершений тест" : "Немає даних")}
-      </div>
-    </section>
+        <div class="mini-stats-grid">
+          ${ctx.metricCard("Тестів", String(stats.count), "усього")}
+          ${ctx.metricCard("Середній", `${stats.avg.toFixed(0)}%`, "бал")}
+          ${ctx.metricCard("Останній", last ? `${last.correct}/${last.total}` : "—", last ? last.finished_at_label || "без дати" : "—")}
+          ${ctx.metricCard("Відсоток", last ? percentLabel(last.percent) : "—", "останній")}
+        </div>
+      </section>
 
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Що робити далі</h2>
-          <p>Після короткої перевірки прогресу можна швидко повернутись у навчання або зібрати новий тест.</p>
+      <section class="ios-section">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Далі</h2>
+            <p>Повторіть слабкі місця або зберіть новий тест.</p>
+          </div>
         </div>
-      </div>
-      <div class="button-row" id="stats-actions"></div>
+        <div class="button-row" id="stats-actions"></div>
+      </section>
     </section>
   `;
 
   ctx.refs.mainPanel.querySelector("#stats-actions").append(
-    ctx.actionButton("До навчання", async () => ctx.navigate("learning"), "primary"),
+    ctx.actionButton("Навчання", async () => ctx.navigate("learning"), "primary"),
     ctx.actionButton("Новий тест", async () => ctx.navigate("testing")),
   );
 }
@@ -440,64 +482,78 @@ export function renderHelp(ctx) {
   ctx.setChrome({
     eyebrow: "Підтримка",
     title: "Підтримка",
-    subtitle: "Контакти і зовнішні переходи без зайвих веб-елементів.",
+    subtitle: "",
     showBack: true,
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="support-grid">
-      ${ctx.actionCard({
-        code: "TG",
-        title: "Telegram-група",
-        body: links.group_url ? "Швидкий перехід до спільноти без виходу з контексту навчання." : "Посилання на групу поки не налаштовано.",
-        meta: links.group_url ? "Відкрити" : "Недоступно",
-        link: links.group_url || "",
-      })}
-      ${ctx.actionCard({
-        code: "AD",
-        title: "Адміністратор",
-        body: links.admin_url ? "Написати адміну, якщо потрібен доступ або є питання по роботі бота." : "Контакт адміністратора поки не налаштовано.",
-        meta: links.admin_url ? "Написати" : "Недоступно",
-        link: links.admin_url || "",
-      })}
-    </section>
-
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Сервісні дії</h2>
-          <p>Тут зібрані допоміжні переходи, які не повинні заважати основному сценарію використання.</p>
+    <section class="app-screen compact-screen support-screen">
+      <section class="ios-section ios-section--hero">
+        <div class="section-header">
+          <div class="section-copy">
+            <span class="eyebrow">Support</span>
+            <h2>Допомога</h2>
+            <p>Група, адміністратор та оновлення даних.</p>
+          </div>
         </div>
-      </div>
-      <div class="button-row" id="help-actions"></div>
-    </section>
+      </section>
 
-    ${
-      user.is_admin
-        ? `
-          <section class="surface">
-            <div class="section-header">
-              <div class="section-copy">
-                <h2>Режим адміністратора</h2>
-                <p>Адмінські інструменти винесені в окремий режим, щоб не змішувати їх з користувацьким інтерфейсом.</p>
+      <section class="support-grid">
+        ${ctx.actionCard({
+          code: "💬",
+          title: "Telegram-група",
+          body: links.group_url ? "Перейти до спільноти." : "Посилання не налаштовано.",
+          meta: links.group_url ? "Відкрити" : "Немає",
+          link: links.group_url || "",
+          tone: "blue",
+        })}
+        ${ctx.actionCard({
+          code: "👤",
+          title: "Адміністратор",
+          body: links.admin_url ? "Написати щодо доступу." : "Контакт не налаштовано.",
+          meta: links.admin_url ? "Написати" : "Немає",
+          link: links.admin_url || "",
+          tone: "orange",
+        })}
+      </section>
+
+      <section class="ios-section">
+        <div class="section-header">
+          <div class="section-copy">
+            <h2>Сервіс</h2>
+            <p>Швидкі дії без зайвих екранів.</p>
+          </div>
+        </div>
+        <div class="button-row" id="help-actions"></div>
+      </section>
+
+      ${
+        user.is_admin
+          ? `
+            <section class="ios-section">
+              <div class="section-header">
+                <div class="section-copy">
+                  <h2>Адмін</h2>
+                  <p>Користувачі та банк питань.</p>
+                </div>
               </div>
-            </div>
-            <div class="button-row" id="admin-entry-actions"></div>
-          </section>
-        `
-        : ""
-    }
+              <div class="button-row" id="admin-entry-actions"></div>
+            </section>
+          `
+          : ""
+      }
+    </section>
   `;
 
   const helpActions = ctx.refs.mainPanel.querySelector("#help-actions");
   helpActions.append(
-    ctx.actionButton("Оновити дані", async () => ctx.loadBootstrap(true), "primary"),
-    ctx.actionButton("На головну", ctx.goHome),
+    ctx.actionButton("Оновити", async () => ctx.loadBootstrap(true), "primary"),
+    ctx.actionButton("Головна", ctx.goHome),
   );
 
   if (user.is_admin) {
     ctx.refs.mainPanel.querySelector("#admin-entry-actions")?.append(
-      ctx.actionButton("Відкрити режим адміністратора", async () => ctx.navigate("admin"), "primary"),
+      ctx.actionButton("Відкрити адмінку", async () => ctx.navigate("admin"), "primary"),
     );
   }
 

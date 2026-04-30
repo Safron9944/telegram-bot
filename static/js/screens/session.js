@@ -46,7 +46,7 @@ function renderPretest(ctx, view) {
   ctx.setChrome({
     eyebrow: "Передстарт",
     title: "Перед стартом",
-    subtitle: view.header || "Оберіть питання для перегляду перед запуском сесії.",
+    subtitle: view.header || "Швидкий перегляд перед стартом.",
     showBack: true,
   });
 
@@ -54,8 +54,8 @@ function renderPretest(ctx, view) {
     <section class="surface">
       <div class="section-header">
         <div class="section-copy">
-          <h2>Префлайт сесії</h2>
-          <p>Натисніть номер питання, щоб переглянути його разом із правильною відповіддю.</p>
+          <h2>Перед стартом</h2>
+          <p>Оберіть номер для перегляду.</p>
         </div>
       </div>
       <div class="button-row" id="pretest-actions"></div>
@@ -64,8 +64,8 @@ function renderPretest(ctx, view) {
       <section class="surface">
         <div class="section-header">
           <div class="section-copy">
-            <h2>Сітка питань</h2>
-            <p>У цій сесії доступно ${total} питань для швидкої перевірки.</p>
+            <h2>Питання</h2>
+            <p>Усього: ${total}.</p>
           </div>
         </div>
         <div class="numbers-grid" id="pretest-grid"></div>
@@ -138,8 +138,8 @@ function renderQuestionView(ctx, view) {
     <section class="surface">
       <div class="section-header">
         <div class="section-copy">
-          <h2>Поточне питання</h2>
-          <p>Виберіть один із варіантів нижче. Після відповіді Mini App одразу переведе вас далі.</p>
+          <h2>Питання</h2>
+          <p>Оберіть відповідь.</p>
         </div>
       </div>
       <div class="button-row" id="question-actions"></div>
@@ -199,7 +199,7 @@ function renderFeedbackView(ctx, view) {
   ctx.setChrome({
     eyebrow: "Розбір",
     title: "Розбір відповіді",
-    subtitle: view.header || "Пояснення перед переходом до наступного питання.",
+    subtitle: view.header || "Короткий розбір.",
     showBack: true,
     showRefresh: false,
   });
@@ -208,8 +208,8 @@ function renderFeedbackView(ctx, view) {
     <section class="surface">
       <div class="section-header">
         <div class="section-copy">
-          <h2>Розбір помилки</h2>
-          <p>Подивіться правильний варіант і перейдіть до наступного питання.</p>
+          <h2>Розбір</h2>
+          <p>Перевірте відповідь і рухайтесь далі.</p>
         </div>
       </div>
       <div class="button-row" id="feedback-actions"></div>
@@ -241,7 +241,7 @@ function renderResultView(ctx, view) {
   ctx.setChrome({
     eyebrow: "Результат",
     title: summary.title || "Результат",
-    subtitle: "Підсумок завершеної сесії.",
+    subtitle: "Підсумок сесії.",
     showBack: true,
   });
 
@@ -250,7 +250,7 @@ function renderResultView(ctx, view) {
       <div class="section-header">
         <div class="section-copy">
           <h2>${ctx.escapeHtml(summary.title || "Результат")}</h2>
-          <p>Сесію завершено. Нижче коротке зведення та наступні дії.</p>
+          <p>Коротке зведення та дії.</p>
         </div>
       </div>
       <div class="button-row" id="result-actions"></div>
@@ -268,7 +268,7 @@ function renderResultView(ctx, view) {
             <div class="section-header">
               <div class="section-copy">
                 <h2>По блоках</h2>
-                <p>Результат по кожній частині завершеної сесії.</p>
+                <p>Результати по блоках.</p>
               </div>
             </div>
             <div class="list-stack">
@@ -339,8 +339,8 @@ function renderReviewView(ctx, view) {
     <section class="surface">
       <div class="section-header">
         <div class="section-copy">
-          <h2>Перегляд помилок</h2>
-          <p>Перейдіть між питаннями і поверніться до результату, коли завершите перегляд.</p>
+          <h2>Помилки</h2>
+          <p>Гортайте питання і повертайтесь до результату.</p>
         </div>
       </div>
       <div class="button-row" id="review-actions"></div>

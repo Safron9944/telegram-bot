@@ -41,22 +41,22 @@ export function actionButton(label, handler, kind = "secondary") {
   return button;
 }
 
-export function actionCard({ code, title, body, meta, screen, link }) {
+export function actionCard({ code, title, body, meta, screen, link, tone = "default" }) {
   const isDisabled = !screen && !link;
   const attr = screen
     ? `data-screen-target="${escapeHtml(screen)}"`
     : `data-link-target="${escapeHtml(link || "")}"`;
+  const toneClass = tone ? ` nav-card--${escapeHtml(tone)}` : "";
 
   return `
-    <button class="nav-card" type="button" ${attr} ${isDisabled ? "disabled" : ""}>
-      <div class="nav-card__top">
-        <span class="monogram">${escapeHtml(code)}</span>
+    <button class="nav-card${toneClass}" type="button" ${attr} ${isDisabled ? "disabled" : ""}>
+      <span class="monogram">${escapeHtml(code)}</span>
+      <span class="nav-card__content">
         <span class="nav-card__meta">${escapeHtml(meta)}</span>
-      </div>
-      <div class="nav-card__body">
-        <h3 class="nav-card__title">${escapeHtml(title)}</h3>
-        <p>${escapeHtml(body)}</p>
-      </div>
+        <span class="nav-card__title">${escapeHtml(title)}</span>
+        ${body ? `<span class="nav-card__text">${escapeHtml(body)}</span>` : ""}
+      </span>
+      <span class="nav-card__chevron" aria-hidden="true">›</span>
     </button>
   `;
 }

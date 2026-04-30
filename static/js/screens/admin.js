@@ -2,7 +2,7 @@ export function renderAdminHub(ctx) {
   ctx.setChrome({
     eyebrow: "Адмін режим",
     title: "Адміністрування",
-    subtitle: "Сервісні інструменти відокремлені від основного користувацького потоку.",
+    subtitle: "Окремі сервісні інструменти.",
     showBack: true,
   });
 
@@ -11,21 +11,21 @@ export function renderAdminHub(ctx) {
       <div class="section-header">
         <div class="section-copy">
           <h2>Інструменти адміністратора</h2>
-          <p>Оберіть потрібний напрям: користувачі або банк питань.</p>
+          <p>Оберіть напрям.</p>
         </div>
       </div>
       <div class="dashboard-grid">
         ${ctx.actionCard({
           code: "US",
           title: "Користувачі",
-          body: "Безстроковий доступ, статус і перевірка поточних підписок.",
+          body: "Доступ і статус.",
           meta: "Відкрити",
           screen: "admin-users",
         })}
         ${ctx.actionCard({
           code: "QA",
           title: "Питання",
-          body: "Пошук і редагування текстів, варіантів та правильних відповідей.",
+          body: "Пошук і правки.",
           meta: "Відкрити",
           screen: "admin-questions",
         })}
@@ -40,7 +40,7 @@ export function renderAdminUsers(ctx) {
   ctx.setChrome({
     eyebrow: "Адмін режим",
     title: "Користувачі",
-    subtitle: "Керуйте доступом і переглядайте поточний стан користувачів.",
+    subtitle: "Доступ і статус користувачів.",
     showBack: true,
   });
 
@@ -49,13 +49,13 @@ export function renderAdminUsers(ctx) {
       <section class="surface" id="admin-users-list">
         <div class="empty-state">
           <h2>Завантажуємо список</h2>
-          <p>Поточні користувачі з’являться тут за мить.</p>
+          <p>Список з’явиться тут.</p>
         </div>
       </section>
       <section class="surface" id="admin-user-detail">
         <div class="empty-state">
           <h2>Оберіть користувача</h2>
-          <p>Деталі і кнопки керування з’являться після вибору запису зі списку.</p>
+          <p>Оберіть запис зі списку.</p>
         </div>
       </section>
     </section>
@@ -66,7 +66,7 @@ export function renderAdminQuestions(ctx) {
   ctx.setChrome({
     eyebrow: "Адмін режим",
     title: "Банк питань",
-    subtitle: "Пошук і редагування в одному режимі без зайвої навігації.",
+    subtitle: "Пошук і редагування.",
     showBack: true,
   });
 
@@ -75,13 +75,13 @@ export function renderAdminQuestions(ctx) {
       <section class="surface" id="admin-question-browser">
         <div class="empty-state">
           <h2>Завантажуємо питання</h2>
-          <p>Список і пошук з’являться тут за мить.</p>
+          <p>Список з’явиться тут.</p>
         </div>
       </section>
       <section class="surface" id="admin-question-editor">
         <div class="empty-state">
           <h2>Оберіть питання</h2>
-          <p>Форма редагування з’явиться після вибору зі списку або з результатів пошуку.</p>
+          <p>Оберіть питання.</p>
         </div>
       </section>
     </section>
@@ -109,7 +109,7 @@ export async function loadAdminUsers(ctx, offset = 0) {
       <div class="section-header">
         <div class="section-copy">
           <h2>Список користувачів</h2>
-          <p>На цій сторінці: активні ${payload.counts.active}, тріал ${payload.counts.trial}, без доступу ${payload.counts.expired}.</p>
+          <p>Активні: ${payload.counts.active} · тріал: ${payload.counts.trial} · без доступу: ${payload.counts.expired}.</p>
         </div>
       </div>
       <div class="list-stack" id="admin-users-items"></div>
@@ -121,7 +121,7 @@ export async function loadAdminUsers(ctx, offset = 0) {
       items.innerHTML = `
         <div class="empty-state">
           <h2>Порожньо</h2>
-          <p>У списку немає користувачів для цього діапазону.</p>
+          <p>Порожній діапазон.</p>
         </div>
       `;
     } else {
