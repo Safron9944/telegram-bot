@@ -31,6 +31,7 @@ export function renderAdminHub(ctx) {
         })}
       </div>
     </section>
+    ${ctx.screenBar("admin")}
   `;
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
@@ -59,7 +60,9 @@ export function renderAdminUsers(ctx) {
         </div>
       </section>
     </section>
+    ${ctx.screenBar("admin-users")}
   `;
+  ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
 
 export function renderAdminQuestions(ctx) {
@@ -85,7 +88,9 @@ export function renderAdminQuestions(ctx) {
         </div>
       </section>
     </section>
+    ${ctx.screenBar("admin-questions")}
   `;
+  ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
 
 export async function loadAdminUsers(ctx, offset = 0) {

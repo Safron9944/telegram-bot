@@ -9,14 +9,17 @@ import {
   bindInlineTargets,
   escapeHtml,
   metricCard,
+  screenBar,
   setChrome,
   setMessage,
 } from "./core/ui.js";
 import {
   renderHelp,
   renderHome,
+  renderLawLearning,
   renderLawParts,
   renderLearning,
+  renderOkLearning,
   renderStats,
   renderTesting,
 } from "./screens/user.js";
@@ -58,6 +61,7 @@ function createContext() {
     metricCard,
     setChrome,
     setMessage,
+    screenBar: (activeScreen = state.currentScreen) => screenBar(activeScreen, { isAdmin: Boolean(state.bootstrap?.user?.is_admin) }),
     navigate,
     goHome,
     goBack,
@@ -187,6 +191,12 @@ function render() {
       break;
     case "learning":
       renderLearning(ctx);
+      break;
+    case "law-learning":
+      renderLawLearning(ctx);
+      break;
+    case "ok-learning":
+      renderOkLearning(ctx);
       break;
     case "law-parts":
       renderLawParts(ctx);

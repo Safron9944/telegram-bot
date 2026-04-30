@@ -145,3 +145,28 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+@media (max-width: 429px) {
+  .screen-bar {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(58px, 1fr);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .screen-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .screen-bar__item {
+    min-height: 50px;
+    font-size: 10px;
+  }
+
+  .screen-bar__icon {
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+  }
+}
