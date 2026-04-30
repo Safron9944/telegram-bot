@@ -1,0 +1,59 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.82), transparent 32%),
+    radial-gradient(circle at top right, rgba(214, 224, 239, 0.68), transparent 28%),
+    linear-gradient(180deg, var(--app-bg), var(--app-bg-glow));
+  color: var(--text);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: contain;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+code {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(22, 32, 51, 0.06);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.94em;
+}
+
+button:hover,
+button:focus-visible {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  opacity: 0.58;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}

@@ -1,0 +1,90 @@
+.app-shell {
+  min-height: 100dvh;
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding:
+    calc(12px + env(safe-area-inset-top))
+    16px
+    calc(24px + env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+}
+
+.topbar {
+  position: sticky;
+  top: calc(8px + env(safe-area-inset-top));
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 12px;
+  align-items: start;
+  padding: 16px 18px;
+  border-radius: 24px;
+  background: rgba(243, 246, 251, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.topbar__copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.message-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.app-main,
+.screen-frame,
+.section-stack,
+.list-stack,
+.stack-sm,
+.choice-grid,
+.review-grid,
+.numbers-grid,
+.dashboard-grid,
+.metrics-grid,
+.cards-grid,
+.support-grid,
+.split-layout {
+  display: grid;
+  gap: 14px;
+}
+
+.screen-frame {
+  align-content: start;
+}
+
+.summary-card__row,
+.section-header,
+.button-row,
+.chips-row,
+.check-row,
+.list-item__row,
+.nav-card__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.summary-card__copy,
+.section-copy,
+.list-item__main,
+.field,
+.nav-card__body {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-grid,
+.metrics-grid,
+.cards-grid,
+.support-grid {
+  grid-template-columns: 1fr;
+}
