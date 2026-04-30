@@ -61,13 +61,29 @@ export function actionCard({ code, title, body, meta, screen, link }) {
   `;
 }
 
-export function setChrome({ eyebrow, title, subtitle, showBack = false, showRefresh = true }) {
-  refs.eyebrowNode.textContent = eyebrow;
-  refs.titleNode.textContent = title;
-  refs.subtitleNode.textContent = subtitle;
+export function setChrome({ eyebrow, title, subtitle, showBack = false, showRefresh = false }) {
+  if (refs.eyebrowNode) {
+    refs.eyebrowNode.textContent = eyebrow || "";
+    refs.eyebrowNode.hidden = true;
+  }
 
-  refs.backButton.hidden = !showBack;
-  refs.refreshButton.hidden = !showRefresh;
+  if (refs.titleNode) {
+    refs.titleNode.textContent = title || eyebrow || "Підготовка";
+  }
+
+  if (refs.subtitleNode) {
+    refs.subtitleNode.textContent = subtitle || "";
+    refs.subtitleNode.hidden = true;
+  }
+
+  if (refs.backButton) {
+    refs.backButton.hidden = !showBack;
+  }
+
+  if (refs.refreshButton) {
+    refs.refreshButton.hidden = !showRefresh;
+  }
+
   setTelegramBackButton(showBack);
 }
 

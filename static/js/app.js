@@ -37,7 +37,7 @@ initializeTelegram(() => {
 });
 initializeTheme();
 
-refs.refreshButton.addEventListener("click", () => {
+refs.refreshButton?.addEventListener("click", () => {
   void loadBootstrap(true);
 });
 
