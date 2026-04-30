@@ -419,30 +419,48 @@ export function renderTesting(ctx) {
   });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="app-screen testing-screen compact-screen">
-      <section class="ios-section ios-section--hero">
-        <div class="section-header">
-          <div class="section-copy">
-            <span class="eyebrow">Test</span>
-            <h2>Новий тест</h2>
-            <p>Окремий екран збірки тесту: законодавство + вибрані рівні ОК.</p>
-          </div>
-          <span class="status-chip">${modules.length} мод.</span>
+    <section class="app-screen testing-screen testing-studio-screen">
+      <section class="test-builder-hero">
+        <div class="test-builder-hero__copy">
+          <span class="test-mode-chip">Exam mode</span>
+          <h2>Зберіть тест</h2>
+          <p>Оберіть законодавство та рівні ОК. Нижче одразу видно, що саме піде в тест.</p>
+        </div>
+        <div class="test-builder-hero__stats">
+          ${ctx.metricCard("Закон", "50", "випадкових")}
+          ${ctx.metricCard("ОК", String(modules.length), "модулів")}
         </div>
       </section>
 
-      <section class="ios-section screen-block">
-        <div class="inline-form test-config-form ios-form">
-          <label class="ios-switch-row" for="include-law">
-            <span>
-              <strong>Законодавство</strong>
-              <small>50 випадкових питань</small>
-            </span>
-            <input id="include-law" type="checkbox" checked />
-          </label>
-          <div id="test-module-config" class="list-stack compact-list"></div>
-          <div class="button-row sticky-actions" id="test-actions"></div>
+      <section class="test-builder-card">
+        <div class="test-builder-card__header">
+          <div class="section-copy">
+            <h2>Склад тесту</h2>
+            <p>Конфігуратор перед стартом замість випадкового списку кнопок.</p>
+          </div>
+          <span class="status-chip" id="test-total-chip">—</span>
         </div>
+
+        <label class="test-law-toggle" for="include-law">
+          <span class="test-law-toggle__icon">⚖️</span>
+          <span class="test-law-toggle__copy">
+            <strong>Законодавство</strong>
+            <small>Додати 50 випадкових питань</small>
+          </span>
+          <input id="include-law" type="checkbox" checked />
+        </label>
+
+        <div class="test-builder-divider"></div>
+
+        <div class="test-module-list" id="test-module-config"></div>
+      </section>
+
+      <section class="test-start-panel">
+        <div>
+          <strong id="test-summary-title">Готово до старту</strong>
+          <p class="muted" id="test-summary-copy">Перевірте вибір і запускайте тест.</p>
+        </div>
+        <div class="button-row" id="test-actions"></div>
       </section>
 
       ${ctx.screenBar("testing")}
@@ -450,27 +468,54 @@ export function renderTesting(ctx) {
   `;
 
   const configNode = ctx.refs.mainPanel.querySelector("#test-module-config");
+  const totalChip = ctx.refs.mainPanel.querySelector("#test-total-chip");
+  const summaryTitle = ctx.refs.mainPanel.querySelector("#test-summary-title");
+  const summaryCopy = ctx.refs.mainPanel.querySelector("#test-summary-copy");
+  const includeLawNode = ctx.refs.mainPanel.querySelector("#include-law");
   const selections = {};
+
+  function selectedLevelCount() {
+    return Object.values(selections).reduce((sum, levels) => sum + levels.length, 0);
+  }
+
+  function updateSummary() {
+    const lawIncluded = includeLawNode.checked;
+    const levels = selectedLevelCount();
+    const modulesWithLevels = Object.values(selections).filter((entry) => entry.length).length;
+    totalChip.textContent = `${lawIncluded ? 50 : 0}+${levels} рівн.`;
+    summaryTitle.textContent = lawIncluded || levels ? "Готово до старту" : "Нічого не вибрано";
+    summaryCopy.textContent = lawIncluded
+      ? `Законодавство + ${modulesWithLevels} ОК-мод. / ${levels} рівн.`
+      : `${modulesWithLevels} ОК-мод. / ${levels} рівн. без законодавства.`;
+  }
+
+  includeLawNode.addEventListener("change", () => {
+    ctx.impact("light");
+    updateSummary();
+  });
 
   modules.forEach((item) => {
     const initialLevel = item.last_level || item.levels[0]?.level;
     selections[item.name] = initialLevel ? [initialLevel] : [];
 
     const block = document.createElement("article");
-    block.className = "list-item ios-list-item";
+    block.className = "test-module-card";
     block.innerHTML = `
-      <div class="list-item__main">
-        <strong>${ctx.escapeHtml(item.label)}</strong>
-        <span class="list-item__meta">Виберіть рівні</span>
+      <div class="test-module-card__top">
+        <span class="test-module-card__icon">🎯</span>
+        <div>
+          <strong>${ctx.escapeHtml(item.label)}</strong>
+          <small>Рівні для тестування</small>
+        </div>
       </div>
-      <div class="button-row"></div>
+      <div class="test-level-row"></div>
     `;
 
-    const actions = block.querySelector(".button-row");
+    const actions = block.querySelector(".test-level-row");
     item.levels.forEach((levelEntry) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `pill-button ${selections[item.name].includes(levelEntry.level) ? "is-selected" : ""}`;
+      button.className = `pill-button test-level-pill ${selections[item.name].includes(levelEntry.level) ? "is-selected" : ""}`;
       button.textContent = `L${levelEntry.level}`;
       button.addEventListener("click", () => {
         ctx.impact("light");
@@ -483,6 +528,7 @@ export function renderTesting(ctx) {
           button.classList.add("is-selected");
         }
         selections[item.name] = Array.from(set).sort((a, b) => a - b);
+        updateSummary();
       });
       actions.append(button);
     });
@@ -491,10 +537,10 @@ export function renderTesting(ctx) {
 
   if (!modules.length) {
     const note = document.createElement("div");
-    note.className = "empty-state compact-empty";
+    note.className = "empty-state compact-empty test-empty-state";
     note.innerHTML = `
-      <h2>Немає модулів</h2>
-      <p>Додайте ОК-модуль у розділі «ОК модулі».</p>
+      <h2>ОК-модулів ще немає</h2>
+      <p>Тест можна запустити із законодавством або спочатку додати ОК-модулі.</p>
     `;
     configNode.append(note);
   }
@@ -505,7 +551,7 @@ export function renderTesting(ctx) {
         ctx.state.currentView = await ctx.api("/api/test/start", {
           method: "POST",
           body: {
-            include_law: ctx.refs.mainPanel.querySelector("#include-law").checked,
+            include_law: includeLawNode.checked,
             module_levels: selections,
           },
         });
@@ -517,6 +563,7 @@ export function renderTesting(ctx) {
     }, "primary"),
   );
 
+  updateSummary();
   bindSharedNav(ctx);
 }
 
