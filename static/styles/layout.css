@@ -1,3 +1,7 @@
+.chrome-sentinel {
+  display: none !important;
+}
+
 .app-shell {
   min-height: 100dvh;
   width: min(100%, 520px);

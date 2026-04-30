@@ -12,19 +12,10 @@
   </head>
   <body>
     <div class="app-shell">
-      <header class="topbar" hidden aria-hidden="true">
-        <button id="back-button" class="icon-button" type="button" hidden aria-label="Назад">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M15 5 8 12l7 7" />
-          </svg>
-        </button>
-
-        <div class="topbar__copy">
-          <div class="topbar__eyebrow" id="app-eyebrow" hidden>Підготовка</div>
-          <h1 class="topbar__title" id="app-title">Підключення…</h1>
-          <p class="topbar__subtitle" id="app-subtitle" hidden></p>
-        </div>
-      </header>
+      <button id="back-button" class="chrome-sentinel" type="button" hidden aria-label="Назад"></button>
+      <span id="app-eyebrow" class="chrome-sentinel" hidden></span>
+      <span id="app-title" class="chrome-sentinel" hidden>Підготовка</span>
+      <span id="app-subtitle" class="chrome-sentinel" hidden></span>
 
       <section class="message-stack" id="messages-panel" hidden></section>
 

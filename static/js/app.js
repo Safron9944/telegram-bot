@@ -41,7 +41,7 @@ refs.refreshButton?.addEventListener("click", () => {
   void loadBootstrap(true);
 });
 
-refs.backButton.addEventListener("click", () => {
+refs.backButton?.addEventListener("click", () => {
   void goBack();
 });
 
