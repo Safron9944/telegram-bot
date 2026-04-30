@@ -1,4 +1,5 @@
 export const refs = {
+  app: document.querySelector("#app"),
   mainPanel: document.querySelector("#main-panel"),
   messagesPanel: document.querySelector("#messages-panel"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -8,4 +9,6 @@ export const refs = {
   subtitleNode: document.querySelector("#app-subtitle"),
   eyebrowNode: document.querySelector("#app-eyebrow"),
   emptyStateTemplate: document.querySelector("#empty-state-template"),
+  tabbar: document.querySelector("#tabbar"),
+  tabs: document.querySelectorAll("#tabbar .tab"),
 };

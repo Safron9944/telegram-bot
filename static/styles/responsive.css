@@ -1,147 +1,62 @@
-@media (max-width: 429px) {
-  .app-shell {
-    padding-inline: 10px;
-    gap: 8px;
+/* ===================== Small phones ===================== */
+@media (max-width: 359px) {
+  .screen {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
-  .topbar {
-    min-height: 48px;
-    padding: 6px 8px;
-    border-radius: 17px;
+  .page-title {
+    font-size: 28px;
   }
 
-  .icon-button,
-  .theme-button {
-    min-width: 34px;
-    width: 34px;
-    height: 34px;
-    border-radius: 12px;
+  .stat-strip {
+    gap: 6px;
   }
 
-  .theme-button__label {
-    display: none;
+  .stat-pill {
+    padding: 8px 10px;
   }
 
-  .ios-hero-card,
-  .ios-section,
-  .surface,
-  .summary-card,
-  .stat-card,
-  .grid-card,
-  .question-card,
-  .inline-form,
-  .list-item,
-  .link-card {
-    padding: 12px;
-  }
-
-  .ios-hero-card {
-    min-height: 158px;
-    gap: 10px;
-  }
-
-  .ios-avatar {
-    width: 44px;
-    height: 44px;
-    border-radius: 15px;
-  }
-
-  .quick-action {
-    min-height: 68px;
-    border-radius: 19px;
-  }
-
-  .quick-action strong {
-    font-size: 12px;
-  }
-
-  .nav-card {
-    min-height: 116px;
-    grid-template-columns: 38px minmax(0, 1fr);
-    padding: 12px;
-    border-radius: 21px;
-  }
-
-  .nav-card__chevron {
-    display: none;
-  }
-
-  .monogram {
-    width: 38px;
-    height: 38px;
-    border-radius: 14px;
+  .stat-pill__value {
     font-size: 18px;
   }
 
-  .nav-card__title {
-    font-size: 17px;
+  .tile {
+    padding: 12px;
   }
 
-  .nav-card__text,
-  .muted,
-  .section-copy p,
-  .summary-card__copy p,
-  .empty-state p,
-  .list-item__meta {
-    font-size: 12px;
-  }
-
-  .stat-card {
-    min-height: 68px;
-    padding: 10px;
-  }
-
-  .primary-button,
-  .secondary-button,
-  .danger-button,
-  .ghost-button,
-  .pill-button,
-  .numbers-grid button {
-    min-height: 38px;
-    padding-inline: 12px;
-  }
-
-  .ios-list-item {
-    grid-template-columns: 1fr;
-  }
-
-  .button-row .primary-button,
-  .button-row .secondary-button,
-  .button-row .danger-button,
-  .button-row .ghost-button {
-    flex: 1 1 auto;
+  .tab span {
+    font-size: 9px;
   }
 }
 
-@media (max-width: 360px) {
-  .ios-tile-grid,
-  .compact-card-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .mini-stats-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .quick-actions {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-
-  .quick-action span {
-    display: none;
-  }
-
-  .quick-action {
-    min-height: 48px;
+/* ===================== Tablet / desktop preview ===================== */
+@media (min-width: 600px) {
+  .app {
+    border-left: 1px solid var(--separator);
+    border-right: 1px solid var(--separator);
   }
 }
 
-@media (min-width: 520px) {
-  .split-layout {
-    grid-template-columns: minmax(0, 1fr);
+/* Hover affordance on pointer devices */
+@media (hover: hover) {
+  .cell:hover {
+    background: var(--bg-fill-soft);
   }
 
-  .metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .btn:hover {
+    opacity: 0.92;
+  }
+
+  .tile:hover {
+    background: var(--bg-fill-soft);
+  }
+
+  .tab:hover {
+    color: var(--label);
+  }
+
+  .tab.is-active:hover {
+    color: var(--accent);
   }
 }

@@ -1,82 +1,100 @@
 :root {
   color-scheme: light;
-  --app-bg: #f4f6fb;
-  --desktop-bg: #dde5f2;
-  --window-bg: rgba(255, 255, 255, 0.72);
-  --titlebar-bg: rgba(255, 255, 255, 0.62);
-  --surface: rgba(255, 255, 255, 0.72);
-  --surface-strong: rgba(255, 255, 255, 0.92);
-  --surface-soft: rgba(118, 118, 128, 0.10);
-  --surface-hover: rgba(0, 122, 255, 0.10);
-  --surface-tint: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(244,247,255,0.78));
-  --text: #111827;
-  --heading: #050505;
-  --muted: rgba(60, 60, 67, 0.68);
-  --line: rgba(60, 60, 67, 0.14);
-  --line-strong: rgba(60, 60, 67, 0.24);
-  --accent: #007aff;
-  --accent-strong: #0a58ca;
-  --accent-contrast: #ffffff;
-  --accent-soft: rgba(0, 122, 255, 0.13);
-  --green: #34c759;
-  --green-soft: rgba(52, 199, 89, 0.16);
-  --orange: #ff9500;
-  --orange-soft: rgba(255, 149, 0, 0.16);
-  --purple: #af52de;
-  --purple-soft: rgba(175, 82, 222, 0.16);
-  --success: #20a85b;
-  --success-soft: rgba(52, 199, 89, 0.16);
-  --danger: #ff3b30;
-  --danger-soft: rgba(255, 59, 48, 0.14);
+
+  /* System surfaces — adapt to Telegram theme if available */
+  --bg: var(--tg-theme-bg-color, #f2f2f7);
+  --bg-grouped: var(--tg-theme-secondary-bg-color, #ffffff);
+  --bg-fill: rgba(120, 120, 128, 0.12);
+  --bg-fill-soft: rgba(120, 120, 128, 0.07);
+  --bg-fill-strong: rgba(120, 120, 128, 0.20);
+  --bg-tabbar: rgba(247, 247, 247, 0.86);
+
+  /* Separators */
+  --separator: rgba(60, 60, 67, 0.16);
+  --separator-strong: rgba(60, 60, 67, 0.32);
+
+  /* Labels */
+  --label: var(--tg-theme-text-color, #000000);
+  --label-secondary: var(--tg-theme-hint-color, rgba(60, 60, 67, 0.62));
+  --label-tertiary: rgba(60, 60, 67, 0.32);
+  --label-inverse: #ffffff;
+
+  /* Brand / system */
+  --accent: var(--tg-theme-button-color, #007aff);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --accent-fill: rgba(0, 122, 255, 0.12);
+  --link: var(--tg-theme-link-color, #007aff);
+
+  --destructive: #ff3b30;
+  --destructive-fill: rgba(255, 59, 48, 0.12);
+  --success: #34c759;
+  --success-fill: rgba(52, 199, 89, 0.16);
   --warning: #ff9500;
-  --shadow: 0 28px 80px rgba(31, 41, 55, 0.18);
-  --shadow-soft: 0 10px 30px rgba(31, 41, 55, 0.10);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  --focus-ring: rgba(0, 122, 255, 0.36);
-  --placeholder: rgba(60, 60, 67, 0.45);
-  --code-bg: rgba(60, 60, 67, 0.10);
-  --radius-xl: 28px;
-  --radius-lg: 22px;
-  --radius-md: 17px;
-  --radius-sm: 12px;
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
+  --warning-fill: rgba(255, 149, 0, 0.16);
+
+  /* Tinted icon backgrounds (iOS Settings-style) */
+  --tint-blue: #007aff;
+  --tint-purple: #af52de;
+  --tint-pink: #ff2d55;
+  --tint-orange: #ff9500;
+  --tint-green: #34c759;
+  --tint-red: #ff3b30;
+  --tint-teal: #5ac8fa;
+  --tint-indigo: #5856d6;
+
+  /* Geometry */
+  --radius-card: 12px;
+  --radius-button: 10px;
+  --radius-pill: 999px;
+  --radius-tile: 16px;
+
+  /* Sizes */
+  --row-h: 44px;
+  --tabbar-h: 50px;
+  --tabbar-h-total: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+
+  /* Type */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --font-rounded: ui-rounded, -apple-system, "SF Pro Rounded", "SF Pro Display", system-ui, sans-serif;
+
+  --shadow-fab: 0 8px 24px rgba(0, 122, 255, 0.28);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --app-bg: #000000;
-  --desktop-bg: #07080b;
-  --window-bg: rgba(28, 28, 30, 0.72);
-  --titlebar-bg: rgba(28, 28, 30, 0.70);
-  --surface: rgba(28, 28, 30, 0.72);
-  --surface-strong: rgba(44, 44, 46, 0.92);
-  --surface-soft: rgba(118, 118, 128, 0.18);
-  --surface-hover: rgba(10, 132, 255, 0.16);
-  --surface-tint: linear-gradient(145deg, rgba(44,44,46,0.98), rgba(24,24,27,0.86));
-  --text: #f5f5f7;
-  --heading: #ffffff;
-  --muted: rgba(235, 235, 245, 0.62);
-  --line: rgba(235, 235, 245, 0.13);
-  --line-strong: rgba(235, 235, 245, 0.22);
-  --accent: #0a84ff;
-  --accent-strong: #6fb6ff;
-  --accent-contrast: #ffffff;
-  --accent-soft: rgba(10, 132, 255, 0.20);
-  --green: #30d158;
-  --green-soft: rgba(48, 209, 88, 0.18);
-  --orange: #ff9f0a;
-  --orange-soft: rgba(255, 159, 10, 0.18);
-  --purple: #bf5af2;
-  --purple-soft: rgba(191, 90, 242, 0.18);
+
+  --bg: var(--tg-theme-bg-color, #000000);
+  --bg-grouped: var(--tg-theme-secondary-bg-color, #1c1c1e);
+  --bg-fill: rgba(120, 120, 128, 0.24);
+  --bg-fill-soft: rgba(120, 120, 128, 0.12);
+  --bg-fill-strong: rgba(120, 120, 128, 0.36);
+  --bg-tabbar: rgba(22, 22, 23, 0.88);
+
+  --separator: rgba(84, 84, 88, 0.55);
+  --separator-strong: rgba(84, 84, 88, 0.85);
+
+  --label: var(--tg-theme-text-color, #ffffff);
+  --label-secondary: var(--tg-theme-hint-color, rgba(235, 235, 245, 0.62));
+  --label-tertiary: rgba(235, 235, 245, 0.32);
+
+  --accent: var(--tg-theme-button-color, #0a84ff);
+  --link: var(--tg-theme-link-color, #0a84ff);
+  --accent-fill: rgba(10, 132, 255, 0.20);
+
+  --destructive: #ff453a;
+  --destructive-fill: rgba(255, 69, 58, 0.20);
   --success: #30d158;
-  --success-soft: rgba(48, 209, 88, 0.18);
-  --danger: #ff453a;
-  --danger-soft: rgba(255, 69, 58, 0.18);
-  --shadow: 0 28px 90px rgba(0, 0, 0, 0.52);
-  --shadow-soft: 0 12px 36px rgba(0, 0, 0, 0.30);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-  --focus-ring: rgba(10, 132, 255, 0.42);
-  --placeholder: rgba(235, 235, 245, 0.38);
-  --code-bg: rgba(235, 235, 245, 0.12);
+  --success-fill: rgba(48, 209, 88, 0.20);
+  --warning: #ff9f0a;
+  --warning-fill: rgba(255, 159, 10, 0.20);
+
+  --tint-blue: #0a84ff;
+  --tint-purple: #bf5af2;
+  --tint-pink: #ff375f;
+  --tint-orange: #ff9f0a;
+  --tint-green: #30d158;
+  --tint-red: #ff453a;
+  --tint-teal: #64d2ff;
+  --tint-indigo: #5e5ce6;
 }

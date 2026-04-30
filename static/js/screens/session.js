@@ -1,91 +1,46 @@
 function statusToClass(status) {
-  if (status === "correct") {
-    return "choice-review--correct";
-  }
-  if (status === "chosen") {
-    return "choice-review--chosen";
-  }
+  if (status === "correct") return "choice--correct";
+  if (status === "chosen") return "choice--chosen";
   return "";
 }
 
 function statusToLabel(status) {
-  if (status === "correct") {
-    return "Правильна відповідь";
-  }
-  if (status === "chosen") {
-    return "Ваш вибір";
-  }
-  return "Інший варіант";
+  if (status === "correct") return "Правильна відповідь";
+  if (status === "chosen") return "Ваш вибір";
+  return "";
 }
 
-function renderPreviewQuestion(ctx, question, index, total) {
-  const options = question.choices
-    .map(
-      (choice) => `
-        <div class="choice-review ${choice.is_correct ? "choice-review--correct" : ""}">
-          <span class="choice-review__index">${choice.index}</span>
-          <div>
-            <div>${ctx.escapeHtml(choice.text)}</div>
-            ${choice.is_correct ? `<div class="muted">Правильна відповідь</div>` : ""}
-          </div>
-        </div>
-      `,
-    )
-    .join("");
-
+function progressBar(current, total) {
+  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   return `
-    <span class="eyebrow">Питання ${index}/${total}</span>
-    <h3>${ctx.escapeHtml(question.question)}</h3>
-    <p class="muted">${ctx.escapeHtml(question.ok_label || question.topic || question.section || "")}</p>
-    <div class="review-grid">${options}</div>
+    <div class="progress" aria-label="Прогрес">
+      <div class="progress__bar" style="width: ${pct}%"></div>
+    </div>
   `;
 }
 
+/* ===================== PRETEST ===================== */
 function renderPretest(ctx, view) {
   const total = view.total || 0;
-  ctx.setChrome({
-    eyebrow: "Передстарт",
-    title: "Перед стартом",
-    subtitle: view.header || "Швидкий перегляд перед стартом.",
-    showBack: true,
-  });
+  ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Перед стартом</h2>
-          <p>Оберіть номер для перегляду.</p>
+    <section class="screen-content">
+      <h1 class="page-title">Перед стартом</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(view.header || "Швидкий перегляд перед стартом.")}</p>
+
+      <div class="group">
+        <div class="group__label">Питання (${total})</div>
+        <div class="group__list" style="padding: 12px;">
+          <div class="numgrid" id="pretest-grid"></div>
         </div>
       </div>
-      <div class="button-row" id="pretest-actions"></div>
-    </section>
-    <section class="split-layout">
-      <section class="surface">
-        <div class="section-header">
-          <div class="section-copy">
-            <h2>Питання</h2>
-            <p>Усього: ${total}.</p>
-          </div>
-        </div>
-        <div class="numbers-grid" id="pretest-grid"></div>
-      </section>
-      <section class="question-card" id="pretest-preview"></section>
+
+      <div class="question-card" id="pretest-preview"></div>
+
+      <div class="sticky-cta" id="pretest-actions"></div>
     </section>
   `;
-
-  ctx.refs.mainPanel.querySelector("#pretest-actions").append(
-    ctx.actionButton("Почати навчання", async () => {
-      try {
-        ctx.state.currentView = await ctx.api("/api/pretest/start", { method: "POST" });
-        ctx.impact("medium");
-        ctx.render();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    }, "primary"),
-    ctx.actionButton("Закрити", ctx.leaveCurrentView),
-  );
 
   const grid = ctx.refs.mainPanel.querySelector("#pretest-grid");
   for (let index = 0; index < total; index += 1) {
@@ -105,48 +60,95 @@ function renderPretest(ctx, view) {
     grid.append(button);
   }
 
-  ctx.refs.mainPanel.querySelector("#pretest-preview").innerHTML = renderPreviewQuestion(
+  ctx.refs.mainPanel.querySelector("#pretest-preview").innerHTML = previewQuestion(
     ctx,
     view.question,
     view.selected_index + 1,
     total,
   );
+
+  ctx.refs.mainPanel.querySelector("#pretest-actions").append(
+    ctx.actionButton(
+      "Почати навчання",
+      async () => {
+        try {
+          ctx.state.currentView = await ctx.api("/api/pretest/start", { method: "POST" });
+          ctx.impact("medium");
+          ctx.render();
+        } catch (error) {
+          ctx.setMessage("error", error.message);
+        }
+      },
+      "block",
+    ),
+    ctx.actionButton("Закрити", ctx.leaveCurrentView, "block-ghost"),
+  );
 }
 
+function previewQuestion(ctx, question, index, total) {
+  const options = question.choices
+    .map(
+      (choice) => `
+        <div class="choice ${choice.is_correct ? "choice--correct" : ""}">
+          <span class="choice__index">${choice.index}</span>
+          <div class="choice__text">
+            <div>${ctx.escapeHtml(choice.text)}</div>
+            ${choice.is_correct ? `<div class="choice__hint">Правильна</div>` : ""}
+          </div>
+        </div>
+      `,
+    )
+    .join("");
+
+  return `
+    <div class="question-card__meta">Питання ${index} / ${total}</div>
+    <h3 class="question-card__text">${ctx.escapeHtml(question.question)}</h3>
+    ${question.ok_label || question.topic || question.section
+      ? `<div class="question-card__topic">${ctx.escapeHtml(question.ok_label || question.topic || question.section)}</div>`
+      : ""}
+    <div class="stack" style="gap: 8px;">${options}</div>
+  `;
+}
+
+/* ===================== QUESTION (active) ===================== */
 function renderQuestionView(ctx, view) {
   const question = view.question;
   const choices = question.choices
     .map(
       (choice, index) => `
-        <button class="choice-button" type="button" data-choice="${index}">
-          <span class="choice-button__index">${choice.index}</span>
-          <span>${ctx.escapeHtml(choice.text)}</span>
+        <button class="choice" type="button" data-choice="${index}">
+          <span class="choice__index">${choice.index}</span>
+          <span class="choice__text">${ctx.escapeHtml(choice.text)}</span>
         </button>
       `,
     )
     .join("");
 
-  ctx.setChrome({
-    eyebrow: "Активна сесія",
-    title: view.header || "Сесія",
-    subtitle: `Питання ${view.progress.current}/${view.progress.total}${view.progress.phase === "skipped" ? " • повтор пропущених" : ""}`,
-    showBack: true,
-    showRefresh: false,
-  });
+  ctx.setChrome({ showBack: true });
+
+  const phase = view.progress.phase === "skipped" ? " · повтор пропущених" : "";
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Питання</h2>
-          <p>Оберіть відповідь.</p>
+    <section class="screen-content">
+      <div class="row-between">
+        <div class="muted-sm" style="font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;">
+          ${ctx.escapeHtml(view.header || "Сесія")}
         </div>
+        <div class="muted-sm">${view.progress.current} / ${view.progress.total}${phase}</div>
       </div>
-      <div class="button-row" id="question-actions"></div>
-    </section>
-    <section class="question-card">
-      <h3>${ctx.escapeHtml(question.question)}</h3>
-      <div class="choice-grid">${choices}</div>
+
+      ${progressBar(view.progress.current, view.progress.total)}
+
+      <div class="question-card">
+        <h3 class="question-card__text">${ctx.escapeHtml(question.question)}</h3>
+        ${question.ok_label || question.topic || question.section
+          ? `<div class="question-card__topic">${ctx.escapeHtml(question.ok_label || question.topic || question.section)}</div>`
+          : ""}
+      </div>
+
+      <div class="stack" style="gap: 8px;">${choices}</div>
+
+      <div class="sticky-cta" id="question-actions"></div>
     </section>
   `;
 
@@ -168,215 +170,257 @@ function renderQuestionView(ctx, view) {
   const actions = ctx.refs.mainPanel.querySelector("#question-actions");
   if (view.actions.allow_skip) {
     actions.append(
-      ctx.actionButton("Пропустити", async () => {
-        try {
-          ctx.state.currentView = await ctx.api("/api/session/skip", { method: "POST" });
-          ctx.render();
-        } catch (error) {
-          ctx.setMessage("error", error.message);
-        }
-      }),
+      ctx.actionButton(
+        "Пропустити питання",
+        async () => {
+          try {
+            ctx.state.currentView = await ctx.api("/api/session/skip", { method: "POST" });
+            ctx.render();
+          } catch (error) {
+            ctx.setMessage("error", error.message);
+          }
+        },
+        "block-ghost",
+      ),
     );
   }
-  actions.append(ctx.actionButton("Вийти", ctx.leaveCurrentView, "danger"));
+  actions.append(ctx.actionButton("Завершити", ctx.leaveCurrentView, "block-ghost"));
 }
 
+/* ===================== FEEDBACK ===================== */
 function renderFeedbackView(ctx, view) {
   const options = view.question.options
     .map(
       (option) => `
-        <div class="choice-review ${statusToClass(option.status)}">
-          <span class="choice-review__index">${option.index}</span>
-          <div>
+        <div class="choice ${statusToClass(option.status)}">
+          <span class="choice__index">${option.index}</span>
+          <div class="choice__text">
             <div>${ctx.escapeHtml(option.text)}</div>
-            <div class="muted">${statusToLabel(option.status)}</div>
+            ${statusToLabel(option.status) ? `<div class="choice__hint">${statusToLabel(option.status)}</div>` : ""}
           </div>
         </div>
       `,
     )
     .join("");
 
-  ctx.setChrome({
-    eyebrow: "Розбір",
-    title: "Розбір відповіді",
-    subtitle: view.header || "Короткий розбір.",
-    showBack: true,
-    showRefresh: false,
-  });
+  ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Розбір</h2>
-          <p>Перевірте відповідь і рухайтесь далі.</p>
-        </div>
+    <section class="screen-content">
+      <div class="muted-sm" style="font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;">
+        Розбір відповіді
       </div>
-      <div class="button-row" id="feedback-actions"></div>
-    </section>
-    <section class="question-card">
-      <h3>${ctx.escapeHtml(view.question.question)}</h3>
-      <div class="review-grid">${options}</div>
+
+      <div class="question-card">
+        <h3 class="question-card__text">${ctx.escapeHtml(view.question.question)}</h3>
+      </div>
+
+      <div class="stack" style="gap: 8px;">${options}</div>
+
+      <div class="sticky-cta" id="feedback-actions"></div>
     </section>
   `;
 
   ctx.refs.mainPanel.querySelector("#feedback-actions").append(
-    ctx.actionButton("Продовжити", async () => {
-      try {
-        ctx.state.currentView = await ctx.api("/api/session/next", { method: "POST" });
-        ctx.impact("medium");
-        ctx.render();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    }, "primary"),
-    ctx.actionButton("Вийти", ctx.leaveCurrentView, "danger"),
-  );
-}
-
-function renderResultView(ctx, view) {
-  const summary = view.summary || {};
-  const blocks = summary.blocks || [];
-
-  ctx.setChrome({
-    eyebrow: "Результат",
-    title: summary.title || "Результат",
-    subtitle: "Підсумок сесії.",
-    showBack: true,
-  });
-
-  ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>${ctx.escapeHtml(summary.title || "Результат")}</h2>
-          <p>Коротке зведення та дії.</p>
-        </div>
-      </div>
-      <div class="button-row" id="result-actions"></div>
-    </section>
-    <section class="metrics-grid">
-      ${typeof summary.correct === "number" ? ctx.metricCard("Правильно", `${summary.correct}/${summary.total}`) : ""}
-      ${typeof summary.percent === "number" ? ctx.metricCard("Відсоток", `${summary.percent.toFixed(1)}%`) : ""}
-      ${typeof summary.remaining === "number" ? ctx.metricCard("У помилках", String(summary.remaining)) : ""}
-      ${typeof summary.passed === "boolean" ? ctx.metricCard("Поріг 60%", summary.passed ? "Складено" : "Не складено") : ""}
-    </section>
-    ${
-      blocks.length
-        ? `
-          <section class="surface">
-            <div class="section-header">
-              <div class="section-copy">
-                <h2>По блоках</h2>
-                <p>Результати по блоках.</p>
-              </div>
-            </div>
-            <div class="list-stack">
-              ${blocks
-                .map(
-                  (block) => `
-                    <article class="list-item">
-                      <div class="list-item__main">
-                        <strong>${ctx.escapeHtml(block.name)}</strong>
-                        <span class="list-item__meta">${block.correct} із ${block.total}</span>
-                      </div>
-                    </article>
-                  `,
-                )
-                .join("")}
-            </div>
-          </section>
-        `
-        : ""
-    }
-  `;
-
-  const actions = ctx.refs.mainPanel.querySelector("#result-actions");
-  if (view.mode === "test_result" && view.wrong_count > 0) {
-    actions.append(
-      ctx.actionButton("Показати помилки", async () => {
+    ctx.actionButton(
+      "Продовжити",
+      async () => {
         try {
-          ctx.state.currentView = await ctx.api("/api/test/review/open", { method: "POST" });
+          ctx.state.currentView = await ctx.api("/api/session/next", { method: "POST" });
+          ctx.impact("medium");
           ctx.render();
         } catch (error) {
           ctx.setMessage("error", error.message);
         }
-      }, "primary"),
-    );
-  }
-  actions.append(
-    ctx.actionButton("На головну", async () => {
-      ctx.state.currentView = null;
-      ctx.goHome();
-      await ctx.loadBootstrap();
-    }),
+      },
+      "block",
+    ),
+    ctx.actionButton("Завершити", ctx.leaveCurrentView, "block-ghost"),
   );
 }
 
+/* ===================== RESULT ===================== */
+function renderResultView(ctx, view) {
+  const summary = view.summary || {};
+  const blocks = summary.blocks || [];
+  const pct = typeof summary.percent === "number" ? summary.percent : null;
+  const pctClass = pct == null ? "" : pct >= 60 ? "result-hero__pct--success" : "result-hero__pct--danger";
+
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">${ctx.escapeHtml(summary.title || "Результат")}</h1>
+
+      <div class="result-hero">
+        <div class="result-hero__pct ${pctClass}">${pct == null ? "—" : pct.toFixed(0) + "%"}</div>
+        <div class="result-hero__label">
+          ${typeof summary.correct === "number" ? `${summary.correct} з ${summary.total} правильно` : "Підсумок"}
+        </div>
+        ${typeof summary.passed === "boolean"
+          ? `<div class="chip ${summary.passed ? "chip--success" : "chip--danger"}" style="margin-top: 6px;">
+              ${summary.passed ? "Складено" : "Не складено"} · поріг 60%
+            </div>`
+          : ""}
+      </div>
+
+      <div class="stat-strip">
+        ${typeof summary.correct === "number" ? ctx.statPill("Правильно", `${summary.correct}/${summary.total}`) : ""}
+        ${typeof summary.percent === "number" ? ctx.statPill("Відсоток", `${summary.percent.toFixed(0)}%`) : ""}
+        ${typeof summary.remaining === "number" ? ctx.statPill("Помилок", String(summary.remaining)) : ""}
+      </div>
+
+      ${blocks.length
+        ? `<div class="group">
+            <div class="group__label">По блоках</div>
+            <div class="group__list" id="result-blocks"></div>
+          </div>`
+        : ""}
+
+      <div class="sticky-cta" id="result-actions"></div>
+    </section>
+  `;
+
+  if (blocks.length) {
+    const blocksRoot = ctx.refs.mainPanel.querySelector("#result-blocks");
+    blocks.forEach((block) => {
+      const row = document.createElement("div");
+      row.className = "cell";
+      row.style.cursor = "default";
+      const blockPct = block.total > 0 ? (block.correct / block.total) * 100 : 0;
+      const tint = blockPct >= 60 ? "green" : blockPct >= 40 ? "orange" : "red";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--${tint}">${block.correct}</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(block.name)}</span>
+          <span class="cell__subtitle">${block.correct} з ${block.total}</span>
+        </span>
+        <span class="cell__detail">${blockPct.toFixed(0)}%</span>
+      `;
+      blocksRoot.append(row);
+    });
+  }
+
+  const actions = ctx.refs.mainPanel.querySelector("#result-actions");
+  if (view.mode === "test_result" && view.wrong_count > 0) {
+    actions.append(
+      ctx.actionButton(
+        "Показати помилки",
+        async () => {
+          try {
+            ctx.state.currentView = await ctx.api("/api/test/review/open", { method: "POST" });
+            ctx.render();
+          } catch (error) {
+            ctx.setMessage("error", error.message);
+          }
+        },
+        "block",
+      ),
+    );
+  }
+  actions.append(
+    ctx.actionButton(
+      "На головну",
+      async () => {
+        ctx.state.currentView = null;
+        ctx.goHome();
+        await ctx.loadBootstrap();
+      },
+      view.mode === "test_result" && view.wrong_count > 0 ? "block-ghost" : "block",
+    ),
+  );
+}
+
+/* ===================== REVIEW (mistakes navigation) ===================== */
 function renderReviewView(ctx, view) {
   const options = view.question.options
     .map(
       (option) => `
-        <div class="choice-review ${statusToClass(option.status)}">
-          <span class="choice-review__index">${option.index}</span>
-          <div>
+        <div class="choice ${statusToClass(option.status)}">
+          <span class="choice__index">${option.index}</span>
+          <div class="choice__text">
             <div>${ctx.escapeHtml(option.text)}</div>
-            <div class="muted">${statusToLabel(option.status)}</div>
+            ${statusToLabel(option.status) ? `<div class="choice__hint">${statusToLabel(option.status)}</div>` : ""}
           </div>
         </div>
       `,
     )
     .join("");
 
-  ctx.setChrome({
-    eyebrow: "Помилки",
-    title: "Помилки тесту",
-    subtitle: `Питання ${view.index + 1}/${view.total}`,
-    showBack: true,
-  });
+  ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="surface">
-      <div class="section-header">
-        <div class="section-copy">
-          <h2>Помилки</h2>
-          <p>Гортайте питання і повертайтесь до результату.</p>
+    <section class="screen-content">
+      <div class="row-between">
+        <div class="muted-sm" style="font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;">
+          Помилки тесту
         </div>
+        <div class="muted-sm">${view.index + 1} / ${view.total}</div>
       </div>
-      <div class="button-row" id="review-actions"></div>
-    </section>
-    <section class="question-card">
-      <h3>${ctx.escapeHtml(view.question.question)}</h3>
-      <div class="review-grid">${options}</div>
-      ${view.question.selected_missing ? `<p class="muted">Ваш вибір не зберігся для цього питання.</p>` : ""}
+
+      ${progressBar(view.index + 1, view.total)}
+
+      <div class="question-card">
+        <h3 class="question-card__text">${ctx.escapeHtml(view.question.question)}</h3>
+        ${view.question.selected_missing ? `<p class="muted">Ваш вибір не зберігся для цього питання.</p>` : ""}
+      </div>
+
+      <div class="stack" style="gap: 8px;">${options}</div>
+
+      <div class="sticky-cta" id="review-actions"></div>
     </section>
   `;
 
   const actions = ctx.refs.mainPanel.querySelector("#review-actions");
+  const navRow = document.createElement("div");
+  navRow.className = "row";
+  navRow.style.gap = "8px";
+
   if (view.actions.has_prev) {
-    actions.append(
-      ctx.actionButton("Попереднє", async () => {
-        ctx.state.currentView = await ctx.api("/api/test/review/index", { method: "POST", body: { index: view.index - 1 } });
+    const btn = ctx.actionButton(
+      "← Попереднє",
+      async () => {
+        ctx.state.currentView = await ctx.api("/api/test/review/index", {
+          method: "POST",
+          body: { index: view.index - 1 },
+        });
         ctx.render();
-      }),
+      },
+      "lg",
     );
+    btn.style.flex = "1";
+    navRow.append(btn);
   }
   if (view.actions.has_next) {
-    actions.append(
-      ctx.actionButton("Наступне", async () => {
-        ctx.state.currentView = await ctx.api("/api/test/review/index", { method: "POST", body: { index: view.index + 1 } });
+    const btn = ctx.actionButton(
+      "Наступне →",
+      async () => {
+        ctx.state.currentView = await ctx.api("/api/test/review/index", {
+          method: "POST",
+          body: { index: view.index + 1 },
+        });
         ctx.render();
-      }, "primary"),
+      },
+      "lg",
     );
+    btn.classList.add("btn--primary");
+    btn.style.flex = "1";
+    navRow.append(btn);
   }
+  actions.append(navRow);
   actions.append(
-    ctx.actionButton("До результату", async () => {
-      ctx.state.currentView = await ctx.api("/api/test/review/back", { method: "POST" });
-      ctx.render();
-    }),
+    ctx.actionButton(
+      "До результату",
+      async () => {
+        ctx.state.currentView = await ctx.api("/api/test/review/back", { method: "POST" });
+        ctx.render();
+      },
+      "block-ghost",
+    ),
   );
 }
 
+/* ===================== ROUTER ===================== */
 export function renderCurrentView(ctx) {
   const view = ctx.state.currentView;
   if (!view) {
@@ -384,41 +428,19 @@ export function renderCurrentView(ctx) {
     return;
   }
 
-  if (view.mode === "pretest") {
-    renderPretest(ctx, view);
-    return;
-  }
+  if (view.mode === "pretest") return renderPretest(ctx, view);
+  if (view.screen === "question") return renderQuestionView(ctx, view);
+  if (view.screen === "feedback") return renderFeedbackView(ctx, view);
+  if (view.screen === "result") return renderResultView(ctx, view);
+  if (view.screen === "review") return renderReviewView(ctx, view);
 
-  if (view.screen === "question") {
-    renderQuestionView(ctx, view);
-    return;
-  }
-
-  if (view.screen === "feedback") {
-    renderFeedbackView(ctx, view);
-    return;
-  }
-
-  if (view.screen === "result") {
-    renderResultView(ctx, view);
-    return;
-  }
-
-  if (view.screen === "review") {
-    renderReviewView(ctx, view);
-    return;
-  }
-
-  ctx.setChrome({
-    eyebrow: "Сесія",
-    title: "Активний стан",
-    subtitle: "Не вдалося визначити активний сценарій.",
-    showBack: true,
-  });
+  ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
-    <div class="empty-state">
-      <h2>Активний стан не знайдено</h2>
-      <p>${ctx.escapeHtml(view.message || "Спробуйте повернутися на головну.")}</p>
+    <div class="screen-content">
+      <div class="empty">
+        <h2>Активний стан не знайдено</h2>
+        <p>${ctx.escapeHtml(view.message || "Спробуйте повернутися на головну.")}</p>
+      </div>
     </div>
   `;
 }

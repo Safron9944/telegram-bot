@@ -1,196 +1,232 @@
-.chrome-sentinel {
-  display: none !important;
-}
-
-.app-shell {
+/* ===================== APP SHELL ===================== */
+.app {
   min-height: 100dvh;
-  width: min(100%, 520px);
-  margin: 0 auto;
-  padding:
-    calc(8px + env(safe-area-inset-top))
-    12px
-    calc(12px + env(safe-area-inset-bottom));
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 10px;
-  position: relative;
-}
-
-.topbar[hidden] {
-  display: none !important;
-}
-
-.topbar {
-  position: sticky;
-  top: calc(6px + env(safe-area-inset-top));
-  z-index: 20;
-  min-height: 50px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 7px 9px;
-  border: 1px solid var(--line);
-  border-radius: 19px;
-  background: var(--titlebar-bg);
-  box-shadow: var(--shadow-soft), var(--shadow-inset);
-  backdrop-filter: blur(24px) saturate(1.7);
-  -webkit-backdrop-filter: blur(24px) saturate(1.7);
-}
-
-.topbar__copy {
-  min-width: 0;
-  display: grid;
-  gap: 0;
-  align-content: center;
-}
-
-.topbar__actions {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  flex-direction: column;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  position: relative;
+  background: var(--bg);
+}
+
+/* ===================== MESSAGES ===================== */
+.messages {
+  position: sticky;
+  top: env(safe-area-inset-top);
+  z-index: 30;
+  padding: 8px 16px 0;
+  display: grid;
   gap: 6px;
 }
 
-.message-stack {
-  display: grid;
-  gap: 8px;
+.messages[hidden] {
+  display: none;
 }
 
-.app-main,
-.screen-frame {
-  min-height: 0;
-}
-
-.app-main,
-.screen-frame,
-.app-screen,
-.section-stack,
-.list-stack,
-.stack-sm,
-.choice-grid,
-.review-grid,
-.numbers-grid,
-.dashboard-grid,
-.metrics-grid,
-.cards-grid,
-.support-grid,
-.split-layout {
-  display: grid;
-  gap: 10px;
-}
-
-.screen-frame {
-  align-content: start;
-}
-
-.app-screen {
-  align-content: start;
-  animation: screen-in 180ms ease both;
-}
-
-.ios-home {
-  min-height: calc(100dvh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-  grid-template-rows: auto auto 1fr;
-  gap: 10px;
-}
-
-.summary-card__row,
-.section-header,
-.button-row,
-.chips-row,
-.check-row,
-.list-item__row,
-.nav-card__top {
+/* ===================== SCREEN ===================== */
+.screen {
+  flex: 1;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  padding:
+    calc(8px + env(safe-area-inset-top))
+    16px
+    calc(var(--tabbar-h-total) + 16px);
 }
 
-.button-row {
-  align-items: center;
-  justify-content: flex-start;
+/* When tab bar is hidden (active session), bottom padding shrinks */
+.app.tabbar-hidden .screen {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
 }
 
-.summary-card__copy,
-.section-copy,
-.list-item__main,
-.field,
-.nav-card__body {
-  display: grid;
-  gap: 4px;
-}
-
-.dashboard-grid,
-.metrics-grid,
-.cards-grid,
-.support-grid {
-  grid-template-columns: 1fr;
-}
-
-.mini-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.quick-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.ios-tile-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.compact-card-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (min-width: 760px) {
-  .app-shell {
-    min-height: calc(100dvh - 32px);
-    margin: 16px auto;
-    padding: 14px;
-    border: 1px solid var(--line);
-    border-radius: 36px;
-    background: var(--window-bg);
-    box-shadow: var(--shadow), var(--shadow-inset);
-    overflow: clip;
-    backdrop-filter: blur(26px) saturate(1.4);
-    -webkit-backdrop-filter: blur(26px) saturate(1.4);
-  }
-
-  .app-main {
-    overflow: auto;
-    padding-right: 2px;
-  }
-
-  .topbar {
-    position: relative;
-    top: auto;
-  }
-
-  .support-grid,
-  .dashboard-grid,
-  .metrics-grid,
-  .cards-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.screen-content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: screen-in 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 @keyframes screen-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.992);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ===================== PAGE TITLE (large iOS-style) ===================== */
+.page-title {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--label);
+}
+
+.page-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--label-secondary);
+}
+
+/* ===================== GROUPED LIST (iOS Settings-style) ===================== */
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.group__label {
+  margin: 4px 16px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--label-secondary);
+}
+
+.group__footer {
+  margin: 6px 16px 0;
+  font-size: 12px;
+  color: var(--label-secondary);
+  line-height: 1.35;
+}
+
+.group__list {
+  background: var(--bg-grouped);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+/* Inset variant — flush sections to edges with more breathing room */
+.group--plain .group__list {
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+
+/* ===================== STACKS ===================== */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stack-tight { gap: 4px; }
+.stack-loose { gap: 14px; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* ===================== STAT STRIP ===================== */
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* ===================== GRIDS ===================== */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.grid-auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(46px, 1fr));
+  gap: 6px;
+}
+
+/* ===================== STICKY BOTTOM CTA ===================== */
+.sticky-cta {
+  position: sticky;
+  bottom: calc(var(--tabbar-h-total) + 12px);
+  z-index: 10;
+  margin-top: 8px;
+  padding: 8px 0 0;
+  display: grid;
+  gap: 8px;
+}
+
+.app.tabbar-hidden .sticky-cta {
+  bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+/* ===================== TABBAR ===================== */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  height: var(--tabbar-h-total);
+  padding: 4px 0 env(safe-area-inset-bottom);
+  background: var(--bg-tabbar);
+  -webkit-backdrop-filter: saturate(1.6) blur(20px);
+  backdrop-filter: saturate(1.6) blur(20px);
+  border-top: 1px solid var(--separator);
+}
+
+.tabbar[hidden] {
+  display: none !important;
+}
+
+.tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px 0 0;
+  color: var(--label-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: color 120ms ease, transform 120ms ease;
+}
+
+.tab svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.tab.is-active {
+  color: var(--accent);
+}
+
+.tab:active {
+  transform: scale(0.94);
+}
+
+/* ===================== ANIMATION HELPERS ===================== */
+.fade-in {
+  animation: fade-in 180ms ease both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

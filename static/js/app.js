@@ -5,12 +5,15 @@ import { initializeTelegram, impact, syncClosingConfirmation } from "./core/tele
 import { initializeTheme } from "./core/theme.js";
 import {
   actionButton,
-  actionCard,
   bindInlineTargets,
+  cell,
   escapeHtml,
-  metricCard,
+  group,
+  setActiveTab,
   setChrome,
   setMessage,
+  setTabbarVisible,
+  statPill,
 } from "./core/ui.js";
 import {
   renderHelp,
@@ -37,8 +40,19 @@ initializeTelegram(() => {
 });
 initializeTheme();
 
-refs.refreshButton?.addEventListener("click", () => {
-  void loadBootstrap(true);
+// Wire up tab bar (bottom navigation)
+refs.tabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const target = tab.dataset.tab;
+    if (!target) return;
+    if (state.currentView) {
+      // refuse to navigate while in active session — protects user input
+      impact("light");
+      return;
+    }
+    if (target === state.currentScreen) return;
+    navigate(target, { reset: true });
+  });
 });
 
 refs.backButton?.addEventListener("click", () => {
@@ -52,10 +66,11 @@ function createContext() {
     api,
     impact,
     actionButton,
-    actionCard,
     bindInlineTargets,
+    cell,
     escapeHtml,
-    metricCard,
+    group,
+    statPill,
     setChrome,
     setMessage,
     navigate,
@@ -75,16 +90,17 @@ function createContext() {
 }
 
 function navigate(screen, options = {}) {
-  if (!screen) {
-    return;
-  }
+  if (!screen) return;
 
   if (screen.startsWith("admin") && !state.bootstrap?.user?.is_admin) {
     setMessage("error", "Режим адміністратора недоступний.");
     return;
   }
 
-  if (options.replace) {
+  if (options.reset) {
+    state.screenHistory = [];
+    state.currentScreen = screen;
+  } else if (options.replace) {
     state.currentScreen = screen;
   } else if (screen !== state.currentScreen) {
     state.screenHistory.push(state.currentScreen);
@@ -142,29 +158,27 @@ async function goBack() {
 }
 
 function ensureScreenData(screen = state.currentScreen) {
-  if (state.currentView) {
-    return;
-  }
+  if (state.currentView) return;
+  if (screen === "admin-users") void loadAdminUsers(createContext(), state.adminUsersOffset);
+  if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
+}
 
-  if (screen === "admin-users") {
-    void loadAdminUsers(createContext(), state.adminUsersOffset);
-  }
-
-  if (screen === "admin-questions") {
-    void loadAdminQuestions(createContext(), state.adminQuestionsPage);
-  }
+/**
+ * Tab bar should be shown only on top-level screens with no active session.
+ */
+function shouldShowTabbar() {
+  if (state.currentView) return false;
+  const main = new Set(["home", "learning", "testing", "stats", "help"]);
+  return main.has(state.currentScreen);
 }
 
 function render() {
   if (!state.bootstrap) {
-    setChrome({
-      eyebrow: "Підготовка",
-      title: "Підключення…",
-      subtitle: "Очікуємо дані від сервера.",
-      showBack: false,
-    });
+    setChrome({ showBack: false });
     syncClosingConfirmation(state.currentView);
     refs.mainPanel.innerHTML = refs.emptyStateTemplate.innerHTML;
+    setTabbarVisible(false);
+    setActiveTab(null);
     return;
   }
 
@@ -176,43 +190,29 @@ function render() {
   const ctx = createContext();
 
   if (state.currentView) {
+    setTabbarVisible(false);
+    setActiveTab(null);
     renderCurrentView(ctx);
     syncClosingConfirmation(state.currentView);
     return;
   }
 
+  setTabbarVisible(shouldShowTabbar());
+  setActiveTab(state.currentScreen);
+
   switch (state.currentScreen) {
-    case "home":
-      renderHome(ctx);
-      break;
-    case "learning":
-      renderLearning(ctx);
-      break;
-    case "law-parts":
-      renderLawParts(ctx);
-      break;
-    case "testing":
-      renderTesting(ctx);
-      break;
-    case "stats":
-      renderStats(ctx);
-      break;
-    case "help":
-      renderHelp(ctx);
-      break;
-    case "admin":
-      renderAdminHub(ctx);
-      break;
-    case "admin-users":
-      renderAdminUsers(ctx);
-      break;
-    case "admin-questions":
-      renderAdminQuestions(ctx);
-      break;
+    case "home":              renderHome(ctx); break;
+    case "learning":          renderLearning(ctx); break;
+    case "law-parts":         renderLawParts(ctx); break;
+    case "testing":           renderTesting(ctx); break;
+    case "stats":             renderStats(ctx); break;
+    case "help":              renderHelp(ctx); break;
+    case "admin":             renderAdminHub(ctx); break;
+    case "admin-users":       renderAdminUsers(ctx); break;
+    case "admin-questions":   renderAdminQuestions(ctx); break;
     default:
       state.currentScreen = "home";
       renderHome(ctx);
-      break;
   }
 
   syncClosingConfirmation(state.currentView);
@@ -259,25 +259,20 @@ async function loadBootstrap(showSuccess = false) {
       state.screenHistory = [];
     }
 
-    if (showSuccess) {
-      setMessage("success", "Дані оновлено.");
-    }
+    if (showSuccess) setMessage("success", "Дані оновлено.");
 
     render();
     ensureScreenData();
   } catch (error) {
     setMessage("error", error.message);
-    setChrome({
-      eyebrow: "Підготовка",
-      title: "Mini App не підключився",
-      subtitle: "Не вдалося синхронізуватися з бекендом.",
-      showBack: false,
-    });
+    setChrome({ showBack: false });
+    setTabbarVisible(false);
     refs.mainPanel.innerHTML = `
-      <div class="empty-state">
-        <h2>Mini App не підключився</h2>
-        <p>${escapeHtml(error.message)}</p>
-        <p class="muted">Для локальної перевірки можна додати в URL параметр <code>?dev_user_id=123</code>, якщо на сервері дозволено debug-auth.</p>
+      <div class="screen-content">
+        <div class="empty">
+          <h2>Mini App не підключився</h2>
+          <p>${escapeHtml(error.message)}</p>
+        </div>
       </div>
     `;
   }
