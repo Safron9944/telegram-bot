@@ -8,16 +8,33 @@ body {
   min-height: 100%;
 }
 
+html {
+  background: var(--desktop-bg);
+}
+
 body {
+  min-height: 100dvh;
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.82), transparent 32%),
-    radial-gradient(circle at top right, rgba(214, 224, 239, 0.68), transparent 28%),
-    linear-gradient(180deg, var(--app-bg), var(--app-bg-glow));
+    radial-gradient(circle at 15% -10%, var(--accent-glow), transparent 32rem),
+    radial-gradient(circle at 88% 8%, var(--app-bg-glow), transparent 28rem),
+    linear-gradient(135deg, var(--desktop-bg), var(--app-bg));
   color: var(--text);
   font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior-y: contain;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.34), transparent 72%);
 }
 
 button,
@@ -37,9 +54,13 @@ a {
 code {
   padding: 2px 6px;
   border-radius: 8px;
-  background: rgba(22, 32, 51, 0.06);
+  background: var(--code-bg);
   font-family: "Cascadia Mono", "Consolas", monospace;
   font-size: 0.94em;
+}
+
+svg {
+  display: block;
 }
 
 button:hover,
@@ -56,4 +77,14 @@ button:disabled {
   cursor: default;
   transform: none;
   box-shadow: none;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--heading);
 }

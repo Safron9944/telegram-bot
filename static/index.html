@@ -27,13 +27,20 @@
           </p>
         </div>
 
-        <button id="refresh-button" class="icon-button" type="button" aria-label="Оновити">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6"
-            />
-          </svg>
-        </button>
+        <div class="topbar__actions">
+          <button id="refresh-button" class="icon-button" type="button" aria-label="Оновити">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v6h-6" />
+            </svg>
+          </button>
+
+          <button id="theme-button" class="theme-button" type="button" aria-label="Перемкнути тему">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 7.5A9 9 0 1 1 12 3Z" />
+            </svg>
+            <span class="theme-button__label">Тема</span>
+          </button>
+        </div>
       </header>
 
       <section class="message-stack" id="messages-panel" hidden></section>

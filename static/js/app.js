@@ -2,6 +2,7 @@ import { refs } from "./core/dom.js";
 import { state } from "./core/state.js";
 import { api } from "./core/api.js";
 import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js";
+import { initializeTheme } from "./core/theme.js";
 import {
   actionButton,
   actionCard,
@@ -34,6 +35,7 @@ import { renderCurrentView } from "./screens/session.js";
 initializeTelegram(() => {
   void goBack();
 });
+initializeTheme();
 
 refs.refreshButton.addEventListener("click", () => {
   void loadBootstrap(true);

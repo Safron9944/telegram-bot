@@ -18,6 +18,10 @@
 }
 
 @media (min-width: 900px) {
+  .app-shell {
+    padding-inline: 18px;
+  }
+
   .metrics-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -27,14 +31,31 @@
   }
 }
 
+@media (max-width: 639px) {
+  .topbar {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    padding: 12px;
+  }
+
+  .topbar__actions {
+    flex-direction: column;
+  }
+
+  .icon-button,
+  .theme-button {
+    min-width: 40px;
+    height: 40px;
+    border-radius: 13px;
+  }
+
+  .theme-button__label {
+    display: none;
+  }
+}
+
 @media (max-width: 479px) {
   .app-shell {
     padding-inline: 12px;
-  }
-
-  .topbar {
-    grid-template-columns: 40px minmax(0, 1fr) 40px;
-    padding: 14px;
   }
 
   .summary-card,
