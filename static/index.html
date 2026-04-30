@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="uk">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <title>Telegram Mini App</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div class="hero__badge">Telegram Mini App</div>
+        <div class="hero__main">
+          <div>
+            <h1 id="hero-title">Підключення…</h1>
+            <p id="hero-subtitle">Завантажуємо користувача, доступ і каталоги питань.</p>
+          </div>
+          <button id="refresh-button" class="ghost-button" type="button">Оновити</button>
+        </div>
+        <div class="hero__meta">
+          <div class="hero__chip" id="access-chip">Статус</div>
+          <div class="hero__chip" id="role-chip">Роль</div>
+        </div>
+      </header>
+
+      <nav class="tabs" id="tabs"></nav>
+
+      <main class="content">
+        <section class="panel" id="messages-panel" hidden></section>
+        <section class="panel panel--surface" id="main-panel"></section>
+      </main>
+    </div>
+
+    <template id="empty-state-template">
+      <div class="empty-state">
+        <h2>Ще трохи</h2>
+        <p>Тут з’явиться контент, щойно Mini App отримає дані із бекенду.</p>
+      </div>
+    </template>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>
