@@ -1557,6 +1557,11 @@ async def api_admin_case_import(file: UploadFile = File(...), auth: AuthContext 
     return await MiniAppService(runtime).admin_import_case(auth, file)
 
 
+@app.post("/api/admin/cases/import-batch")
+async def api_admin_cases_import(files: list[UploadFile] = File(...), auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_import_cases(auth, files)
+
+
 @app.delete("/api/admin/cases/{case_id}")
 async def api_admin_case_delete(case_id: int, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_delete_case(auth, case_id)

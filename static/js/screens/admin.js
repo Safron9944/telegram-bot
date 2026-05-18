@@ -530,9 +530,9 @@ export function renderAdminCases(ctx) {
       <div class="group">
         <div class="group__label">Імпорт Keys.db</div>
         <div class="group__list admin-upload-box">
-          <input class="input" id="case-db-file" type="file" accept=".db" />
+          <input class="input" id="case-db-file" type="file" accept=".db,.zip" multiple />
           <div id="case-upload-action"></div>
-          <div class="group__footer">Файл не змінюється. Дані зберігаються в боті як окремий кейс.</div>
+          <div class="group__footer">Можна вибрати кілька Keys.db або ZIP-архів. Кожен .db зберігається як окремий кейс із питаннями.</div>
         </div>
       </div>
 
@@ -548,22 +548,29 @@ export function renderAdminCases(ctx) {
   const action = ctx.refs.mainPanel.querySelector("#case-upload-action");
   action.append(
     ctx.actionButton(
-      "Завантажити Keys.db",
+      "Завантажити кейси",
       async () => {
         const input = ctx.refs.mainPanel.querySelector("#case-db-file");
-        const file = input?.files?.[0];
-        if (!file) {
-          ctx.setMessage("error", "Спочатку виберіть файл Keys.db.");
+        const files = Array.from(input?.files || []);
+        if (!files.length) {
+          ctx.setMessage("error", "Спочатку виберіть Keys.db або ZIP-архів.");
           return;
         }
         const form = new FormData();
-        form.append("file", file);
+        files.forEach((file) => form.append("files", file));
         try {
-          const response = await ctx.api("/api/admin/cases/import", {
+          const response = await ctx.api("/api/admin/cases/import-batch", {
             method: "POST",
             body: form,
           });
-          ctx.setMessage("success", `Кейс ${response.case.case_number} додано: ${response.questions_count} питань.`);
+          const imported = response.imported_count || 0;
+          const failed = response.failed_count || 0;
+          const questions = response.questions_count || 0;
+          const suffix = failed ? ` Не імпортовано: ${failed}.` : "";
+          ctx.setMessage(
+            imported ? "success" : "error",
+            `Імпортовано кейсів: ${imported}, питань: ${questions}.${suffix}`,
+          );
           ctx.impact("medium");
           input.value = "";
           await loadAdminCases(ctx);
