@@ -113,6 +113,15 @@ def clamp_callback(s: str, max_bytes: int = 64) -> str:
     return b[:max_bytes].decode("utf-8", errors="ignore")
 
 
+def case_bank_sort_key(item: dict) -> tuple[int, str, int]:
+    """Sort cases by the first number in their case_number, then by title/id."""
+    raw_number = str(item.get("case_number") or "")
+    title = str(item.get("case_title") or "")
+    match = re.search(r"\d+", f"{raw_number} {title}")
+    numeric = int(match.group(0)) if match else 10**12
+    return numeric, raw_number.casefold() or title.casefold(), int(item.get("id") or 0)
+
+
 def normalize_postgres_dsn(dsn: str) -> tuple[str, object | None]:
     """Normalize Railway/Heroku-style DATABASE_URL for asyncpg.
 
@@ -606,10 +615,10 @@ class Storage:
             """
             SELECT id, case_number, case_title, questions_count, answers_count, correct_count, created_at, updated_at
             FROM case_banks
-            ORDER BY updated_at DESC, id DESC
             """
         )
-        return [dict(r) for r in rows]
+        items = [dict(r) for r in rows]
+        return sorted(items, key=case_bank_sort_key)
 
     async def get_case_bank(self, case_id: int) -> Optional[dict]:
         row = await self._fetchrow(
