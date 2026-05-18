@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-cases-visible-2";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
