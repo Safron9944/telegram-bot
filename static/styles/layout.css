@@ -43,7 +43,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  animation: screen-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: screen-in 140ms ease both;
 }
 
 /* Case reader — light style, regular layout */
@@ -52,8 +52,8 @@
 }
 
 @keyframes screen-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { transform: translateY(4px); }
+  to   { transform: translateY(0); }
 }
 
 /* ===================== PAGE TITLE ===================== */
@@ -194,9 +194,7 @@
   margin: 0 auto;
   height: var(--tabbar-h-total);
   padding: 4px 0 env(safe-area-inset-bottom);
-  background: var(--bg-tabbar);
-  -webkit-backdrop-filter: saturate(1.4) blur(24px);
-  backdrop-filter: saturate(1.4) blur(24px);
+  background: #ffffff;
   border-top: 1px solid var(--separator);
 }
 
