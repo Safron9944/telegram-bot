@@ -1,5 +1,8 @@
 import { toggleTheme, getCurrentTheme } from "../core/theme.js";
 
+let caseSearchTimer = null;
+let caseDetailRequestId = 0;
+
 /* ===================== HELPERS ===================== */
 function selectedModules(catalog) {
   return catalog.ok_modules.filter((item) => item.selected);
@@ -725,9 +728,20 @@ export function renderCaseDetail(ctx) {
     ctx.state.caseOffset = 0;
     loadCaseDetail(ctx, 0);
   };
-  ctx.refs.mainPanel.querySelector("#case-search-btn")?.addEventListener("click", run);
+  const runLive = () => {
+    window.clearTimeout(caseSearchTimer);
+    caseSearchTimer = window.setTimeout(run, 350);
+  };
+  ctx.refs.mainPanel.querySelector("#case-search-btn")?.addEventListener("click", () => {
+    window.clearTimeout(caseSearchTimer);
+    run();
+  });
+  input?.addEventListener("input", runLive);
   input?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") run();
+    if (event.key === "Enter") {
+      window.clearTimeout(caseSearchTimer);
+      run();
+    }
   });
 }
 
@@ -735,9 +749,11 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
   if (ctx.state.currentScreen !== "case-detail") return;
   const item = ctx.state.selectedCase;
   if (!item?.id) return;
+  const requestId = ++caseDetailRequestId;
   try {
     const query = encodeURIComponent(ctx.state.caseQuery || "");
     const payload = await ctx.api(`/api/cases/${item.id}?offset=${offset}&limit=25&q=${query}`);
+    if (requestId !== caseDetailRequestId || ctx.state.currentScreen !== "case-detail") return;
     ctx.state.selectedCase = payload.case;
     ctx.state.caseQuestions = payload.items || [];
     ctx.state.caseOffset = payload.offset || 0;
