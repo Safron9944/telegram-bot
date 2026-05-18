@@ -60,6 +60,9 @@ ADMIN_QWORK_PAGE = "admin_qwork_page"
 ADMIN_QEDIT = "admin_qedit"
 ADMIN_QWORK_QUERY = "admin_qwork_query"
 
+CASES_PER_PAGE = 8
+CASE_QUESTIONS_PER_PAGE = 3
+
 
 def get_admin_contact_url(admin_ids: set[int]) -> str:
     """URL for 'contact admin' button.
@@ -1779,12 +1782,14 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
         f"{FILL}\n"
         "ℹ️ <b>Підказка</b>:\n"
         "• 📚 <b>Навчання</b> — розділ для вивчення матеріалів (законодавство та ОК-модулі).\n"
-        "• 📝 <b>Тестування</b> — розділ для перевірки знань за законодавством і ОК-модулями."
+        "• 📝 <b>Тестування</b> — розділ для перевірки знань за законодавством і ОК-модулями.\n"
+        "• 🗂 <b>Кейси</b> — питання та правильні відповіді, які додає адміністратор."
     )
 
     rows = [
         [InlineKeyboardButton(text="📚 Навчання", callback_data="nav:learn")],
         [InlineKeyboardButton(text="📝 Тестування", callback_data="nav:test")],
+        [InlineKeyboardButton(text="🗂 Кейси", callback_data="nav:cases:0")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="nav:stats")],
         [InlineKeyboardButton(text="❓ Допомога", callback_data="nav:help")],
     ]
@@ -1812,6 +1817,98 @@ def screen_help(admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
     b.button(text="⬅️ Меню", callback_data="nav:menu")
     b.adjust(1)
     return text, b.as_markup()
+
+
+def _clip_for_telegram(text: Any, limit: int) -> str:
+    value = str(text or "").strip()
+    if len(value) <= limit:
+        return value
+    return value[: max(0, limit - 1)].rstrip() + "…"
+
+
+def screen_cases_list(cases: list[dict], page: int = 0) -> Tuple[str, InlineKeyboardMarkup]:
+    page = max(0, int(page or 0))
+    total = len(cases or [])
+    start = page * CASES_PER_PAGE
+    visible = (cases or [])[start: start + CASES_PER_PAGE]
+
+    if not total:
+        text = (
+            "🗂 <b>Кейси</b>\n\n"
+            "Кейсів ще немає.\n"
+            "Адміністратор може додати Keys.db в адмін-панелі."
+        )
+        return text, kb_inline([("⬅️ Меню", "nav:menu")], row=1)
+
+    text = (
+        "🗂 <b>Кейси</b>\n\n"
+        "Оберіть кейс, щоб переглянути питання та правильні відповіді.\n"
+        f"Доступно кейсів: <b>{total}</b>"
+    )
+
+    rows: list[list[InlineKeyboardButton]] = []
+    for item in visible:
+        case_id = int(item.get("id") or 0)
+        number = _clip_for_telegram(item.get("case_number") or "Без номера", 24)
+        count = int(item.get("questions_count") or 0)
+        rows.append([
+            InlineKeyboardButton(
+                text=f"🗂 Кейс {number} · {count}",
+                callback_data=clamp_callback(f"case:view:{case_id}:0"),
+            )
+        ])
+
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"nav:cases:{page - 1}")))
+    if start + CASES_PER_PAGE < total:
+        nav_row.append(InlineKeyboardButton(text="Далі ➡️", callback_data=clamp_callback(f"nav:cases:{page + 1}")))
+    if nav_row:
+        rows.append(nav_row)
+
+    rows.append([InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def screen_case_detail(case: dict, questions: list[dict], offset: int, has_prev: bool, has_next: bool) -> Tuple[str, InlineKeyboardMarkup]:
+    case_id = int(case.get("id") or 0)
+    offset = max(0, int(offset or 0))
+    number = hescape(str(case.get("case_number") or "Без номера"))
+    title = hescape(_clip_for_telegram(case.get("case_title") or "", 160))
+    total = int(case.get("questions_count") or 0)
+
+    parts = [
+        f"🗂 <b>Кейс {number}</b>",
+        title,
+        f"Питань: <b>{total}</b>",
+    ]
+
+    if not questions:
+        parts.append("\nУ цьому кейсі поки немає питань.")
+
+    for item in questions:
+        position = hescape(str(item.get("position") or "—"))
+        question = hescape(_clip_for_telegram(item.get("question") or "Питання без тексту", 520))
+        answer = hescape(_clip_for_telegram(item.get("correct_answer") or "—", 420))
+        parts.append(
+            f"\n<b>№ {position}</b>\n"
+            f"{question}\n"
+            f"✅ <b>Правильна відповідь:</b>\n{answer}"
+        )
+
+    rows: list[list[InlineKeyboardButton]] = []
+    nav_row: list[InlineKeyboardButton] = []
+    if has_prev:
+        prev_offset = max(0, offset - CASE_QUESTIONS_PER_PAGE)
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=clamp_callback(f"case:view:{case_id}:{prev_offset}")))
+    if has_next:
+        nav_row.append(InlineKeyboardButton(text="Далі ➡️", callback_data=clamp_callback(f"case:view:{case_id}:{offset + CASE_QUESTIONS_PER_PAGE}")))
+    if nav_row:
+        rows.append(nav_row)
+    rows.append([InlineKeyboardButton(text="🗂 До кейсів", callback_data="nav:cases:0")])
+    rows.append([InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")])
+
+    return "\n\n".join([part for part in parts if part]), InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def screen_no_access(user: Dict[str, Any], admin_url: str) -> Tuple[str, InlineKeyboardMarkup]:
@@ -2446,6 +2543,50 @@ async def nav_help(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[i
     admin_url = get_admin_contact_url(admin_ids)
     text, kb = screen_help(admin_url)
 
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("nav:cases:"))
+async def nav_cases(cb: CallbackQuery, bot: Bot, store: Storage):
+    uid = cb.from_user.id
+    try:
+        page = int(cb.data.rsplit(":", 1)[1])
+    except Exception:
+        page = 0
+
+    cases = await store.list_case_banks()
+    text, kb = screen_cases_list(cases, page=page)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("case:view:"))
+async def nav_case_detail(cb: CallbackQuery, bot: Bot, store: Storage):
+    uid = cb.from_user.id
+    try:
+        _, _, case_id_raw, offset_raw = cb.data.split(":", 3)
+        case_id = int(case_id_raw)
+        offset = max(0, int(offset_raw))
+    except Exception:
+        await cb.answer("Не вдалося відкрити кейс.")
+        return
+
+    case = await store.get_case_bank(case_id)
+    if not case:
+        await render_main(
+            bot, store, uid, cb.message.chat.id,
+            "🗂 <b>Кейс не знайдено</b>\n\nМожливо, адміністратор його видалив.",
+            kb_inline([("🗂 До кейсів", "nav:cases:0"), ("⬅️ Меню", "nav:menu")], row=1),
+            message=cb.message,
+        )
+        await cb.answer()
+        return
+
+    rows = await store.list_case_questions(case_id, offset=offset, limit=CASE_QUESTIONS_PER_PAGE + 1)
+    has_next = len(rows) > CASE_QUESTIONS_PER_PAGE
+    questions = rows[:CASE_QUESTIONS_PER_PAGE]
+    text, kb = screen_case_detail(case, questions, offset, offset > 0, has_next)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
 

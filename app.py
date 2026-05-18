@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import io
 import json
 import os
+import zipfile
 import urllib.parse
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -1101,6 +1103,77 @@ class MiniAppService:
             "questions_count": int(payload.get("questions_count") or 0),
             "answers_count": int(payload.get("answers_count") or 0),
             "correct_count": int(payload.get("correct_count") or 0),
+        }
+
+    async def _import_case_bytes(self, data: bytes, filename: str, auth: AuthContext) -> dict[str, Any]:
+        if not data:
+            raise ValueError("Файл порожній.")
+        if len(data) > 25 * 1024 * 1024:
+            raise ValueError("Файл завеликий. Максимум 25 МБ.")
+        payload = extract_case_from_upload_bytes(data)
+        if not payload.get("questions"):
+            raise ValueError("У файлі не знайдено питань.")
+        case = await self.store.upsert_case_bank(payload, changed_by=f"admin:{auth.user_id}")
+        return {
+            "filename": filename,
+            "case": serialize_case_bank(case),
+            "questions_count": int(payload.get("questions_count") or 0),
+            "answers_count": int(payload.get("answers_count") or 0),
+            "correct_count": int(payload.get("correct_count") or 0),
+        }
+
+    async def admin_import_cases(self, auth: AuthContext, files: list[UploadFile]) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        if not files:
+            require_http(400, "empty_upload", "Оберіть файли Keys.db або ZIP-архів.")
+
+        imported: list[dict[str, Any]] = []
+        failed: list[dict[str, str]] = []
+        total_bytes = 0
+
+        async def import_one(data: bytes, filename: str) -> None:
+            try:
+                imported.append(await self._import_case_bytes(data, filename, auth))
+            except Exception as exc:
+                failed.append({"filename": filename, "message": str(exc)})
+
+        for file in files:
+            filename = file.filename or "upload"
+            lower = filename.lower()
+            data = await file.read()
+            total_bytes += len(data)
+            if total_bytes > 200 * 1024 * 1024:
+                require_http(400, "upload_too_large", "Загальний розмір файлів завеликий. Максимум 200 МБ.")
+
+            if lower.endswith(".zip"):
+                try:
+                    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                        db_entries = [
+                            item for item in archive.infolist()
+                            if not item.is_dir() and item.filename.lower().endswith(".db")
+                        ]
+                        if not db_entries:
+                            failed.append({"filename": filename, "message": "У ZIP-архіві немає .db файлів."})
+                            continue
+                        for item in db_entries:
+                            if item.file_size > 25 * 1024 * 1024:
+                                failed.append({"filename": item.filename, "message": "Файл завеликий. Максимум 25 МБ."})
+                                continue
+                            await import_one(archive.read(item), item.filename)
+                except zipfile.BadZipFile:
+                    failed.append({"filename": filename, "message": "Не вдалося прочитати ZIP-архів."})
+            elif lower.endswith(".db"):
+                await import_one(data, filename)
+            else:
+                failed.append({"filename": filename, "message": "Підтримуються лише .db або .zip файли."})
+
+        return {
+            "imported": imported,
+            "failed": failed,
+            "imported_count": len(imported),
+            "failed_count": len(failed),
+            "questions_count": sum(int(item.get("questions_count") or 0) for item in imported),
         }
 
     async def admin_delete_case(self, auth: AuthContext, case_id: int) -> dict[str, Any]:
