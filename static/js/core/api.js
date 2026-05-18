@@ -19,17 +19,18 @@ function getAuthHeaders() {
 }
 
 export async function api(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const config = {
     method: options.method || "GET",
     headers: {
       ...getAuthHeaders(),
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
   };
 
   if (options.body) {
-    config.body = JSON.stringify(options.body);
+    config.body = isFormData ? options.body : JSON.stringify(options.body);
   }
 
   const response = await fetch(path, config);

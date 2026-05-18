@@ -238,6 +238,38 @@ class Storage:
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_question_revisions_qid_version ON question_revisions(qid, version);")
             await con.execute("CREATE INDEX IF NOT EXISTS idx_question_revisions_qid ON question_revisions(qid);")
 
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS case_banks (
+                    id BIGSERIAL PRIMARY KEY,
+                    case_number TEXT NOT NULL,
+                    case_title TEXT NOT NULL,
+                    source_hash TEXT UNIQUE,
+                    questions_count INT NOT NULL DEFAULT 0,
+                    answers_count INT NOT NULL DEFAULT 0,
+                    correct_count INT NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """)
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_case_banks_number ON case_banks(case_number);")
+
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS case_questions (
+                    id BIGSERIAL PRIMARY KEY,
+                    case_id BIGINT NOT NULL REFERENCES case_banks(id) ON DELETE CASCADE,
+                    position INT NOT NULL,
+                    source_question_id INT NOT NULL,
+                    question TEXT NOT NULL,
+                    description TEXT,
+                    question_type INT,
+                    correct_answer TEXT NOT NULL DEFAULT '',
+                    correct_count INT NOT NULL DEFAULT 0,
+                    answers JSONB NOT NULL DEFAULT '[]'::jsonb
+                );
+            """)
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_case_questions_case_id ON case_questions(case_id);")
+            await con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_case_questions_case_source ON case_questions(case_id, source_question_id);")
+
             # ✅ Виклик міграції після CREATE TABLE
             await self._maybe_migrate_question_revisions_changed_by(con)
 
@@ -519,6 +551,105 @@ class Storage:
             int(qid),
         )
         return dict(row) if row else None
+
+    # -------------------- Imported Keys.db cases --------------------
+
+    async def upsert_case_bank(self, payload: dict, *, changed_by: str = "admin") -> dict:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                row = await con.fetchrow(
+                    """
+                    INSERT INTO case_banks (case_number, case_title, source_hash, questions_count, answers_count, correct_count, updated_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,now())
+                    ON CONFLICT (source_hash) DO UPDATE SET
+                        case_number=EXCLUDED.case_number,
+                        case_title=EXCLUDED.case_title,
+                        questions_count=EXCLUDED.questions_count,
+                        answers_count=EXCLUDED.answers_count,
+                        correct_count=EXCLUDED.correct_count,
+                        updated_at=now()
+                    RETURNING id, case_number, case_title, source_hash, questions_count, answers_count, correct_count, created_at, updated_at
+                    """,
+                    payload.get("case_number") or "Без номера",
+                    payload.get("case_title") or "Кейс без назви",
+                    payload.get("source_hash") or None,
+                    int(payload.get("questions_count") or 0),
+                    int(payload.get("answers_count") or 0),
+                    int(payload.get("correct_count") or 0),
+                )
+                case_id = int(row["id"])
+                await con.execute("DELETE FROM case_questions WHERE case_id=$1", case_id)
+                for item in payload.get("questions") or []:
+                    await con.execute(
+                        """
+                        INSERT INTO case_questions (case_id, position, source_question_id, question, description, question_type, correct_answer, correct_count, answers)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+                        """,
+                        case_id,
+                        int(item.get("position") or 0),
+                        int(item.get("source_question_id") or 0),
+                        item.get("question") or "",
+                        item.get("description") or "",
+                        item.get("question_type"),
+                        item.get("correct_answer") or "",
+                        int(item.get("correct_count") or 0),
+                        json.dumps(item.get("answers") or [], ensure_ascii=False),
+                    )
+                return dict(row)
+
+    async def list_case_banks(self) -> list[dict]:
+        rows = await self._fetch(
+            """
+            SELECT id, case_number, case_title, questions_count, answers_count, correct_count, created_at, updated_at
+            FROM case_banks
+            ORDER BY updated_at DESC, id DESC
+            """
+        )
+        return [dict(r) for r in rows]
+
+    async def get_case_bank(self, case_id: int) -> Optional[dict]:
+        row = await self._fetchrow(
+            """
+            SELECT id, case_number, case_title, questions_count, answers_count, correct_count, created_at, updated_at
+            FROM case_banks
+            WHERE id=$1
+            """,
+            int(case_id),
+        )
+        return dict(row) if row else None
+
+    async def list_case_questions(self, case_id: int, offset: int = 0, limit: int = 50, query: str = "") -> list[dict]:
+        if (query or "").strip():
+            like = f"%{query.strip()}%"
+            rows = await self._fetch(
+                """
+                SELECT id, case_id, position, source_question_id, question, description, question_type, correct_answer, correct_count, answers
+                FROM case_questions
+                WHERE case_id=$1 AND (question ILIKE $2 OR correct_answer ILIKE $2 OR description ILIKE $2)
+                ORDER BY position ASC, id ASC
+                LIMIT $3 OFFSET $4
+                """,
+                int(case_id), like, int(limit), int(offset),
+            )
+        else:
+            rows = await self._fetch(
+                """
+                SELECT id, case_id, position, source_question_id, question, description, question_type, correct_answer, correct_count, answers
+                FROM case_questions
+                WHERE case_id=$1
+                ORDER BY position ASC, id ASC
+                LIMIT $2 OFFSET $3
+                """,
+                int(case_id), int(limit), int(offset),
+            )
+        return [dict(r) for r in rows]
+
+    async def delete_case_bank(self, case_id: int) -> bool:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            res = await con.execute("DELETE FROM case_banks WHERE id=$1", int(case_id))
+        return not res.endswith(" 0")
 
     async def update_question_content(
             self,

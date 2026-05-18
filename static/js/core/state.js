@@ -11,4 +11,9 @@ export const state = {
   searchResults: null,
   questionSearchQuery: "",
   learningTab: "law", // "law" | "ok" | "mistakes"
+  cases: [],
+  selectedCase: null,
+  caseQuestions: null,
+  caseOffset: 0,
+  caseQuery: "",
 };

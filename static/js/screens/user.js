@@ -66,10 +66,17 @@ export function renderHome(ctx) {
             screen: "testing",
           }),
           ctx.cell({
+            title: "Кейси",
+            subtitle: "Питання та правильні відповіді",
+            icon: "🗂",
+            tint: "green",
+            screen: "cases",
+          }),
+          ctx.cell({
             title: "Статистика",
             subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест",
             icon: "📊",
-            tint: "green",
+            tint: "teal",
             screen: "stats",
             detail: last ? percentLabel(last.percent) : undefined,
           }),
@@ -618,4 +625,160 @@ export function renderHelp(ctx) {
   });
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+}
+
+
+/* ===================== CASES ===================== */
+export function renderCases(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Кейси</h1>
+      <p class="page-subtitle">Оберіть кейс, щоб переглянути питання й правильні відповіді.</p>
+
+      <div class="group">
+        <div class="group__label">Доступні кейси</div>
+        <div class="group__list" id="cases-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+export async function loadCases(ctx) {
+  if (ctx.state.currentScreen !== "cases") return;
+  try {
+    const payload = await ctx.api("/api/cases");
+    ctx.state.cases = payload.items || [];
+    const list = document.querySelector("#cases-list");
+    if (!list) return;
+    if (!ctx.state.cases.length) {
+      list.innerHTML = `
+        <div class="empty empty--inline">
+          <h2>Кейсів ще немає</h2>
+          <p>Адмін може додати Keys.db в адмін-панелі.</p>
+        </div>
+      `;
+      return;
+    }
+    list.innerHTML = "";
+    ctx.state.cases.forEach((item) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "cell";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--green">${ctx.escapeHtml((item.case_number || "К").slice(0, 2))}</span>
+        <span class="cell__body">
+          <span class="cell__title">Кейс ${ctx.escapeHtml(item.case_number || "—")}</span>
+          <span class="cell__subtitle">${ctx.escapeHtml(item.questions_count)} питань · ${ctx.escapeHtml(item.correct_count)} правильних</span>
+        </span>
+        <span class="cell__chevron" aria-hidden="true"></span>
+      `;
+      row.addEventListener("click", () => {
+        ctx.state.selectedCase = item;
+        ctx.state.caseOffset = 0;
+        ctx.state.caseQuery = "";
+        ctx.navigate("case-detail");
+      });
+      list.append(row);
+    });
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+export function renderCaseDetail(ctx) {
+  const item = ctx.state.selectedCase;
+  ctx.setChrome({ showBack: true });
+  if (!item) {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <div class="empty"><h2>Кейс не вибрано</h2><p>Поверніться до списку кейсів.</p></div>
+      </section>
+    `;
+    return;
+  }
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Кейс ${ctx.escapeHtml(item.case_number || "—")}</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(item.case_title || "")}</p>
+
+      <div class="search-row">
+        <input class="input" id="case-search" type="search" value="${ctx.escapeHtml(ctx.state.caseQuery || "")}" placeholder="Пошук по питанню або відповіді" />
+        <button class="btn btn--secondary" id="case-search-btn" type="button">Знайти</button>
+      </div>
+
+      <div class="group">
+        <div class="group__label">Питання і правильні відповіді</div>
+        <div class="group__list case-answer-list" id="case-question-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+        </div>
+      </div>
+
+      <div class="row" id="case-pagination" style="justify-content:center; gap:8px;"></div>
+    </section>
+  `;
+
+  const input = ctx.refs.mainPanel.querySelector("#case-search");
+  const run = () => {
+    ctx.state.caseQuery = input.value.trim();
+    ctx.state.caseOffset = 0;
+    loadCaseDetail(ctx, 0);
+  };
+  ctx.refs.mainPanel.querySelector("#case-search-btn")?.addEventListener("click", run);
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") run();
+  });
+}
+
+export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
+  if (ctx.state.currentScreen !== "case-detail") return;
+  const item = ctx.state.selectedCase;
+  if (!item?.id) return;
+  try {
+    const query = encodeURIComponent(ctx.state.caseQuery || "");
+    const payload = await ctx.api(`/api/cases/${item.id}?offset=${offset}&limit=25&q=${query}`);
+    ctx.state.selectedCase = payload.case;
+    ctx.state.caseQuestions = payload.items || [];
+    ctx.state.caseOffset = payload.offset || 0;
+
+    const list = document.querySelector("#case-question-list");
+    if (!list) return;
+    if (!ctx.state.caseQuestions.length) {
+      list.innerHTML = `
+        <div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший пошук.</p></div>
+      `;
+    } else {
+      list.innerHTML = "";
+      ctx.state.caseQuestions.forEach((q) => {
+        const block = document.createElement("article");
+        block.className = "case-answer";
+        block.innerHTML = `
+          <div class="case-answer__head">
+            <span class="chip chip--accent">№ ${ctx.escapeHtml(q.position)}</span>
+            ${q.correct_count > 1 ? `<span class="chip chip--success">${q.correct_count} відповіді</span>` : ""}
+          </div>
+          <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
+          <div class="case-answer__label">Правильна відповідь</div>
+          <div class="case-answer__correct">${ctx.escapeHtml(q.correct_answer || "—").replace(/\n/g, "<br>")}</div>
+          ${q.description ? `<div class="case-answer__source">${ctx.escapeHtml(q.description)}</div>` : ""}
+        `;
+        list.append(block);
+      });
+    }
+
+    const pagination = document.querySelector("#case-pagination");
+    if (pagination) {
+      pagination.innerHTML = "";
+      if (payload.has_prev) {
+        pagination.append(ctx.actionButton("← Назад", async () => loadCaseDetail(ctx, Math.max(0, payload.offset - payload.limit)), "sm"));
+      }
+      if (payload.has_next) {
+        pagination.append(ctx.actionButton("Далі →", async () => loadCaseDetail(ctx, payload.offset + payload.limit), "sm"));
+      }
+    }
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
 }

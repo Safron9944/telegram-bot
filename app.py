@@ -16,10 +16,12 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from case_importer import extract_case_from_upload_bytes
 
 from bot import (
     GROUP_URL,
@@ -156,6 +158,37 @@ def serialize_question(q: Any, *, reveal_answers: bool = False) -> dict[str, Any
         payload["correct"] = correct
         payload["correct_texts"] = list(q.correct_texts or [])
     return payload
+
+
+def serialize_case_bank(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(item.get("id") or 0),
+        "case_number": item.get("case_number") or "Без номера",
+        "case_title": item.get("case_title") or "Кейс без назви",
+        "questions_count": int(item.get("questions_count") or 0),
+        "answers_count": int(item.get("answers_count") or 0),
+        "correct_count": int(item.get("correct_count") or 0),
+        "created_at": dt_to_iso(item.get("created_at")),
+        "updated_at": dt_to_iso(item.get("updated_at")),
+    }
+
+
+def serialize_case_question(item: dict[str, Any]) -> dict[str, Any]:
+    answers = item.get("answers") or []
+    if isinstance(answers, str):
+        with suppress(Exception):
+            answers = json.loads(answers)
+    return {
+        "id": int(item.get("id") or 0),
+        "position": int(item.get("position") or 0),
+        "source_question_id": int(item.get("source_question_id") or 0),
+        "question": item.get("question") or "",
+        "description": item.get("description") or "",
+        "question_type": item.get("question_type"),
+        "correct_answer": item.get("correct_answer") or "",
+        "correct_count": int(item.get("correct_count") or 0),
+        "answers": answers if isinstance(answers, list) else [],
+    }
 
 
 def sort_law_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1022,6 +1055,62 @@ class MiniAppService:
         await self.set_state(auth.user_id, state)
         return self.build_test_result_view(state)
 
+    async def list_cases(self, auth: AuthContext) -> dict[str, Any]:
+        cases = await self.store.list_case_banks()
+        return {"items": [serialize_case_bank(item) for item in cases]}
+
+    async def case_detail(self, auth: AuthContext, case_id: int, offset: int = 0, limit: int = 50, query: str = "") -> dict[str, Any]:
+        case = await self.store.get_case_bank(case_id)
+        if not case:
+            require_http(404, "case_not_found", "Кейс не знайдено.")
+        limit = clamp(int(limit), 1, 100)
+        offset = max(0, int(offset))
+        rows = await self.store.list_case_questions(case_id, offset=offset, limit=limit + 1, query=query)
+        has_next = len(rows) > limit
+        items = rows[:limit]
+        return {
+            "case": serialize_case_bank(case),
+            "items": [serialize_case_question(item) for item in items],
+            "offset": offset,
+            "limit": limit,
+            "has_next": has_next,
+            "has_prev": offset > 0,
+            "query": query or "",
+        }
+
+    async def admin_import_case(self, auth: AuthContext, file: UploadFile) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        filename = (file.filename or "").lower()
+        if filename and not filename.endswith(".db"):
+            require_http(400, "bad_file", "Завантажте файл Keys.db.")
+        data = await file.read()
+        if not data:
+            require_http(400, "empty_file", "Файл порожній.")
+        if len(data) > 25 * 1024 * 1024:
+            require_http(400, "file_too_large", "Файл завеликий. Максимум 25 МБ.")
+        try:
+            payload = extract_case_from_upload_bytes(data)
+        except Exception as exc:
+            require_http(400, "import_failed", f"Не вдалося прочитати Keys.db: {exc}")
+        if not payload.get("questions"):
+            require_http(400, "no_questions", "У файлі не знайдено питань.")
+        case = await self.store.upsert_case_bank(payload, changed_by=f"admin:{auth.user_id}")
+        return {
+            "case": serialize_case_bank(case),
+            "questions_count": int(payload.get("questions_count") or 0),
+            "answers_count": int(payload.get("answers_count") or 0),
+            "correct_count": int(payload.get("correct_count") or 0),
+        }
+
+    async def admin_delete_case(self, auth: AuthContext, case_id: int) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        ok = await self.store.delete_case_bank(case_id)
+        if not ok:
+            require_http(404, "case_not_found", "Кейс не знайдено.")
+        return {"ok": True}
+
     async def list_admin_users(self, auth: AuthContext, offset: int, limit: int = 10) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
@@ -1378,6 +1467,26 @@ async def api_test_review_index(payload: ReviewIndexRequest, auth: AuthContext =
 @app.post("/api/test/review/back")
 async def api_test_review_back(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).back_to_test_result(auth)
+
+
+@app.get("/api/cases")
+async def api_cases(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).list_cases(auth)
+
+
+@app.get("/api/cases/{case_id}")
+async def api_case_detail(case_id: int, offset: int = 0, limit: int = 50, q: str = "", auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).case_detail(auth, case_id, max(0, offset), max(1, min(limit, 100)), q)
+
+
+@app.post("/api/admin/cases/import")
+async def api_admin_case_import(file: UploadFile = File(...), auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_import_case(auth, file)
+
+
+@app.delete("/api/admin/cases/{case_id}")
+async def api_admin_case_delete(case_id: int, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_delete_case(auth, case_id)
 
 
 @app.get("/api/admin/users")

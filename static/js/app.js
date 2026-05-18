@@ -16,6 +16,10 @@ import {
   statPill,
 } from "./core/ui.js";
 import {
+  loadCaseDetail,
+  loadCases,
+  renderCaseDetail,
+  renderCases,
   renderHelp,
   renderHome,
   renderLawParts,
@@ -24,10 +28,12 @@ import {
   renderTesting,
 } from "./screens/user.js";
 import {
+  loadAdminCases,
   loadAdminQuestions,
   loadAdminUserDetail,
   loadAdminUsers,
   loadQuestionDetail,
+  renderAdminCases,
   renderAdminHub,
   renderAdminQuestions,
   renderAdminUsers,
@@ -84,8 +90,11 @@ function createContext() {
     loadAdminUsers: (offset = state.adminUsersOffset) => loadAdminUsers(createContext(), offset),
     loadAdminUserDetail: (userId) => loadAdminUserDetail(createContext(), userId),
     loadAdminQuestions: (page = state.adminQuestionsPage) => loadAdminQuestions(createContext(), page),
+    loadAdminCases: () => loadAdminCases(createContext()),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
+    loadCases: () => loadCases(createContext()),
+    loadCaseDetail: (offset = state.caseOffset) => loadCaseDetail(createContext(), offset),
   };
 }
 
@@ -161,6 +170,9 @@ function ensureScreenData(screen = state.currentScreen) {
   if (state.currentView) return;
   if (screen === "admin-users") void loadAdminUsers(createContext(), state.adminUsersOffset);
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
+  if (screen === "admin-cases") void loadAdminCases(createContext());
+  if (screen === "cases") void loadCases(createContext());
+  if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
 }
 
 /**
@@ -204,12 +216,15 @@ function render() {
     case "home":              renderHome(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
+    case "cases":             renderCases(ctx); break;
+    case "case-detail":       renderCaseDetail(ctx); break;
     case "testing":           renderTesting(ctx); break;
     case "stats":             renderStats(ctx); break;
     case "help":              renderHelp(ctx); break;
     case "admin":             renderAdminHub(ctx); break;
     case "admin-users":       renderAdminUsers(ctx); break;
     case "admin-questions":   renderAdminQuestions(ctx); break;
+    case "admin-cases":       renderAdminCases(ctx); break;
     default:
       state.currentScreen = "home";
       renderHome(ctx);

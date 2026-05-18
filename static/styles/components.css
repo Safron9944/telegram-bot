@@ -755,3 +755,82 @@
   color: var(--label-secondary);
   font-size: 12px;
 }
+
+/* ===================== IMPORTED CASES ===================== */
+.btn--secondary {
+  background: var(--bg-fill);
+  color: var(--accent);
+}
+
+.pill--danger {
+  background: var(--destructive-fill);
+  color: var(--destructive);
+}
+
+.admin-upload-box {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.case-answer-list {
+  overflow: hidden;
+}
+
+.case-answer {
+  padding: 14px;
+  background: var(--bg-grouped);
+}
+
+.case-answer + .case-answer {
+  border-top: 1px solid var(--separator);
+}
+
+.case-answer__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.case-answer__question {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 700;
+  color: var(--label);
+}
+
+.case-answer__label {
+  margin-bottom: 4px;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.case-answer__correct {
+  padding: 10px 12px;
+  border-radius: var(--radius-button);
+  background: var(--success-fill);
+  color: var(--label);
+  font-size: 15px;
+  line-height: 1.42;
+  font-weight: 600;
+}
+
+.case-answer__source {
+  margin-top: 8px;
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}

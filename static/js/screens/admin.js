@@ -23,6 +23,13 @@ export function renderAdminHub(ctx) {
             tint: "purple",
             screen: "admin-questions",
           }),
+          ctx.cell({
+            title: "Кейси",
+            subtitle: "Імпорт Keys.db",
+            icon: "🗂",
+            tint: "green",
+            screen: "admin-cases",
+          }),
         ].join(""),
       })}
     </section>
@@ -505,6 +512,124 @@ export async function loadQuestionDetail(ctx, questionId) {
       } catch (error) {
         ctx.setMessage("error", error.message);
       }
+    });
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+/* ===================== ADMIN CASES ===================== */
+export function renderAdminCases(ctx) {
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Кейси</h1>
+      <p class="page-subtitle">Завантажте Keys.db — бот сам витягне номер кейсу, питання і правильні відповіді.</p>
+
+      <div class="group">
+        <div class="group__label">Імпорт Keys.db</div>
+        <div class="group__list admin-upload-box">
+          <input class="input" id="case-db-file" type="file" accept=".db" />
+          <div id="case-upload-action"></div>
+          <div class="group__footer">Файл не змінюється. Дані зберігаються в боті як окремий кейс.</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group__label">Завантажені кейси</div>
+        <div class="group__list" id="admin-cases-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  const action = ctx.refs.mainPanel.querySelector("#case-upload-action");
+  action.append(
+    ctx.actionButton(
+      "Завантажити Keys.db",
+      async () => {
+        const input = ctx.refs.mainPanel.querySelector("#case-db-file");
+        const file = input?.files?.[0];
+        if (!file) {
+          ctx.setMessage("error", "Спочатку виберіть файл Keys.db.");
+          return;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        try {
+          const response = await ctx.api("/api/admin/cases/import", {
+            method: "POST",
+            body: form,
+          });
+          ctx.setMessage("success", `Кейс ${response.case.case_number} додано: ${response.questions_count} питань.`);
+          ctx.impact("medium");
+          input.value = "";
+          await loadAdminCases(ctx);
+          await ctx.loadBootstrap(false);
+        } catch (error) {
+          ctx.setMessage("error", error.message);
+        }
+      },
+      "block",
+    ),
+  );
+}
+
+export async function loadAdminCases(ctx) {
+  if (ctx.state.currentScreen !== "admin-cases") return;
+  try {
+    const payload = await ctx.api("/api/cases");
+    const list = document.querySelector("#admin-cases-list");
+    if (!list) return;
+    const items = payload.items || [];
+    if (!items.length) {
+      list.innerHTML = `
+        <div class="empty empty--inline"><h2>Кейсів ще немає</h2><p>Завантажте перший Keys.db.</p></div>
+      `;
+      return;
+    }
+    list.innerHTML = "";
+    items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "cell";
+      row.style.cursor = "default";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--green">${ctx.escapeHtml((item.case_number || "К").slice(0, 2))}</span>
+        <span class="cell__body">
+          <span class="cell__title">Кейс ${ctx.escapeHtml(item.case_number || "—")}</span>
+          <span class="cell__subtitle">${ctx.escapeHtml(item.questions_count)} питань · ${ctx.escapeHtml(item.correct_count)} правильних</span>
+        </span>
+        <span class="row-actions"></span>
+      `;
+      const actions = row.querySelector(".row-actions");
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.className = "pill";
+      openBtn.textContent = "Відкрити";
+      openBtn.addEventListener("click", () => {
+        ctx.state.selectedCase = item;
+        ctx.state.caseOffset = 0;
+        ctx.state.caseQuery = "";
+        ctx.navigate("case-detail");
+      });
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "pill pill--danger";
+      delBtn.textContent = "Видалити";
+      delBtn.addEventListener("click", async () => {
+        if (!confirm(`Видалити кейс ${item.case_number}?`)) return;
+        try {
+          await ctx.api(`/api/admin/cases/${item.id}`, { method: "DELETE" });
+          ctx.setMessage("success", "Кейс видалено.");
+          await loadAdminCases(ctx);
+        } catch (error) {
+          ctx.setMessage("error", error.message);
+        }
+      });
+      actions.append(openBtn, delBtn);
+      list.append(row);
     });
   } catch (error) {
     ctx.setMessage("error", error.message);
