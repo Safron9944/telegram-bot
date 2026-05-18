@@ -1,4 +1,4 @@
-import { tg } from "./telegram.js?v=20260519-cases-visible-2";
+import { tg } from "./telegram.js";
 
 const STORAGE_KEY = "prep-app-theme";
 const THEMES = new Set(["light", "dark"]);

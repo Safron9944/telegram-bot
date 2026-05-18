@@ -1,1 +1,1 @@
-import "/static/js/app.js?v=20260519-cases-visible-2";
+import "/static/js/app.js";

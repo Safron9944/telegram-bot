@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-cases-visible-2";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -704,7 +704,7 @@ export function renderCaseDetail(ctx) {
   }
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
-      <h1 class="page-title">Кейс ${ctx.escapeHtml(item.case_number || "—")}</h1>
+      <h1 class="page-title page-title--case">Кейс ${ctx.escapeHtml(item.case_number || "—")}</h1>
 
       <div class="search-row">
         <input class="input" id="case-search" type="search" value="${ctx.escapeHtml(ctx.state.caseQuery || "")}" placeholder="Пошук по питанню або відповіді" />
