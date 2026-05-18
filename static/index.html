@@ -7,11 +7,8 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
     />
     <title>Підготовка</title>
-    <link rel="stylesheet" href="/static/styles.css?v=__STATIC_VERSION__" />
+    <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script>
-      window.__STATIC_VERSION__ = "__STATIC_VERSION__";
-    </script>
   </head>
   <body>
     <div class="app" id="app">
@@ -22,7 +19,14 @@
 
       <section class="messages" id="messages-panel" hidden></section>
 
-      <main class="screen" id="main-panel"></main>
+      <main class="screen" id="main-panel">
+        <div class="screen-content">
+          <div class="empty">
+            <h2>Підключення…</h2>
+            <p>Очікуємо дані від сервера.</p>
+          </div>
+        </div>
+      </main>
 
       <nav class="tabbar" id="tabbar" aria-label="Основна навігація">
         <button class="tab" type="button" data-tab="home" aria-label="Головна">
@@ -67,6 +71,15 @@
       </div>
     </template>
 
-    <script type="module" src="/static/js/app.js?v=__STATIC_VERSION__"></script>
+    <script>
+      function showStartupError() {
+        var panel = document.querySelector("#main-panel");
+        if (!panel) return;
+        panel.innerHTML = '<div class="screen-content"><div class="empty"><h2>Mini App не завантажився</h2><p>Закрийте й відкрийте Mini App ще раз.</p></div></div>';
+      }
+      window.addEventListener("error", showStartupError);
+      window.addEventListener("unhandledrejection", showStartupError);
+    </script>
+    <script type="module" src="/static/js/app.js"></script>
   </body>
 </html>

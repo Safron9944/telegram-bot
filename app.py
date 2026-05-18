@@ -19,7 +19,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -46,27 +46,11 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 INDEX_FILE = STATIC_DIR / "index.html"
-STATIC_VERSION_TOKEN = "__STATIC_VERSION__"
 STATIC_NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
     "Pragma": "no-cache",
     "Expires": "0",
 }
-
-
-def static_asset_version() -> str:
-    explicit = (os.getenv("STATIC_VERSION") or "").strip()
-    if explicit:
-        return explicit
-
-    newest = 0
-    for path in STATIC_DIR.rglob("*"):
-        if path.is_file():
-            try:
-                newest = max(newest, path.stat().st_mtime_ns)
-            except OSError:
-                continue
-    return str(newest or int(now().timestamp()))
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -1632,7 +1616,5 @@ async def api_admin_question_update(qid: int, payload: QuestionPatchRequest, aut
 
 
 @app.get("/")
-async def index() -> HTMLResponse:
-    version = static_asset_version()
-    html = INDEX_FILE.read_text(encoding="utf-8").replace(STATIC_VERSION_TOKEN, version)
-    return HTMLResponse(html, headers=STATIC_NO_CACHE_HEADERS)
+async def index() -> FileResponse:
+    return FileResponse(INDEX_FILE, headers=STATIC_NO_CACHE_HEADERS)
