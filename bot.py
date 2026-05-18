@@ -1883,12 +1883,10 @@ def screen_case_detail(case: dict, questions: list[dict], offset: int, has_prev:
     case_id = int(case.get("id") or 0)
     offset = max(0, int(offset or 0))
     number = hescape(str(case.get("case_number") or "Без номера"))
-    title = hescape(_clip_for_telegram(case.get("case_title") or "", 160))
     total = int(case.get("questions_count") or 0)
 
     parts = [
         f"🗂 <b>Кейс {number}</b>",
-        title,
         f"Питань: <b>{total}</b>",
     ]
 
