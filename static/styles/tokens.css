@@ -1,112 +1,111 @@
 :root {
   color-scheme: light;
 
-  /* System surfaces — adapt to Telegram theme if available */
-  --bg: var(--tg-theme-bg-color, #f2f2f7);
-  --bg-grouped: var(--tg-theme-secondary-bg-color, #ffffff);
-  --bg-fill: rgba(120, 120, 128, 0.12);
-  --bg-fill-soft: rgba(120, 120, 128, 0.07);
-  --bg-fill-strong: rgba(120, 120, 128, 0.20);
-  --bg-tabbar: rgba(247, 247, 247, 0.86);
+  /* ── Backgrounds ── */
+  --bg:             var(--tg-theme-bg-color, #f5f5f7);
+  --bg-grouped:     var(--tg-theme-secondary-bg-color, #ffffff);
+  --bg-fill:        rgba(0, 0, 0, 0.055);
+  --bg-fill-soft:   rgba(0, 0, 0, 0.030);
+  --bg-fill-strong: rgba(0, 0, 0, 0.100);
+  --bg-tabbar:      rgba(255, 255, 255, 0.92);
 
-  /* Separators */
-  --separator: rgba(60, 60, 67, 0.16);
-  --separator-strong: rgba(60, 60, 67, 0.32);
+  /* ── Separators ── */
+  --separator:        rgba(0, 0, 0, 0.08);
+  --separator-strong: rgba(0, 0, 0, 0.14);
 
-  /* Labels */
-  --label: var(--tg-theme-text-color, #000000);
-  --label-secondary: var(--tg-theme-hint-color, rgba(60, 60, 67, 0.62));
-  --label-tertiary: rgba(60, 60, 67, 0.32);
-  --label-inverse: #ffffff;
+  /* ── Typography ── */
+  --label:           var(--tg-theme-text-color, #111111);
+  --label-secondary: var(--tg-theme-hint-color, rgba(0, 0, 0, 0.44));
+  --label-tertiary:  rgba(0, 0, 0, 0.26);
+  --label-inverse:   #ffffff;
 
-  /* Brand / system */
-  --accent: var(--tg-theme-button-color, #007aff);
+  /* ── Brand / interactive ── */
+  --accent:      var(--tg-theme-button-color, #2563eb);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
-  --accent-fill: rgba(0, 122, 255, 0.12);
-  --link: var(--tg-theme-link-color, #007aff);
+  --accent-fill: rgba(37, 99, 235, 0.10);
+  --link:        var(--tg-theme-link-color, #2563eb);
 
-  --destructive: #ff3b30;
-  --destructive-fill: rgba(255, 59, 48, 0.12);
-  --success: #34c759;
-  --success-fill: rgba(52, 199, 89, 0.16);
-  --warning: #ff9500;
-  --warning-fill: rgba(255, 149, 0, 0.16);
+  /* ── Semantic status ── */
+  --destructive:      #dc2626;
+  --destructive-fill: rgba(220, 38, 38, 0.10);
+  --success:          #16a34a;
+  --success-fill:     rgba(22, 163, 74, 0.12);
+  --warning:          #ea580c;
+  --warning-fill:     rgba(234, 88, 12, 0.12);
 
-  /* Tinted icon backgrounds (iOS Settings-style) */
-  --tint-blue: #007aff;
-  --tint-purple: #af52de;
-  --tint-pink: #ff2d55;
-  --tint-orange: #ff9500;
-  --tint-green: #34c759;
-  --tint-red: #ff3b30;
-  --tint-teal: #5ac8fa;
-  --tint-indigo: #5856d6;
+  /* ── Icon tints ── */
+  --tint-blue:   #2563eb;
+  --tint-purple: #7c3aed;
+  --tint-pink:   #db2777;
+  --tint-orange: #ea580c;
+  --tint-green:  #16a34a;
+  --tint-red:    #dc2626;
+  --tint-teal:   #0891b2;
+  --tint-indigo: #4338ca;
 
-  /* Geometry */
-  --radius-card: 12px;
+  /* ── Geometry ── */
+  --radius-card:   10px;
   --radius-button: 10px;
-  --radius-pill: 999px;
-  --radius-tile: 16px;
+  --radius-pill:   999px;
+  --radius-tile:   12px;
 
-  /* Sizes */
-  --row-h: 44px;
-  --tabbar-h: 50px;
+  /* ── Sizes ── */
+  --row-h:          48px;
+  --tabbar-h:       52px;
   --tabbar-h-total: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
 
-  /* Type */
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-  --font-rounded: ui-rounded, -apple-system, "SF Pro Rounded", "SF Pro Display", system-ui, sans-serif;
+  /* ── Fonts ── */
+  --font-ui:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-rounded: ui-rounded, -apple-system, system-ui, sans-serif;
 
-  --shadow-fab: 0 8px 24px rgba(0, 122, 255, 0.28);
-
-  /* Case reader */
-  --case-bg: #0b1729;
-  --case-surface: #13243a;
+  /* ── Case reader (dark legal document viewer — intentionally dark) ── */
+  --case-bg:           #0b1729;
+  --case-surface:      #13243a;
   --case-surface-soft: #0f1d31;
-  --case-border: rgba(141, 169, 210, 0.22);
-  --case-text: #f4f8ff;
-  --case-muted: #8ea6c8;
+  --case-border:       rgba(141, 169, 210, 0.22);
+  --case-text:         #f4f8ff;
+  --case-muted:        #8ea6c8;
   --case-muted-strong: #b8c8df;
-  --case-accent: #65a8ff;
-  --case-success: #4ade80;
+  --case-accent:       #65a8ff;
+  --case-success:      #4ade80;
   --case-success-soft: rgba(74, 222, 128, 0.12);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: var(--tg-theme-bg-color, #000000);
-  --bg-grouped: var(--tg-theme-secondary-bg-color, #1c1c1e);
-  --bg-fill: rgba(120, 120, 128, 0.24);
-  --bg-fill-soft: rgba(120, 120, 128, 0.12);
-  --bg-fill-strong: rgba(120, 120, 128, 0.36);
-  --bg-tabbar: rgba(22, 22, 23, 0.88);
+  --bg:             var(--tg-theme-bg-color, #0f0f10);
+  --bg-grouped:     var(--tg-theme-secondary-bg-color, #1a1a1c);
+  --bg-fill:        rgba(255, 255, 255, 0.08);
+  --bg-fill-soft:   rgba(255, 255, 255, 0.04);
+  --bg-fill-strong: rgba(255, 255, 255, 0.14);
+  --bg-tabbar:      rgba(15, 15, 16, 0.92);
 
-  --separator: rgba(84, 84, 88, 0.55);
-  --separator-strong: rgba(84, 84, 88, 0.85);
+  --separator:        rgba(255, 255, 255, 0.09);
+  --separator-strong: rgba(255, 255, 255, 0.16);
 
-  --label: var(--tg-theme-text-color, #ffffff);
-  --label-secondary: var(--tg-theme-hint-color, rgba(235, 235, 245, 0.62));
-  --label-tertiary: rgba(235, 235, 245, 0.32);
+  --label:           var(--tg-theme-text-color, #f0f0f2);
+  --label-secondary: var(--tg-theme-hint-color, rgba(255, 255, 255, 0.48));
+  --label-tertiary:  rgba(255, 255, 255, 0.26);
 
-  --accent: var(--tg-theme-button-color, #0a84ff);
-  --link: var(--tg-theme-link-color, #0a84ff);
-  --accent-fill: rgba(10, 132, 255, 0.20);
+  --accent:      var(--tg-theme-button-color, #3b82f6);
+  --accent-fill: rgba(59, 130, 246, 0.18);
+  --link:        var(--tg-theme-link-color, #3b82f6);
 
-  --destructive: #ff453a;
-  --destructive-fill: rgba(255, 69, 58, 0.20);
-  --success: #30d158;
-  --success-fill: rgba(48, 209, 88, 0.20);
-  --warning: #ff9f0a;
-  --warning-fill: rgba(255, 159, 10, 0.20);
+  --destructive:      #ef4444;
+  --destructive-fill: rgba(239, 68, 68, 0.18);
+  --success:          #22c55e;
+  --success-fill:     rgba(34, 197, 94, 0.18);
+  --warning:          #f97316;
+  --warning-fill:     rgba(249, 115, 22, 0.18);
 
-  --tint-blue: #0a84ff;
-  --tint-purple: #bf5af2;
-  --tint-pink: #ff375f;
-  --tint-orange: #ff9f0a;
-  --tint-green: #30d158;
-  --tint-red: #ff453a;
-  --tint-teal: #64d2ff;
-  --tint-indigo: #5e5ce6;
+  --tint-blue:   #3b82f6;
+  --tint-purple: #8b5cf6;
+  --tint-pink:   #ec4899;
+  --tint-orange: #f97316;
+  --tint-green:  #22c55e;
+  --tint-red:    #ef4444;
+  --tint-teal:   #06b6d4;
+  --tint-indigo: #6366f1;
 }

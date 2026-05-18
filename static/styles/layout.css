@@ -32,27 +32,27 @@
   padding:
     calc(8px + env(safe-area-inset-top))
     16px
-    calc(var(--tabbar-h-total) + 16px);
+    calc(var(--tabbar-h-total) + 20px);
 }
 
-/* When tab bar is hidden (active session), bottom padding shrinks */
 .app.tabbar-hidden .screen {
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
 }
 
 .screen-content {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  animation: screen-in 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  gap: 14px;
+  animation: screen-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+/* Case reader — intentionally dark, full-bleed */
 .screen-content--case {
   min-height: calc(100dvh - var(--tabbar-h-total) - env(safe-area-inset-top));
   margin:
     calc(-8px - env(safe-area-inset-top))
     -16px
-    calc(-16px - var(--tabbar-h-total));
+    calc(-20px - var(--tabbar-h-total));
   padding:
     calc(16px + env(safe-area-inset-top))
     18px
@@ -63,18 +63,18 @@
 }
 
 @keyframes screen-in {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(3px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ===================== PAGE TITLE (large iOS-style) ===================== */
+/* ===================== PAGE TITLE ===================== */
 .page-title {
   margin: 4px 0 0;
   font-family: var(--font-display);
-  font-size: 32px;
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -0.025em;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
   color: var(--label);
 }
 
@@ -82,50 +82,57 @@
   margin: 0;
   font-size: 14px;
   color: var(--label-secondary);
+  line-height: 1.4;
 }
 
-/* ===================== GROUPED LIST (iOS Settings-style) ===================== */
+/* ===================== GROUPED LIST (flat section style) ===================== */
+/* Groups extend full-width by overcoming the 16px screen padding */
 .group {
   display: flex;
   flex-direction: column;
+  margin-left: -16px;
+  margin-right: -16px;
 }
 
 .group__label {
-  margin: 4px 16px 6px;
+  margin: 0;
+  padding: 0 16px 6px;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.025em;
   text-transform: uppercase;
   color: var(--label-secondary);
 }
 
 .group__footer {
-  margin: 6px 16px 0;
+  padding: 6px 16px 0;
   font-size: 12px;
   color: var(--label-secondary);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .group__list {
   background: var(--bg-grouped);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-}
-
-/* Inset variant — flush sections to edges with more breathing room */
-.group--plain .group__list {
-  background: transparent;
   border-radius: 0;
   overflow: visible;
+  border-top: 1px solid var(--separator);
+  border-bottom: 1px solid var(--separator);
+}
+
+/* Plain variant — used for transparent/borderless content */
+.group--plain .group__list {
+  background: transparent;
+  border-top: none;
+  border-bottom: none;
+}
+
+.group--plain {
+  margin-left: 0;
+  margin-right: 0;
 }
 
 /* ===================== STACKS ===================== */
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
+.stack       { display: flex; flex-direction: column; gap: 8px; }
 .stack-tight { gap: 4px; }
 .stack-loose { gap: 14px; }
 
@@ -139,7 +146,7 @@
 .row-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .row-between {
@@ -160,7 +167,7 @@
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
 
 .grid-auto {
@@ -174,7 +181,7 @@
   position: sticky;
   bottom: calc(var(--tabbar-h-total) + 12px);
   z-index: 10;
-  margin-top: 8px;
+  margin-top: 4px;
   padding: 8px 0 0;
   display: grid;
   gap: 8px;
@@ -199,8 +206,8 @@
   height: var(--tabbar-h-total);
   padding: 4px 0 env(safe-area-inset-bottom);
   background: var(--bg-tabbar);
-  -webkit-backdrop-filter: saturate(1.6) blur(20px);
-  backdrop-filter: saturate(1.6) blur(20px);
+  -webkit-backdrop-filter: saturate(1.4) blur(24px);
+  backdrop-filter: saturate(1.4) blur(24px);
   border-top: 1px solid var(--separator);
 }
 
@@ -219,7 +226,7 @@
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  transition: color 120ms ease, transform 120ms ease;
+  transition: color 120ms ease, transform 100ms ease;
 }
 
 .tab svg {
@@ -233,12 +240,12 @@
 }
 
 .tab:active {
-  transform: scale(0.94);
+  transform: scale(0.92);
 }
 
 /* ===================== ANIMATION HELPERS ===================== */
 .fade-in {
-  animation: fade-in 180ms ease both;
+  animation: fade-in 160ms ease both;
 }
 
 @keyframes fade-in {

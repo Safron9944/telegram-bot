@@ -3,23 +3,26 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   border-radius: var(--radius-card);
   background: var(--bg-grouped);
   font-size: 14px;
   border: 1px solid var(--separator);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .message--error {
   background: var(--destructive-fill);
   color: var(--destructive);
   border-color: transparent;
+  box-shadow: none;
 }
 
 .message--success {
   background: var(--success-fill);
   color: var(--success);
   border-color: transparent;
+  box-shadow: none;
 }
 
 .message__body {
@@ -39,27 +42,25 @@
   opacity: 1;
 }
 
-/* ===================== HEADER (greeting / hero) ===================== */
+/* ===================== GREETING ===================== */
 .greeting {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px;
-  background: var(--bg-grouped);
-  border-radius: var(--radius-card);
+  padding: 2px 0 10px;
 }
 
 .greeting__avatar {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), var(--tint-purple));
+  background: var(--accent);
   color: #fff;
   font-family: var(--font-rounded);
-  font-size: 19px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
@@ -68,23 +69,23 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .greeting__hello {
-  font-size: 15px;
+  font-size: 13px;
   color: var(--label-secondary);
 }
 
 .greeting__name {
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--label);
 }
 
 .greeting__chip {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
 }
 
@@ -92,14 +93,14 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  height: 22px;
-  padding: 0 9px;
+  height: 20px;
+  padding: 0 8px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
   border-radius: var(--radius-pill);
   background: var(--bg-fill);
-  color: var(--label);
+  color: var(--label-secondary);
   white-space: nowrap;
 }
 
@@ -118,7 +119,7 @@
   color: var(--accent);
 }
 
-/* ===================== STAT PILL (compact stat cell) ===================== */
+/* ===================== STAT PILL ===================== */
 .stat-pill {
   display: flex;
   flex-direction: column;
@@ -126,13 +127,14 @@
   padding: 10px 12px;
   background: var(--bg-grouped);
   border-radius: var(--radius-card);
+  border: 1px solid var(--separator);
   min-width: 0;
 }
 
 .stat-pill__value {
   font-family: var(--font-rounded);
   font-size: 20px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--label);
   line-height: 1;
@@ -140,26 +142,26 @@
 
 .stat-pill__label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--label-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
 }
 
-/* ===================== ROW (iOS Settings-style cell) ===================== */
+/* ===================== CELL (flat list row) ===================== */
 .cell {
   position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 44px;
-  padding: 8px 14px;
+  min-height: var(--row-h);
+  padding: 8px 16px;
   background: var(--bg-grouped);
   color: var(--label);
   text-align: left;
-  font-size: 16px;
-  transition: background-color 120ms ease;
+  font-size: 15px;
+  transition: background-color 100ms ease;
 }
 
 .cell:active {
@@ -170,7 +172,7 @@
   content: "";
   position: absolute;
   top: 0;
-  left: 50px;
+  left: 58px;
   right: 0;
   height: 1px;
   background: var(--separator);
@@ -179,19 +181,19 @@
 
 .cell__icon {
   flex-shrink: 0;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 8px;
   color: #fff;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1;
 }
 
 .cell__icon svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   fill: currentColor;
 }
 
@@ -203,7 +205,7 @@
 .cell__icon--red    { background: var(--tint-red); }
 .cell__icon--teal   { background: var(--tint-teal); }
 .cell__icon--indigo { background: var(--tint-indigo); }
-.cell__icon--gray   { background: rgba(120,120,128,0.55); }
+.cell__icon--gray   { background: rgba(120, 120, 128, 0.45); }
 
 .cell__body {
   flex: 1;
@@ -215,10 +217,10 @@
 }
 
 .cell__title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--label);
-  line-height: 1.25;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -229,7 +231,7 @@
 .cell__subtitle {
   font-size: 13px;
   color: var(--label-secondary);
-  line-height: 1.25;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -253,12 +255,12 @@
 .cell__chevron::before {
   content: "";
   display: block;
-  width: 8px;
-  height: 8px;
-  border-top: 2px solid currentColor;
-  border-right: 2px solid currentColor;
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
   transform: rotate(45deg);
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .cell--plain {
@@ -282,7 +284,6 @@
   font-weight: 600;
 }
 
-/* Cell with right-side action button (e.g. "Старт") */
 .cell__action {
   flex-shrink: 0;
 }
@@ -293,25 +294,30 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 36px;
-  padding: 0 14px;
+  min-height: 38px;
+  padding: 0 16px;
   border-radius: var(--radius-button);
   background: var(--bg-fill);
   color: var(--label);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0;
-  transition: transform 80ms ease, opacity 120ms ease, background-color 120ms ease;
+  transition: transform 80ms ease, opacity 100ms ease, background-color 100ms ease;
 }
 
 .btn:active {
   transform: scale(0.97);
-  opacity: 0.85;
+  opacity: 0.80;
 }
 
 .btn--primary {
   background: var(--accent);
   color: var(--accent-text);
+}
+
+.btn--secondary {
+  background: var(--accent-fill);
+  color: var(--accent);
 }
 
 .btn--destructive {
@@ -328,20 +334,20 @@
   width: 100%;
   min-height: 50px;
   font-size: 16px;
-  font-weight: 700;
-  border-radius: 14px;
+  font-weight: 600;
+  border-radius: 12px;
 }
 
 .btn--lg {
   min-height: 44px;
-  padding: 0 18px;
+  padding: 0 20px;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .btn--sm {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 32px;
+  padding: 0 12px;
   font-size: 13px;
   font-weight: 600;
   border-radius: 8px;
@@ -356,17 +362,24 @@
   padding: 0 12px;
   border-radius: var(--radius-pill);
   background: var(--bg-fill);
-  color: var(--label);
+  color: var(--label-secondary);
   font-size: 13px;
   font-weight: 600;
-  transition: background-color 120ms ease, color 120ms ease, transform 80ms ease;
+  transition: background-color 100ms ease, color 100ms ease, transform 80ms ease;
 }
 
-.pill:active { transform: scale(0.95); }
+.pill:active {
+  transform: scale(0.95);
+}
 
 .pill.is-selected {
   background: var(--accent);
   color: var(--accent-text);
+}
+
+.pill--danger {
+  background: var(--destructive-fill);
+  color: var(--destructive);
 }
 
 /* ===================== SEGMENTED CONTROL ===================== */
@@ -375,7 +388,7 @@
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   background: var(--bg-fill);
-  border-radius: 9px;
+  border-radius: 10px;
   padding: 2px;
   gap: 0;
 }
@@ -384,20 +397,21 @@
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--label);
-  transition: background-color 120ms ease;
+  color: var(--label-secondary);
+  transition: background-color 100ms ease, color 100ms ease;
 }
 
 .segmented__btn.is-active {
   background: var(--bg-grouped);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06), 0 1px 0 rgba(0, 0, 0, 0.04);
+  color: var(--label);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
 [data-theme="dark"] .segmented__btn.is-active {
-  background: rgba(120, 120, 128, 0.5);
+  background: rgba(255, 255, 255, 0.14);
   box-shadow: none;
 }
 
@@ -419,7 +433,7 @@
   inset: 0;
   background: var(--bg-fill-strong);
   border-radius: 999px;
-  transition: background-color 200ms ease;
+  transition: background-color 180ms ease;
 }
 
 .switch__track::after {
@@ -431,8 +445,8 @@
   height: 27px;
   background: #fff;
   border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .switch input:checked + .switch__track {
@@ -447,9 +461,9 @@
 .input,
 .textarea {
   width: 100%;
-  border: 1px solid var(--separator);
+  border: 1px solid var(--separator-strong);
   border-radius: var(--radius-button);
-  padding: 10px 12px;
+  padding: 11px 14px;
   background: var(--bg-grouped);
   color: var(--label);
   font-size: 15px;
@@ -483,7 +497,7 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--label-secondary);
-  margin-left: 4px;
+  margin-left: 2px;
 }
 
 /* ===================== EMPTY STATE ===================== */
@@ -493,15 +507,15 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 36px 18px;
+  padding: 40px 20px;
   text-align: center;
   color: var(--label-secondary);
 }
 
 .empty h2 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--label);
 }
 
@@ -509,16 +523,17 @@
   margin: 0;
   font-size: 14px;
   color: var(--label-secondary);
+  line-height: 1.45;
 }
 
 .empty--inline {
-  padding: 18px 14px;
+  padding: 20px 16px;
 }
 
 /* ===================== QUESTION FLOW ===================== */
 .progress {
   position: relative;
-  height: 4px;
+  height: 3px;
   border-radius: 999px;
   background: var(--bg-fill);
   overflow: hidden;
@@ -528,73 +543,74 @@
   height: 100%;
   background: var(--accent);
   border-radius: 999px;
-  transition: width 250ms ease;
+  transition: width 220ms ease;
 }
 
+/* Question card — clean text layout, no heavy card background */
 .question-card {
-  background: var(--bg-grouped);
-  border-radius: var(--radius-card);
-  padding: 16px;
+  padding: 4px 0 8px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .question-card__meta {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--label-secondary);
+  color: var(--label-tertiary);
 }
 
 .question-card__text {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.32;
+  font-family: var(--font-ui);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
   color: var(--label);
 }
 
 .question-card__topic {
   font-size: 13px;
   color: var(--label-secondary);
+  line-height: 1.35;
 }
 
-/* Choice button (interactive) */
+/* Choice button */
 .choice {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
+  gap: 10px;
   width: 100%;
-  padding: 12px 13px;
+  padding: 12px 14px;
   border-radius: var(--radius-card);
   background: var(--bg-grouped);
   text-align: left;
   color: var(--label);
-  font-size: 15px;
-  line-height: 1.3;
-  border: 1px solid transparent;
-  transition: background-color 120ms ease, transform 80ms ease, border-color 120ms ease;
+  font-size: 14px;
+  line-height: 1.45;
+  border: 1px solid var(--separator);
+  transition: background-color 100ms ease, transform 80ms ease, border-color 100ms ease;
 }
 
 .choice:active {
   transform: scale(0.99);
-  background: var(--bg-fill);
+  background: var(--bg-fill-soft);
 }
 
 .choice__index {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border-radius: 50%;
   background: var(--bg-fill);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--label-secondary);
+  margin-top: 1px;
 }
 
 .choice__text {
@@ -602,10 +618,10 @@
   min-width: 0;
 }
 
-/* Choice review (read-only with status) */
+/* Choice review states */
 .choice--correct {
   background: var(--success-fill);
-  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  border-color: color-mix(in srgb, var(--success) 30%, transparent);
 }
 
 .choice--correct .choice__index {
@@ -615,7 +631,7 @@
 
 .choice--chosen {
   background: var(--destructive-fill);
-  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
+  border-color: color-mix(in srgb, var(--destructive) 30%, transparent);
 }
 
 .choice--chosen .choice__index {
@@ -624,7 +640,7 @@
 }
 
 .choice__hint {
-  margin-top: 4px;
+  margin-top: 3px;
   font-size: 12px;
   font-weight: 600;
   color: var(--label-secondary);
@@ -648,14 +664,16 @@
 .numgrid button {
   height: 40px;
   border-radius: 9px;
-  background: var(--bg-grouped);
+  background: var(--bg-fill);
   color: var(--label);
   font-size: 14px;
   font-weight: 600;
-  transition: background-color 120ms ease, transform 80ms ease;
+  transition: background-color 100ms ease, transform 80ms ease;
 }
 
-.numgrid button:active { transform: scale(0.94); }
+.numgrid button:active {
+  transform: scale(0.94);
+}
 
 .numgrid button.is-active {
   background: var(--accent);
@@ -667,17 +685,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 24px 16px 18px;
-  background: var(--bg-grouped);
-  border-radius: var(--radius-card);
+  gap: 4px;
+  padding: 28px 16px 20px;
   text-align: center;
 }
 
 .result-hero__pct {
   font-family: var(--font-rounded);
-  font-size: 56px;
-  font-weight: 800;
+  font-size: 52px;
+  font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
   color: var(--label);
@@ -689,19 +705,20 @@
 .result-hero__label {
   font-size: 14px;
   color: var(--label-secondary);
-  font-weight: 600;
+  font-weight: 500;
+  margin-top: 2px;
 }
 
 .result-hero__sub {
   font-size: 13px;
-  color: var(--label-secondary);
+  color: var(--label-tertiary);
 }
 
-/* ===================== TILE GRID (compact action tiles) ===================== */
+/* ===================== TILES ===================== */
 .tiles {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
 
 .tile {
@@ -711,9 +728,10 @@
   padding: 14px;
   background: var(--bg-grouped);
   border-radius: var(--radius-tile);
+  border: 1px solid var(--separator);
   text-align: left;
   color: var(--label);
-  transition: transform 80ms ease, background-color 120ms ease;
+  transition: transform 80ms ease, background-color 100ms ease;
 }
 
 .tile:active {
@@ -722,33 +740,33 @@
 }
 
 .tile__icon {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 8px;
   color: #fff;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   margin-bottom: 4px;
 }
 
 .tile__title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--label);
 }
 
 .tile__caption {
   font-size: 12px;
   color: var(--label-secondary);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
-/* ===================== MUTED HELPERS ===================== */
+/* ===================== TEXT HELPERS ===================== */
 .muted {
   color: var(--label-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .muted-sm {
@@ -756,44 +774,35 @@
   font-size: 12px;
 }
 
-/* ===================== IMPORTED CASES ===================== */
-.btn--secondary {
-  background: var(--bg-fill);
-  color: var(--accent);
-}
-
-.pill--danger {
-  background: var(--destructive-fill);
-  color: var(--destructive);
-}
-
+/* ===================== ADMIN HELPERS ===================== */
 .admin-upload-box {
-  padding: 14px;
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+/* ===================== CASE READER ===================== */
 .case-header {
   padding-top: 4px;
 }
 
 .case-header__app {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
   color: var(--case-muted-strong);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.2;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .case-header__title {
   margin: 0;
   color: var(--case-text);
   font-family: var(--font-display);
-  font-size: 31px;
-  line-height: 1.12;
-  font-weight: 750;
-  letter-spacing: 0;
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .case-search {
@@ -827,10 +836,10 @@
 
 .case-search__input {
   width: 100%;
-  min-height: 48px;
+  min-height: 46px;
   border: 1px solid var(--case-border);
-  border-radius: 14px;
-  padding: 12px 14px 12px 42px;
+  border-radius: 12px;
+  padding: 11px 14px 11px 42px;
   background: var(--case-surface-soft);
   color: var(--case-text);
   font-size: 14px;
@@ -840,7 +849,7 @@
 
 .case-search__input:focus {
   outline: none;
-  border-color: rgba(101, 168, 255, 0.72);
+  border-color: rgba(101, 168, 255, 0.70);
   background: var(--case-surface);
 }
 
@@ -857,10 +866,11 @@
 .case-questions__title {
   margin: 0;
   color: var(--case-muted-strong);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.25;
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .case-answer-list {
@@ -869,7 +879,7 @@
 }
 
 .case-answer {
-  padding: 18px 0 20px;
+  padding: 16px 0 18px;
   background: transparent;
 }
 
@@ -890,7 +900,7 @@
   color: var(--case-accent);
   font-size: 11px;
   line-height: 1.2;
-  font-weight: 750;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -902,11 +912,11 @@
 }
 
 .case-answer__question {
-  margin: 0 0 16px;
+  margin: 0 0 14px;
   color: var(--case-text);
   font-size: 14px;
-  line-height: 1.48;
-  font-weight: 550;
+  line-height: 1.5;
+  font-weight: 500;
 }
 
 .case-answer__label {
@@ -914,8 +924,9 @@
   color: var(--case-muted);
   font-size: 12px;
   line-height: 1.25;
-  font-weight: 650;
-  letter-spacing: 0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .case-answer__correct {
@@ -925,7 +936,7 @@
   align-items: start;
   padding: 12px;
   border: 1px solid var(--case-border);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--case-surface);
   color: var(--case-text);
   font-size: 13.5px;
@@ -965,7 +976,7 @@
 
 .case-answer__correct-index {
   color: var(--case-accent);
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .screen-content--case .empty h2 {

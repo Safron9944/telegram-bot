@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-case-modern-1";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
