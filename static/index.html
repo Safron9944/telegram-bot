@@ -71,6 +71,19 @@
       </div>
     </template>
 
-    <script type="module" src="/static/app.js?v=20260519-quick-cases-1"></script>
+    <script>
+      window.setTimeout(function () {
+        if (window.__APP_READY__) return;
+        var panel = document.querySelector("#main-panel");
+        if (!panel) return;
+        panel.innerHTML =
+          '<div class="screen-content"><div class="empty">' +
+          '<h2>Дані ще не прийшли</h2>' +
+          '<p>Сервер не відповів або Telegram відкрив старий кеш.</p>' +
+          '<button class="btn btn--primary" type="button" onclick="window.location.reload()">Оновити</button>' +
+          '</div></div>';
+      }, 10000);
+    </script>
+    <script type="module" src="/static/app.js?v=20260519-quick-cases-2"></script>
   </body>
 </html>

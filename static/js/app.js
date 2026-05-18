@@ -41,6 +41,8 @@ import {
 } from "./screens/admin.js";
 import { renderCurrentView } from "./screens/session.js";
 
+window.__APP_READY__ = false;
+
 initializeTelegram(() => {
   void goBack();
 });
@@ -265,7 +267,7 @@ async function startMistakesSession() {
 
 async function loadBootstrap(showSuccess = false) {
   try {
-    const payload = await api("/api/bootstrap");
+    const payload = await api("/api/bootstrap", { timeoutMs: 12000 });
     state.bootstrap = payload;
     state.currentView = payload.saved_view || null;
 
@@ -290,6 +292,8 @@ async function loadBootstrap(showSuccess = false) {
         </div>
       </div>
     `;
+  } finally {
+    window.__APP_READY__ = true;
   }
 }
 

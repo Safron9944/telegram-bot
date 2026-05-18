@@ -20,6 +20,10 @@ function getAuthHeaders() {
 
 export async function api(path, options = {}) {
   const isFormData = options.body instanceof FormData;
+  const controller = options.timeoutMs ? new AbortController() : null;
+  const timeoutId = controller
+    ? window.setTimeout(() => controller.abort(), options.timeoutMs)
+    : null;
   const config = {
     method: options.method || "GET",
     headers: {
@@ -27,13 +31,27 @@ export async function api(path, options = {}) {
       ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
+    ...(controller ? { signal: controller.signal } : {}),
   };
 
   if (options.body) {
     config.body = isFormData ? options.body : JSON.stringify(options.body);
   }
 
-  const response = await fetch(path, config);
+  let response;
+  try {
+    response = await fetch(path, config);
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("Сервер не відповів вчасно. Спробуйте відкрити Mini App ще раз.");
+      timeoutError.code = "request_timeout";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
+  }
+
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = payload?.detail;
