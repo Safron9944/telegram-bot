@@ -702,7 +702,6 @@ export function renderCaseDetail(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Кейс ${ctx.escapeHtml(item.case_number || "—")}</h1>
-      <p class="page-subtitle">${ctx.escapeHtml(item.case_title || "")}</p>
 
       <div class="search-row">
         <input class="input" id="case-search" type="search" value="${ctx.escapeHtml(ctx.state.caseQuery || "")}" placeholder="Пошук по питанню або відповіді" />
@@ -762,7 +761,6 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
           <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
           <div class="case-answer__label">Правильна відповідь</div>
           <div class="case-answer__correct">${ctx.escapeHtml(q.correct_answer || "—").replace(/\n/g, "<br>")}</div>
-          ${q.description ? `<div class="case-answer__source">${ctx.escapeHtml(q.description)}</div>` : ""}
         `;
         list.append(block);
       });
