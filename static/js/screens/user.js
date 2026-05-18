@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-case-plain-1";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-case-modern-1";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -14,6 +14,34 @@ function percentLabel(value) {
 
 function initialOf(name) {
   return (name || "U").trim().slice(0, 1).toUpperCase();
+}
+
+function renderCorrectAnswer(ctx, value, correctCount = 0) {
+  const lines = String(value || "—")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const isList = correctCount > 1 || lines.length > 1;
+
+  if (!isList) {
+    return `<div class="case-answer__correct-text">${ctx.escapeHtml(lines[0] || "—")}</div>`;
+  }
+
+  return `
+    <div class="case-answer__correct-list">
+      ${lines.map((line, index) => {
+        const match = line.match(/^(\d+[).])\s*(.*)$/);
+        const marker = match ? match[1] : `${index + 1})`;
+        const text = match ? match[2] : line;
+        return `
+          <div class="case-answer__correct-item">
+            <span class="case-answer__correct-index">${ctx.escapeHtml(marker)}</span>
+            <span>${ctx.escapeHtml(text || "—")}</span>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
 }
 
 /* ===================== HOME ===================== */
@@ -703,20 +731,23 @@ export function renderCaseDetail(ctx) {
     return;
   }
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
-      <h1 class="page-title page-title--case">Кейс ${ctx.escapeHtml(item.case_number || "—")}</h1>
+    <section class="screen-content screen-content--case">
+      <header class="case-header">
+        <div class="case-header__app">Test_Customs</div>
+        <h1 class="case-header__title">Кейс ${ctx.escapeHtml(item.case_number || "—")}</h1>
+      </header>
 
-      <div class="search-row">
-        <input class="input" id="case-search" type="search" value="${ctx.escapeHtml(ctx.state.caseQuery || "")}" placeholder="Пошук по питанню або відповіді" />
-        <button class="btn btn--secondary" id="case-search-btn" type="button">Знайти</button>
+      <div class="case-search">
+        <span class="case-search__icon" aria-hidden="true"></span>
+        <input class="case-search__input" id="case-search" type="search" value="${ctx.escapeHtml(ctx.state.caseQuery || "")}" placeholder="Пошук по питанню або відповіді" />
       </div>
 
-      <div class="group group--plain">
-        <div class="group__label">Питання і правильні відповіді</div>
-        <div class="group__list case-answer-list" id="case-question-list">
+      <section class="case-questions">
+        <h2 class="case-questions__title">Питання та правильні відповіді</h2>
+        <div class="case-answer-list" id="case-question-list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
         </div>
-      </div>
+      </section>
 
       <div class="row" id="case-pagination" style="justify-content:center; gap:8px;"></div>
     </section>
@@ -732,10 +763,6 @@ export function renderCaseDetail(ctx) {
     window.clearTimeout(caseSearchTimer);
     caseSearchTimer = window.setTimeout(run, 350);
   };
-  ctx.refs.mainPanel.querySelector("#case-search-btn")?.addEventListener("click", () => {
-    window.clearTimeout(caseSearchTimer);
-    run();
-  });
   input?.addEventListener("input", runLive);
   input?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -771,12 +798,15 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
         block.className = "case-answer";
         block.innerHTML = `
           <div class="case-answer__head">
-            <span class="case-answer__number">№ ${ctx.escapeHtml(q.position)}</span>
+            <span class="case-answer__number">Питання ${ctx.escapeHtml(q.position)}</span>
             ${q.correct_count > 1 ? `<span class="case-answer__count">${q.correct_count} відповіді</span>` : ""}
           </div>
           <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
           <div class="case-answer__label">Правильна відповідь</div>
-          <div class="case-answer__correct">${ctx.escapeHtml(q.correct_answer || "—").replace(/\n/g, "<br>")}</div>
+          <div class="case-answer__correct">
+            <span class="case-answer__check" aria-hidden="true">✓</span>
+            <div class="case-answer__correct-body">${renderCorrectAnswer(ctx, q.correct_answer, q.correct_count)}</div>
+          </div>
         `;
         list.append(block);
       });

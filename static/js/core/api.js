@@ -1,4 +1,4 @@
-import { tg } from "./telegram.js?v=20260519-case-plain-1";
+import { tg } from "./telegram.js?v=20260519-case-modern-1";
 
 function getAuthHeaders() {
   const params = new URLSearchParams(window.location.search);

@@ -47,6 +47,21 @@
   animation: screen-in 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+.screen-content--case {
+  min-height: calc(100dvh - var(--tabbar-h-total) - env(safe-area-inset-top));
+  margin:
+    calc(-8px - env(safe-area-inset-top))
+    -16px
+    calc(-16px - var(--tabbar-h-total));
+  padding:
+    calc(16px + env(safe-area-inset-top))
+    18px
+    calc(32px + var(--tabbar-h-total));
+  gap: 18px;
+  background: var(--case-bg);
+  color: var(--case-text);
+}
+
 @keyframes screen-in {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -61,11 +76,6 @@
   line-height: 1.05;
   letter-spacing: -0.025em;
   color: var(--label);
-}
-
-.page-title--case {
-  font-size: 26px;
-  line-height: 1.12;
 }
 
 .page-subtitle {

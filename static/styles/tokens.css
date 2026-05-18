@@ -59,6 +59,18 @@
   --font-rounded: ui-rounded, -apple-system, "SF Pro Rounded", "SF Pro Display", system-ui, sans-serif;
 
   --shadow-fab: 0 8px 24px rgba(0, 122, 255, 0.28);
+
+  /* Case reader */
+  --case-bg: #0b1729;
+  --case-surface: #13243a;
+  --case-surface-soft: #0f1d31;
+  --case-border: rgba(141, 169, 210, 0.22);
+  --case-text: #f4f8ff;
+  --case-muted: #8ea6c8;
+  --case-muted-strong: #b8c8df;
+  --case-accent: #65a8ff;
+  --case-success: #4ade80;
+  --case-success-soft: rgba(74, 222, 128, 0.12);
 }
 
 :root[data-theme="dark"] {
