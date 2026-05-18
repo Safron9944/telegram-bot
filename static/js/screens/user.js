@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-stable-1";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-case-plain-1";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -711,7 +711,7 @@ export function renderCaseDetail(ctx) {
         <button class="btn btn--secondary" id="case-search-btn" type="button">Знайти</button>
       </div>
 
-      <div class="group">
+      <div class="group group--plain">
         <div class="group__label">Питання і правильні відповіді</div>
         <div class="group__list case-answer-list" id="case-question-list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
@@ -771,8 +771,8 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
         block.className = "case-answer";
         block.innerHTML = `
           <div class="case-answer__head">
-            <span class="chip chip--accent">№ ${ctx.escapeHtml(q.position)}</span>
-            ${q.correct_count > 1 ? `<span class="chip chip--success">${q.correct_count} відповіді</span>` : ""}
+            <span class="case-answer__number">№ ${ctx.escapeHtml(q.position)}</span>
+            ${q.correct_count > 1 ? `<span class="case-answer__count">${q.correct_count} відповіді</span>` : ""}
           </div>
           <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
           <div class="case-answer__label">Правильна відповідь</div>
