@@ -1,9 +1,9 @@
 :root {
   color-scheme: light;
 
-  /* ── Backgrounds ── */
-  --bg:             var(--tg-theme-bg-color, #f5f5f7);
-  --bg-grouped:     var(--tg-theme-secondary-bg-color, #ffffff);
+  /* ── Backgrounds (fixed — not overridden by Telegram dark theme) ── */
+  --bg:             #f5f5f7;
+  --bg-grouped:     #ffffff;
   --bg-fill:        rgba(0, 0, 0, 0.055);
   --bg-fill-soft:   rgba(0, 0, 0, 0.030);
   --bg-fill-strong: rgba(0, 0, 0, 0.100);
@@ -13,9 +13,9 @@
   --separator:        rgba(0, 0, 0, 0.08);
   --separator-strong: rgba(0, 0, 0, 0.14);
 
-  /* ── Typography ── */
-  --label:           var(--tg-theme-text-color, #111111);
-  --label-secondary: var(--tg-theme-hint-color, rgba(0, 0, 0, 0.44));
+  /* ── Typography (fixed dark text for light UI) ── */
+  --label:           #111111;
+  --label-secondary: rgba(0, 0, 0, 0.44);
   --label-tertiary:  rgba(0, 0, 0, 0.26);
   --label-inverse:   #ffffff;
 

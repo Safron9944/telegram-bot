@@ -1,4 +1,4 @@
-import { tg } from "./telegram.js?v=20260519-minimal";
+import { tg } from "./telegram.js?v=20260519-minimal-2";
 
 const STORAGE_KEY = "prep-app-theme";
 const THEMES = new Set(["light", "dark"]);
@@ -25,9 +25,6 @@ function writeStoredTheme(theme) {
 }
 
 function getPreferredTheme() {
-  if (tg?.colorScheme === "dark") return "dark";
-  if (tg?.colorScheme === "light") return "light";
-  if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) return "dark";
   return "light";
 }
 
@@ -62,17 +59,9 @@ export function toggleTheme() {
 
 export function initializeTheme() {
   const stored = readStoredTheme();
-  applyTheme(stored || getPreferredTheme());
-
-  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", (event) => {
-    if (!readStoredTheme()) applyTheme(event.matches ? "dark" : "light");
-  });
+  applyTheme(stored || "light");
 
   tg?.onEvent?.("themeChanged", () => {
-    if (!readStoredTheme()) {
-      applyTheme(getPreferredTheme());
-    } else {
-      updateTelegramChrome();
-    }
+    updateTelegramChrome();
   });
 }

@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal";
-import { state } from "./core/state.js?v=20260519-minimal";
-import { api } from "./core/api.js?v=20260519-minimal";
-import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal";
+import { refs } from "./core/dom.js?v=20260519-minimal-2";
+import { state } from "./core/state.js?v=20260519-minimal-2";
+import { api } from "./core/api.js?v=20260519-minimal-2";
+import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-2";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-2";
 import {
   actionButton,
   bindInlineTargets,
@@ -14,7 +14,7 @@ import {
   setMessage,
   setTabbarVisible,
   statPill,
-} from "./core/ui.js?v=20260519-minimal";
+} from "./core/ui.js?v=20260519-minimal-2";
 import {
   loadCaseDetail,
   loadCases,
@@ -26,7 +26,7 @@ import {
   renderLearning,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal";
+} from "./screens/user.js?v=20260519-minimal-2";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -38,8 +38,8 @@ import {
   renderAdminQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal";
+} from "./screens/admin.js?v=20260519-minimal-2";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-2";
 
 window.__APP_READY__ = false;
 
