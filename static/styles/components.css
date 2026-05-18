@@ -827,10 +827,3 @@
   line-height: 1.38;
   font-weight: 550;
 }
-
-.case-answer__source {
-  margin-top: 8px;
-  color: var(--label-secondary);
-  font-size: 13px;
-  line-height: 1.35;
-}
