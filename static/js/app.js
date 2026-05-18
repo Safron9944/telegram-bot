@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-5";
-import { state } from "./core/state.js?v=20260519-minimal-5";
-import { api } from "./core/api.js?v=20260519-minimal-5";
-import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-5";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-5";
+import { refs } from "./core/dom.js?v=20260519-minimal-6";
+import { state } from "./core/state.js?v=20260519-minimal-6";
+import { api } from "./core/api.js?v=20260519-minimal-6";
+import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-6";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-6";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-5";
+} from "./core/ui.js?v=20260519-minimal-6";
 import {
   loadCaseDetail,
   loadCases,
@@ -24,7 +24,7 @@ import {
   renderLearning,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-5";
+} from "./screens/user.js?v=20260519-minimal-6";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -36,8 +36,8 @@ import {
   renderAdminQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-5";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-5";
+} from "./screens/admin.js?v=20260519-minimal-6";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-6";
 
 window.__APP_READY__ = false;
 
@@ -197,6 +197,18 @@ function render() {
     default:
       state.currentScreen = "home";
       renderHome(ctx);
+  }
+
+  if (state.currentScreen !== "home" && state.screenHistory.length > 0) {
+    const content = refs.mainPanel.querySelector(".screen-content");
+    if (content) {
+      const nav = document.createElement("button");
+      nav.className = "back-nav";
+      nav.type = "button";
+      nav.innerHTML = '<span aria-hidden="true">‹</span> Назад';
+      nav.addEventListener("click", () => void goBack());
+      content.prepend(nav);
+    }
   }
 
   syncClosingConfirmation(state.currentView);

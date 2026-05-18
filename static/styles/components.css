@@ -1,3 +1,30 @@
+/* ===================== BACK NAVIGATION ===================== */
+.back-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding: 4px 0;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.back-nav span {
+  font-size: 24px;
+  line-height: 1;
+  margin-right: 2px;
+}
+
+.back-nav:active {
+  opacity: 0.6;
+}
+
 /* ===================== MESSAGE TOAST ===================== */
 .message {
   display: flex;
