@@ -9,6 +9,4 @@ export const refs = {
   subtitleNode: document.querySelector("#app-subtitle"),
   eyebrowNode: document.querySelector("#app-eyebrow"),
   emptyStateTemplate: document.querySelector("#empty-state-template"),
-  tabbar: document.querySelector("#tabbar"),
-  tabs: document.querySelectorAll("#tabbar .tab"),
 };

@@ -1,5 +1,5 @@
-import { refs } from "./dom.js?v=20260519-minimal-4";
-import { impact, setTelegramBackButton, tg } from "./telegram.js?v=20260519-minimal-4";
+import { refs } from "./dom.js?v=20260519-minimal-5";
+import { impact, setTelegramBackButton, tg } from "./telegram.js?v=20260519-minimal-5";
 
 export function escapeHtml(value) {
   return String(value ?? "")
@@ -191,24 +191,3 @@ export function bindInlineTargets(root, { navigate }) {
   });
 }
 
-/**
- * Set the active tab in the bottom tab bar.
- * Tabs are: home | learning | testing | stats | help.
- * Other screens (admin*, law-parts) keep no tab active.
- */
-export function setActiveTab(screen) {
-  const main = ["home", "learning", "testing", "stats", "help"];
-  const active = main.includes(screen) ? screen : null;
-  refs.tabs.forEach((tab) => {
-    tab.classList.toggle("is-active", tab.dataset.tab === active);
-  });
-}
-
-/**
- * Hide tab bar in active session / drill-down flows.
- */
-export function setTabbarVisible(visible) {
-  if (!refs.tabbar || !refs.app) return;
-  refs.tabbar.hidden = !visible;
-  refs.app.classList.toggle("tabbar-hidden", !visible);
-}

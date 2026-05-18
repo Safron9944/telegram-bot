@@ -1,20 +1,18 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-4";
-import { state } from "./core/state.js?v=20260519-minimal-4";
-import { api } from "./core/api.js?v=20260519-minimal-4";
-import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-4";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-4";
+import { refs } from "./core/dom.js?v=20260519-minimal-5";
+import { state } from "./core/state.js?v=20260519-minimal-5";
+import { api } from "./core/api.js?v=20260519-minimal-5";
+import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-5";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-5";
 import {
   actionButton,
   bindInlineTargets,
   cell,
   escapeHtml,
   group,
-  setActiveTab,
   setChrome,
   setMessage,
-  setTabbarVisible,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-4";
+} from "./core/ui.js?v=20260519-minimal-5";
 import {
   loadCaseDetail,
   loadCases,
@@ -26,7 +24,7 @@ import {
   renderLearning,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-4";
+} from "./screens/user.js?v=20260519-minimal-5";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -38,8 +36,8 @@ import {
   renderAdminQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-4";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-4";
+} from "./screens/admin.js?v=20260519-minimal-5";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-5";
 
 window.__APP_READY__ = false;
 
@@ -47,21 +45,6 @@ initializeTelegram(() => {
   void goBack();
 });
 initializeTheme();
-
-// Wire up tab bar (bottom navigation)
-refs.tabs.forEach((tab) => {
-  tab.addEventListener("click", () => {
-    const target = tab.dataset.tab;
-    if (!target) return;
-    if (state.currentView) {
-      // refuse to navigate while in active session — protects user input
-      impact("light");
-      return;
-    }
-    if (target === state.currentScreen) return;
-    navigate(target, { reset: true });
-  });
-});
 
 refs.backButton?.addEventListener("click", () => {
   void goBack();
@@ -177,22 +160,11 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
 }
 
-/**
- * Tab bar should be shown only on top-level screens with no active session.
- */
-function shouldShowTabbar() {
-  if (state.currentView) return false;
-  const main = new Set(["home", "learning", "testing", "stats", "help"]);
-  return main.has(state.currentScreen);
-}
-
 function render() {
   if (!state.bootstrap) {
     setChrome({ showBack: false });
     syncClosingConfirmation(state.currentView);
     refs.mainPanel.innerHTML = refs.emptyStateTemplate.innerHTML;
-    setTabbarVisible(false);
-    setActiveTab(null);
     return;
   }
 
@@ -204,15 +176,10 @@ function render() {
   const ctx = createContext();
 
   if (state.currentView) {
-    setTabbarVisible(false);
-    setActiveTab(null);
     renderCurrentView(ctx);
     syncClosingConfirmation(state.currentView);
     return;
   }
-
-  setTabbarVisible(shouldShowTabbar());
-  setActiveTab(state.currentScreen);
 
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
@@ -283,7 +250,6 @@ async function loadBootstrap(showSuccess = false) {
   } catch (error) {
     setMessage("error", error.message);
     setChrome({ showBack: false });
-    setTabbarVisible(false);
     refs.mainPanel.innerHTML = `
       <div class="screen-content">
         <div class="empty">
