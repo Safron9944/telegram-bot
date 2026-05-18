@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-7";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-8";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -69,12 +69,6 @@ export function renderHome(ctx) {
           <div class="greeting__name">${name}</div>
         </div>
         <span class="chip ${accessChipClass}">${accessLabel}</span>
-      </div>
-
-      <div class="stat-strip">
-        ${ctx.statPill("Модулі", String(modules.length))}
-        ${ctx.statPill("Тестів", String(stats.count))}
-        ${ctx.statPill("Останній", last ? percentLabel(last.percent) : "—")}
       </div>
 
       <div class="stack" id="home-cta"></div>
