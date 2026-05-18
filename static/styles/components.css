@@ -797,9 +797,9 @@
 
 .case-header__title {
   margin: 0;
-  color: var(--case-text);
+  color: var(--label);
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 24px;
   line-height: 1.15;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -849,7 +849,7 @@
 
 .case-search__input:focus {
   outline: none;
-  border-color: rgba(101, 168, 255, 0.70);
+  border-color: var(--accent);
   background: var(--case-surface);
 }
 
@@ -979,16 +979,3 @@
   font-weight: 700;
 }
 
-.screen-content--case .empty h2 {
-  color: var(--case-text);
-}
-
-.screen-content--case .empty p {
-  color: var(--case-muted);
-}
-
-.screen-content--case .btn {
-  border: 1px solid var(--case-border);
-  background: var(--case-surface);
-  color: var(--case-accent);
-}
