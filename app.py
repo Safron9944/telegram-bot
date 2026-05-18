@@ -1435,7 +1435,7 @@ async def lifespan(app: FastAPI):
         bot_token=bot_token,
         webapp_url=resolve_webapp_url(),
         allow_dev_auth=env_flag("ALLOW_DEV_AUTH", False),
-        auth_max_age_seconds=int(os.getenv("WEBAPP_AUTH_MAX_AGE_SECONDS", "86400")),
+        auth_max_age_seconds=int(os.getenv("WEBAPP_AUTH_MAX_AGE_SECONDS", "604800")),
     )
 
     if bot_token:
