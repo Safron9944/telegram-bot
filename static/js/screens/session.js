@@ -428,6 +428,8 @@ export function renderCurrentView(ctx) {
     return;
   }
 
+  window.scrollTo({ top: 0, behavior: "instant" });
+
   if (view.mode === "pretest") return renderPretest(ctx, view);
   if (view.screen === "question") return renderQuestionView(ctx, view);
   if (view.screen === "feedback") return renderFeedbackView(ctx, view);

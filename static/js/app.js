@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-6";
-import { state } from "./core/state.js?v=20260519-minimal-6";
-import { api } from "./core/api.js?v=20260519-minimal-6";
-import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-6";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-6";
+import { refs } from "./core/dom.js?v=20260519-minimal-7";
+import { state } from "./core/state.js?v=20260519-minimal-7";
+import { api } from "./core/api.js?v=20260519-minimal-7";
+import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-7";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-7";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-6";
+} from "./core/ui.js?v=20260519-minimal-7";
 import {
   loadCaseDetail,
   loadCases,
@@ -24,7 +24,7 @@ import {
   renderLearning,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-6";
+} from "./screens/user.js?v=20260519-minimal-7";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -36,8 +36,8 @@ import {
   renderAdminQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-6";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-6";
+} from "./screens/admin.js?v=20260519-minimal-7";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-7";
 
 window.__APP_READY__ = false;
 
@@ -175,6 +175,8 @@ function render() {
 
   const ctx = createContext();
 
+  window.scrollTo({ top: 0, behavior: "instant" });
+
   if (state.currentView) {
     renderCurrentView(ctx);
     syncClosingConfirmation(state.currentView);
@@ -199,9 +201,14 @@ function render() {
       renderHome(ctx);
   }
 
-  if (state.currentScreen !== "home" && state.screenHistory.length > 0) {
-    const content = refs.mainPanel.querySelector(".screen-content");
-    if (content) {
+  const content = refs.mainPanel.querySelector(".screen-content");
+  if (content) {
+    content.style.animation = "none";
+    requestAnimationFrame(() => {
+      content.style.animation = "";
+    });
+
+    if (state.currentScreen !== "home" && state.screenHistory.length > 0) {
       const nav = document.createElement("button");
       nav.className = "back-nav";
       nav.type = "button";
