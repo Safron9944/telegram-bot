@@ -71,15 +71,6 @@
       </div>
     </template>
 
-    <script>
-      function showStartupError() {
-        var panel = document.querySelector("#main-panel");
-        if (!panel) return;
-        panel.innerHTML = '<div class="screen-content"><div class="empty"><h2>Mini App не завантажився</h2><p>Закрийте й відкрийте Mini App ще раз.</p></div></div>';
-      }
-      window.addEventListener("error", showStartupError);
-      window.addEventListener("unhandledrejection", showStartupError);
-    </script>
     <script type="module" src="/static/app.js?v=20260519-quick-cases-1"></script>
   </body>
 </html>
