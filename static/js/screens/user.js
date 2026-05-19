@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-13";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-14";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -57,7 +57,7 @@ export function renderHome(ctx) {
       <h1 class="page-title">Головна</h1>
 
       ${ctx.group({
-        header: "Швидкий старт",
+        header: "Митні компетенції",
         children: [
           ctx.cell({
             title: "Навчання",
@@ -67,18 +67,11 @@ export function renderHome(ctx) {
             screen: "learning",
           }),
           ctx.cell({
-            title: "Новий тест",
+            title: "Тестування",
             subtitle: "Зібрати з модулів і закону",
             icon: "🧪",
             tint: "purple",
             screen: "testing",
-          }),
-          ctx.cell({
-            title: "Кейси",
-            subtitle: "Питання та правильні відповіді",
-            icon: "🗂",
-            tint: "green",
-            screen: "cases",
           }),
           ctx.cell({
             title: "Статистика",
@@ -87,6 +80,19 @@ export function renderHome(ctx) {
             tint: "teal",
             screen: "stats",
             detail: last ? percentLabel(last.percent) : undefined,
+          }),
+        ].join(""),
+      })}
+
+      ${ctx.group({
+        header: "Кейси",
+        children: [
+          ctx.cell({
+            title: "Кейси",
+            subtitle: "Питання та правильні відповіді",
+            icon: "🗂",
+            tint: "green",
+            screen: "cases",
           }),
         ].join(""),
       })}

@@ -1,5 +1,5 @@
-import { refs } from "./dom.js?v=20260519-minimal-13";
-import { impact, setTelegramBackButton, tg } from "./telegram.js?v=20260519-minimal-13";
+import { refs } from "./dom.js?v=20260519-minimal-14";
+import { impact, setTelegramBackButton, tg } from "./telegram.js?v=20260519-minimal-14";
 
 export function escapeHtml(value) {
   return String(value ?? "")
