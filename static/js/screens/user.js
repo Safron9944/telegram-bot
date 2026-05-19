@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-customs-code-03";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-customs-code-04";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -73,6 +73,13 @@ export function renderHome(ctx) {
             tint: "green",
             screen: "cases",
           }),
+          ctx.cell({
+            title: "Митний кодекс",
+            subtitle: "Розділи, глави, статті та пошук",
+            icon: "⚖",
+            tint: "indigo",
+            screen: "customs-code",
+          }),
         ].join(""),
       })}
 
@@ -129,13 +136,6 @@ export function renderCustoms(ctx) {
             icon: "🧪",
             tint: "purple",
             screen: "testing",
-          }),
-          ctx.cell({
-            title: "Митний кодекс",
-            subtitle: "Розділи, глави, статті та пошук",
-            icon: "⚖",
-            tint: "indigo",
-            screen: "customs-code",
           }),
           ctx.cell({
             title: "Статистика",
