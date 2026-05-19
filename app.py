@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from case_importer import extract_case_from_upload_bytes
+from customs_code import repository as customs_code_repository
 
 from bot import (
     GROUP_URL,
@@ -1598,6 +1599,51 @@ async def api_test_review_index(payload: ReviewIndexRequest, auth: AuthContext =
 @app.post("/api/test/review/back")
 async def api_test_review_back(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).back_to_test_result(auth)
+
+
+
+
+@app.get("/api/customs-code/status")
+async def api_customs_code_status(auth: AuthContext = Depends(get_auth_context)):
+    return customs_code_repository.status()
+
+
+@app.get("/api/customs-code/sections")
+async def api_customs_code_sections(auth: AuthContext = Depends(get_auth_context)):
+    try:
+        return customs_code_repository.sections()
+    except FileNotFoundError:
+        require_http(404, "customs_code_missing", "Базу Митного кодексу ще не створено.")
+
+
+@app.get("/api/customs-code/sections/{section_id}")
+async def api_customs_code_section(section_id: int, auth: AuthContext = Depends(get_auth_context)):
+    try:
+        payload = customs_code_repository.section_detail(section_id)
+    except FileNotFoundError:
+        require_http(404, "customs_code_missing", "Базу Митного кодексу ще не створено.")
+    if not payload:
+        require_http(404, "section_not_found", "Розділ Митного кодексу не знайдено.")
+    return payload
+
+
+@app.get("/api/customs-code/articles/{article_number}")
+async def api_customs_code_article(article_number: str, auth: AuthContext = Depends(get_auth_context)):
+    try:
+        payload = customs_code_repository.article(article_number)
+    except FileNotFoundError:
+        require_http(404, "customs_code_missing", "Базу Митного кодексу ще не створено.")
+    if not payload:
+        require_http(404, "article_not_found", "Статтю Митного кодексу не знайдено.")
+    return {"article": payload}
+
+
+@app.get("/api/customs-code/search")
+async def api_customs_code_search(q: str = "", limit: int = 25, offset: int = 0, auth: AuthContext = Depends(get_auth_context)):
+    try:
+        return customs_code_repository.search(q, limit=limit, offset=offset)
+    except FileNotFoundError:
+        require_http(404, "customs_code_missing", "Базу Митного кодексу ще не створено.")
 
 
 @app.get("/api/cases")

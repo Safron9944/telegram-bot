@@ -1,7 +1,8 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-20";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-customs-code-03";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
+let customsSearchTimer = null;
 
 /* ===================== HELPERS ===================== */
 function selectedModules(catalog) {
@@ -130,6 +131,13 @@ export function renderCustoms(ctx) {
             screen: "testing",
           }),
           ctx.cell({
+            title: "Митний кодекс",
+            subtitle: "Розділи, глави, статті та пошук",
+            icon: "⚖",
+            tint: "indigo",
+            screen: "customs-code",
+          }),
+          ctx.cell({
             title: "Статистика",
             subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест",
             icon: "📊",
@@ -143,6 +151,340 @@ export function renderCustoms(ctx) {
   `;
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+}
+
+/* ===================== CUSTOMS CODE REFERENCE ===================== */
+function customsMetaLine(ctx) {
+  const meta = ctx.state.customsCodeMeta || {};
+  const counts = ctx.state.customsCodeCounts || {};
+  const parts = [];
+  if (meta.edition_date) parts.push(`редакція ${ctx.escapeHtml(meta.edition_date)}`);
+  if (counts.sections) parts.push(`${counts.sections} розділів`);
+  if (counts.articles) parts.push(`${counts.articles} статей`);
+  return parts.join(" · ");
+}
+
+function articleSubtitle(item) {
+  const section = item.section_number ? `Розділ ${item.section_number}` : "";
+  const chapter = item.chapter_number ? `Глава ${item.chapter_number}` : "";
+  return [section, chapter, item.is_excluded ? "виключено" : ""].filter(Boolean).join(" · ");
+}
+
+function isTransitionalArticle(number) {
+  return /^XXI-\d+(?:-\d+)?$/i.test(String(number || "").trim());
+}
+
+function articleDisplayPrefix(number) {
+  return isTransitionalArticle(number) ? "Пункт" : "Стаття";
+}
+
+function articleDisplayNumber(number) {
+  const value = String(number || "").trim();
+  return isTransitionalArticle(value) ? value.replace(/^XXI-/i, "") : value;
+}
+
+function articleDisplayTitle(item) {
+  const number = item?.number || "";
+  return `${articleDisplayPrefix(number)} ${articleDisplayNumber(number)}. ${item?.title || ""}`.trim();
+}
+
+function isArticleNumberQuery(value) {
+  const text = (value || "").trim();
+  return /^(ст\.?|стаття)?\s*\d+(?:-\d+)?$/i.test(text)
+    || /^(ст\.?|стаття)?\s*(xxi|ххі|хxi|xxі)[\s-]*(пункт\s*)?\d+(?:-\d+)?$/i.test(text)
+    || /^п(ункт)?\.?\s*\d+(?:-\d+)?(\s+розділу\s*(xxi|ххі|хxi|xxі))?$/i.test(text);
+}
+
+function renderSearchSnippet(ctx, value) {
+  return ctx.escapeHtml(value || "").replaceAll("‹", "<mark>").replaceAll("›", "</mark>");
+}
+
+function openCustomsArticle(ctx, number) {
+  ctx.state.selectedCustomsArticleNumber = String(number || "");
+  ctx.state.customsArticle = null;
+  ctx.navigate("customs-code-article");
+}
+
+function drawCustomsCodeContent(ctx, root) {
+  if (!root) return;
+  const query = (ctx.state.customsSearchQuery || "").trim();
+
+  if (query) {
+    if (ctx.state.customsSearchLoading) {
+      root.innerHTML = `
+        <div class="group">
+          <div class="group__list"><div class="empty empty--inline"><h2>Шукаємо…</h2></div></div>
+        </div>
+      `;
+      return;
+    }
+
+    if (!ctx.state.customsSearchResults.length) {
+      root.innerHTML = `
+        <div class="group">
+          <div class="group__list">
+            <div class="empty empty--inline">
+              <h2>Нічого не знайдено</h2>
+              <p>Спробуйте номер статті або інші слова.</p>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="group">
+        <div class="group__label">Результати пошуку</div>
+        <div class="group__list" id="customs-search-list"></div>
+      </div>
+    `;
+    const list = root.querySelector("#customs-search-list");
+    ctx.state.customsSearchResults.forEach((item) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "cell customs-result";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--indigo">${ctx.escapeHtml(String(articleDisplayNumber(item.number) || "§").slice(0, 4))}</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(articleDisplayTitle(item))}</span>
+          <span class="cell__subtitle">${ctx.escapeHtml(articleSubtitle(item))}</span>
+          ${item.snippet ? `<span class="customs-snippet">${renderSearchSnippet(ctx, item.snippet)}</span>` : ""}
+        </span>
+        <span class="cell__chevron" aria-hidden="true"></span>
+      `;
+      row.addEventListener("click", () => openCustomsArticle(ctx, item.number));
+      list.append(row);
+    });
+    return;
+  }
+
+  if (!ctx.state.customsSections.length) {
+    root.innerHTML = `
+      <div class="group">
+        <div class="group__list"><div class="empty empty--inline"><h2>Завантажуємо розділи…</h2></div></div>
+      </div>
+    `;
+    return;
+  }
+
+  root.innerHTML = `
+    <div class="group">
+      <div class="group__label">Розділи кодексу</div>
+      <div class="group__list" id="customs-sections-list"></div>
+      <div class="group__footer">Текст збережено локально в проєкті, відкривається частинами без завантаження всього кодексу в Mini App.</div>
+    </div>
+  `;
+  const list = root.querySelector("#customs-sections-list");
+  ctx.state.customsSections.forEach((item) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--indigo">${ctx.escapeHtml(item.number)}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
+        <span class="cell__subtitle">${item.chapters_count} глав · ${item.articles_count} статей</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", () => {
+      ctx.state.selectedCustomsSectionId = item.id;
+      ctx.state.customsSectionDetail = null;
+      ctx.navigate("customs-code-section");
+    });
+    list.append(row);
+  });
+}
+
+async function runCustomsSearch(ctx) {
+  const root = document.querySelector("#customs-code-body");
+  const query = (ctx.state.customsSearchQuery || "").trim();
+  if (!query || (query.length < 2 && !isArticleNumberQuery(query))) {
+    ctx.state.customsSearchResults = [];
+    ctx.state.customsSearchLoading = false;
+    drawCustomsCodeContent(ctx, root);
+    return;
+  }
+
+  try {
+    ctx.state.customsSearchLoading = true;
+    drawCustomsCodeContent(ctx, root);
+    const payload = await ctx.api(`/api/customs-code/search?q=${encodeURIComponent(query)}&limit=30`);
+    ctx.state.customsSearchResults = payload.items || [];
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+    ctx.state.customsSearchResults = [];
+  } finally {
+    ctx.state.customsSearchLoading = false;
+    drawCustomsCodeContent(ctx, root);
+  }
+}
+
+export function renderCustomsCode(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Митний кодекс України</h1>
+      <p class="page-subtitle">${customsMetaLine(ctx) || "Розділи, глави, статті та пошук."}</p>
+
+      <label class="customs-search">
+        <span class="customs-search__icon" aria-hidden="true">⌕</span>
+        <input class="customs-search__input" id="customs-search" type="search" value="${ctx.escapeHtml(ctx.state.customsSearchQuery || "")}" placeholder="Стаття 257, XXI-1 або митна вартість" />
+      </label>
+
+      <div id="customs-code-body"></div>
+    </section>
+  `;
+
+  const root = ctx.refs.mainPanel.querySelector("#customs-code-body");
+  drawCustomsCodeContent(ctx, root);
+
+  const input = ctx.refs.mainPanel.querySelector("#customs-search");
+  input?.addEventListener("input", () => {
+    ctx.state.customsSearchQuery = input.value;
+    window.clearTimeout(customsSearchTimer);
+    customsSearchTimer = window.setTimeout(() => void runCustomsSearch(ctx), 320);
+  });
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      window.clearTimeout(customsSearchTimer);
+      void runCustomsSearch(ctx);
+    }
+  });
+}
+
+export async function loadCustomsCode(ctx) {
+  if (ctx.state.currentScreen !== "customs-code") return;
+  if (ctx.state.customsSections.length) return;
+  try {
+    const payload = await ctx.api("/api/customs-code/sections");
+    ctx.state.customsCodeMeta = payload.meta || null;
+    ctx.state.customsSections = payload.items || [];
+    ctx.state.customsCodeCounts = {
+      sections: ctx.state.customsSections.length,
+      chapters: ctx.state.customsSections.reduce((sum, item) => sum + Number(item.chapters_count || 0), 0),
+      articles: ctx.state.customsSections.reduce((sum, item) => sum + Number(item.articles_count || 0), 0),
+    };
+    if (ctx.state.currentScreen === "customs-code") ctx.render();
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+export function renderCustomsSection(ctx) {
+  const detail = ctx.state.customsSectionDetail;
+  ctx.setChrome({ showBack: true });
+
+  if (!detail) {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <h1 class="page-title">Митний кодекс</h1>
+        <div class="group"><div class="group__list"><div class="empty empty--inline"><h2>Завантажуємо розділ…</h2></div></div></div>
+      </section>
+    `;
+    return;
+  }
+
+  const section = detail.section;
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Розділ ${ctx.escapeHtml(section.number)}</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(section.title)}</p>
+      <div id="customs-section-body"></div>
+    </section>
+  `;
+
+  const body = ctx.refs.mainPanel.querySelector("#customs-section-body");
+  body.innerHTML = detail.chapters.map((chapter) => `
+    <div class="group">
+      <div class="group__label">Глава ${ctx.escapeHtml(chapter.number)}${chapter.is_excluded ? " · виключено" : ""}</div>
+      <div class="customs-chapter-title">${ctx.escapeHtml(chapter.title)}</div>
+      <div class="group__list" data-chapter="${ctx.escapeHtml(String(chapter.id))}"></div>
+    </div>
+  `).join("");
+
+  detail.chapters.forEach((chapter) => {
+    const list = body.querySelector(`[data-chapter="${CSS.escape(String(chapter.id))}"]`);
+    (chapter.articles || []).forEach((article) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "cell";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--blue">${ctx.escapeHtml(String(articleDisplayNumber(article.number) || "§").slice(0, 4))}</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(articleDisplayTitle(article))}</span>
+          ${article.is_excluded ? `<span class="cell__subtitle">Виключено</span>` : ""}
+        </span>
+        <span class="cell__chevron" aria-hidden="true"></span>
+      `;
+      row.addEventListener("click", () => openCustomsArticle(ctx, article.number));
+      list?.append(row);
+    });
+  });
+}
+
+export async function loadCustomsSection(ctx) {
+  if (ctx.state.currentScreen !== "customs-code-section") return;
+  const sectionId = ctx.state.selectedCustomsSectionId;
+  if (!sectionId) return;
+  if (ctx.state.customsSectionDetail?.section?.id === sectionId) return;
+  try {
+    const payload = await ctx.api(`/api/customs-code/sections/${sectionId}`);
+    ctx.state.customsSectionDetail = payload;
+    if (ctx.state.currentScreen === "customs-code-section") ctx.render();
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+export function renderCustomsArticle(ctx) {
+  const article = ctx.state.customsArticle;
+  ctx.setChrome({ showBack: true });
+
+  if (!article) {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <h1 class="page-title">${ctx.escapeHtml(articleDisplayPrefix(ctx.state.selectedCustomsArticleNumber))} ${ctx.escapeHtml(articleDisplayNumber(ctx.state.selectedCustomsArticleNumber || ""))}</h1>
+        <div class="group"><div class="group__list"><div class="empty empty--inline"><h2>Завантажуємо статтю…</h2></div></div></div>
+      </section>
+    `;
+    return;
+  }
+
+  const paragraphs = String(article.text || "")
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content screen-content--article">
+      <h1 class="page-title">${ctx.escapeHtml(articleDisplayPrefix(article.number))} ${ctx.escapeHtml(articleDisplayNumber(article.number))}</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(article.title || "")}</p>
+
+      <div class="customs-breadcrumb">
+        Розділ ${ctx.escapeHtml(article.section_number || "")} · Глава ${ctx.escapeHtml(article.chapter_number || "")}
+      </div>
+
+      <article class="customs-article-text">
+        ${paragraphs.length ? paragraphs.map((part) => `<p>${ctx.escapeHtml(part)}</p>`).join("") : `<p class="muted">Текст статті відсутній або статтю виключено.</p>`}
+      </article>
+    </section>
+  `;
+}
+
+export async function loadCustomsArticle(ctx) {
+  if (ctx.state.currentScreen !== "customs-code-article") return;
+  const number = ctx.state.selectedCustomsArticleNumber;
+  if (!number) return;
+  if (ctx.state.customsArticle?.number === number) return;
+  try {
+    const payload = await ctx.api(`/api/customs-code/articles/${encodeURIComponent(number)}`);
+    ctx.state.customsArticle = payload.article || null;
+    if (ctx.state.currentScreen === "customs-code-article") ctx.render();
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
 }
 
 /* ===================== LEARNING ===================== */

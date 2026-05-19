@@ -1061,3 +1061,102 @@
   -webkit-tap-highlight-color: transparent;
 }
 .modal__close:active { opacity: 0.6; }
+
+/* ===================== CUSTOMS CODE REFERENCE ===================== */
+.customs-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-button);
+  background: var(--bg-grouped);
+  border: 1px solid var(--separator);
+}
+
+.customs-search__icon {
+  color: var(--label-tertiary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.customs-search__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--label);
+  font: inherit;
+  font-size: 16px;
+  height: 42px;
+}
+
+.customs-search__input::placeholder {
+  color: var(--label-tertiary);
+}
+
+.customs-chapter-title {
+  padding: 0 16px 8px;
+  color: var(--label-secondary);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.customs-result.cell {
+  align-items: flex-start;
+}
+
+.customs-snippet {
+  display: block;
+  margin-top: 6px;
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.customs-snippet mark {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--accent-fill);
+  color: var(--accent);
+}
+
+.customs-breadcrumb {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-fill);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.screen-content--article {
+  gap: 12px;
+}
+
+.customs-article-text {
+  margin-left: -16px;
+  margin-right: -16px;
+  padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
+  background: var(--bg-grouped);
+  border-top: 1px solid var(--separator);
+  border-bottom: 1px solid var(--separator);
+  color: var(--label);
+}
+
+.customs-article-text p {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.customs-article-text p:last-child {
+  margin-bottom: 0;
+}

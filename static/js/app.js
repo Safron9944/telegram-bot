@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-20";
-import { state } from "./core/state.js?v=20260519-minimal-20";
-import { api } from "./core/api.js?v=20260519-minimal-20";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-20";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-20";
+import { refs } from "./core/dom.js?v=20260519-customs-code-03";
+import { state } from "./core/state.js?v=20260519-customs-code-03";
+import { api } from "./core/api.js?v=20260519-customs-code-03";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-customs-code-03";
+import { initializeTheme } from "./core/theme.js?v=20260519-customs-code-03";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,13 +12,19 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-20";
+} from "./core/ui.js?v=20260519-customs-code-03";
 import {
   loadCaseDetail,
   loadCases,
+  loadCustomsArticle,
+  loadCustomsCode,
+  loadCustomsSection,
   renderCaseDetail,
   renderCases,
   renderCustoms,
+  renderCustomsArticle,
+  renderCustomsCode,
+  renderCustomsSection,
   renderHelp,
   renderHome,
   renderLawParts,
@@ -26,7 +32,7 @@ import {
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-20";
+} from "./screens/user.js?v=20260519-customs-code-03";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -40,8 +46,8 @@ import {
   renderAdminSettings,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-20";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-20";
+} from "./screens/admin.js?v=20260519-customs-code-03";
+import { renderCurrentView } from "./screens/session.js?v=20260519-customs-code-03";
 
 window.__APP_READY__ = false;
 
@@ -86,6 +92,9 @@ function createContext() {
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
     loadCases: () => loadCases(createContext()),
     loadCaseDetail: (offset = state.caseOffset) => loadCaseDetail(createContext(), offset),
+    loadCustomsCode: () => loadCustomsCode(createContext()),
+    loadCustomsSection: () => loadCustomsSection(createContext()),
+    loadCustomsArticle: () => loadCustomsArticle(createContext()),
   };
 }
 
@@ -146,6 +155,12 @@ async function goBack() {
     if (previous !== "law-parts") {
       state.selectedLawGroup = null;
     }
+    if (previous !== "customs-code-section") {
+      state.customsSectionDetail = null;
+    }
+    if (previous !== "customs-code-article") {
+      state.customsArticle = null;
+    }
     render();
     ensureScreenData();
     return;
@@ -165,6 +180,9 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
+  if (screen === "customs-code") void loadCustomsCode(createContext());
+  if (screen === "customs-code-section") void loadCustomsSection(createContext());
+  if (screen === "customs-code-article") void loadCustomsArticle(createContext());
 }
 
 function render() {
@@ -195,6 +213,9 @@ function render() {
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
     case "customs":           renderCustoms(ctx); break;
+    case "customs-code":      renderCustomsCode(ctx); break;
+    case "customs-code-section": renderCustomsSection(ctx); break;
+    case "customs-code-article": renderCustomsArticle(ctx); break;
     case "cases":             renderCases(ctx); break;
     case "case-detail":       renderCaseDetail(ctx); break;
     case "testing":           renderTesting(ctx); break;
