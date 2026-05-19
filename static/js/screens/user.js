@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-9";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-10";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -653,6 +653,43 @@ export function renderHelp(ctx) {
 }
 
 
+/* ===================== PAYWALL ===================== */
+export function renderPaywall(ctx, errorCode) {
+  ctx.setChrome({ showBack: true });
+
+  const title = errorCode === "access_expired" ? "Потрібна підписка" : "Доступ до кейсів";
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">${title}</h1>
+      <p class="page-subtitle">Оберіть тариф і отримайте доступ через Telegram Stars. Підписка діє 30 днів.</p>
+
+      <div class="group">
+        <div class="group__label">Тільки кейси — 100 ⭐</div>
+        <div class="group__list" style="padding: 16px;">
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Доступ до всіх кейсів і правильних відповідей на 30 днів.</p>
+          <div id="pay-cases-wrap"></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group__label">Повний доступ — 250 ⭐</div>
+        <div class="group__list" style="padding: 16px;">
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести та кейси — все на 30 днів.</p>
+          <div id="pay-full-wrap"></div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  ctx.refs.mainPanel.querySelector("#pay-cases-wrap").append(
+    ctx.actionButton("Оплатити 100 ⭐ — кейси", () => void ctx.openPayment("cases"), "block-ghost"),
+  );
+  ctx.refs.mainPanel.querySelector("#pay-full-wrap").append(
+    ctx.actionButton("Оплатити 250 ⭐ — повний доступ", () => void ctx.openPayment("full"), "block"),
+  );
+}
+
 /* ===================== CASES ===================== */
 export function renderCases(ctx) {
   ctx.setChrome({ showBack: true });
@@ -709,6 +746,10 @@ export async function loadCases(ctx) {
       list.append(row);
     });
   } catch (error) {
+    if (error.code === "cases_access_required" || error.code === "access_expired") {
+      renderPaywall(ctx, error.code);
+      return;
+    }
     ctx.setMessage("error", error.message);
   }
 }
@@ -817,6 +858,10 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
       }
     }
   } catch (error) {
+    if (error.code === "cases_access_required" || error.code === "access_expired") {
+      renderPaywall(ctx, error.code);
+      return;
+    }
     ctx.setMessage("error", error.message);
   }
 }

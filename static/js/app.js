@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-9";
-import { state } from "./core/state.js?v=20260519-minimal-9";
-import { api } from "./core/api.js?v=20260519-minimal-9";
-import { initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-9";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-9";
+import { refs } from "./core/dom.js?v=20260519-minimal-10";
+import { state } from "./core/state.js?v=20260519-minimal-10";
+import { api } from "./core/api.js?v=20260519-minimal-10";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-10";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-10";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-9";
+} from "./core/ui.js?v=20260519-minimal-10";
 import {
   loadCaseDetail,
   loadCases,
@@ -22,9 +22,10 @@ import {
   renderHome,
   renderLawParts,
   renderLearning,
+  renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-9";
+} from "./screens/user.js?v=20260519-minimal-10";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -36,8 +37,8 @@ import {
   renderAdminQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-9";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-9";
+} from "./screens/admin.js?v=20260519-minimal-10";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-10";
 
 window.__APP_READY__ = false;
 
@@ -72,6 +73,7 @@ function createContext() {
     startLearning,
     startMistakesSession,
     leaveCurrentView,
+    openPayment,
     loadAdminUsers: (offset = state.adminUsersOffset) => loadAdminUsers(createContext(), offset),
     loadAdminUserDetail: (userId) => loadAdminUserDetail(createContext(), userId),
     loadAdminQuestions: (page = state.adminQuestionsPage) => loadAdminQuestions(createContext(), page),
@@ -237,6 +239,10 @@ async function startLearning(payload) {
     impact("medium");
     render();
   } catch (error) {
+    if (error.code === "access_expired" || error.code === "cases_access_required") {
+      renderPaywall(createContext(), error.code);
+      return;
+    }
     setMessage("error", error.message);
   }
 }
@@ -246,6 +252,27 @@ async function startMistakesSession() {
     state.currentView = await api("/api/mistakes/start", { method: "POST" });
     impact("medium");
     render();
+  } catch (error) {
+    setMessage("error", error.message);
+  }
+}
+
+async function openPayment(tier) {
+  try {
+    const { invoice_link } = await api("/api/payment/create-link", {
+      method: "POST",
+      body: { tier },
+    });
+    if (tg?.openInvoice) {
+      tg.openInvoice(invoice_link, async (status) => {
+        if (status === "paid") {
+          await loadBootstrap();
+          setMessage("success", "Оплата успішна! Доступ активовано.");
+        }
+      });
+    } else {
+      window.open(invoice_link, "_blank");
+    }
   } catch (error) {
     setMessage("error", error.message);
   }
