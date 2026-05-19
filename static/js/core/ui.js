@@ -1,5 +1,5 @@
-import { refs } from "./dom.js?v=20260519-minimal-18";
-import { impact, setTelegramBackButton, tg } from "./telegram.js?v=20260519-minimal-18";
+import { refs } from "./dom.js?v=20260519-minimal-19";
+import { impact, setTelegramBackButton, tg } from "./telegram.js?v=20260519-minimal-19";
 
 export function escapeHtml(value) {
   return String(value ?? "")
@@ -104,6 +104,7 @@ export function actionButton(label, handler, variant = "default") {
   if (variant === "ghost") cls.push("btn--ghost");
   if (variant === "block") cls.push("btn--primary", "btn--block");
   if (variant === "block-ghost") cls.push("btn--ghost", "btn--block");
+  if (variant === "block-danger") cls.push("btn--destructive", "btn--block");
   if (variant === "lg") cls.push("btn--lg");
   if (variant === "sm") cls.push("btn--sm");
 
