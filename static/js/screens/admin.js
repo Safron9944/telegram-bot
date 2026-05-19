@@ -148,9 +148,6 @@ export async function loadAdminUsers(ctx, offset = 0) {
       }
     }
 
-    if (ctx.state.selectedAdminUserId) {
-      void loadAdminUserDetail(ctx, ctx.state.selectedAdminUserId);
-    }
   } catch (error) {
     ctx.setMessage("error", error.message);
   }
@@ -170,12 +167,17 @@ export async function loadAdminUserDetail(ctx, userId) {
 
     closeAdminModal();
 
+    const close = () => {
+      closeAdminModal();
+      ctx.state.selectedAdminUserId = null;
+    };
+
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ") || "—";
     const isInfinite = payload.access.state === "sub_infinite";
 
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAdminModal(); });
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 
     const modal = document.createElement("div");
     modal.className = "modal";
@@ -205,7 +207,7 @@ export async function loadAdminUserDetail(ctx, userId) {
       <div id="modal-actions" style="display: flex; flex-direction: column; gap: 8px;"></div>
     `;
 
-    modal.querySelector(".modal__close").addEventListener("click", closeAdminModal);
+    modal.querySelector(".modal__close").addEventListener("click", close);
 
     const actions = modal.querySelector("#modal-actions");
     actions.append(
@@ -218,7 +220,7 @@ export async function loadAdminUserDetail(ctx, userId) {
               body: { infinite: !isInfinite },
             });
             ctx.impact("medium");
-            closeAdminModal();
+            close();
             ctx.setMessage("success", "Доступ оновлено.");
             await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
           } catch (error) {
@@ -237,14 +239,14 @@ export async function loadAdminUserDetail(ctx, userId) {
               method: "POST",
               body: { infinite: false },
             });
-            closeAdminModal();
-            ctx.setMessage("success", "Доступ оновлено.");
+            close();
+            ctx.setMessage("success", "Доступ забрано.");
             await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
           } catch (error) {
             ctx.setMessage("error", error.message);
           }
         },
-        "block-ghost",
+        "block-danger",
       ),
     );
 
