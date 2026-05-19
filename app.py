@@ -1425,11 +1425,9 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
         if tier not in ("cases", "full"):
             return
         user_id = message.from_user.id
-        from datetime import timedelta
-        sub_end = now() + timedelta(days=30)
-        await runtime.store.set_subscription(user_id, sub_end, infinite=False, tier=tier)
+        await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
         label = "кейсів" if tier == "cases" else "повного доступу"
-        await message.answer(f"✅ Оплата успішна! 30 днів доступу до {label} активовано.")
+        await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 
     return router
 

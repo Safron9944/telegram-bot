@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-15";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-16";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -663,12 +663,12 @@ export function renderPaywall(ctx, errorCode) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">${title}</h1>
-      <p class="page-subtitle">Оберіть тариф і отримайте доступ через Telegram Stars. Підписка діє 30 днів.</p>
+      <p class="page-subtitle">Оберіть тариф і отримайте безлімітний доступ через Telegram Stars.</p>
 
       <div class="group">
         <div class="group__label">Тільки кейси — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Доступ до всіх кейсів і правильних відповідей на 30 днів.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до всіх кейсів і правильних відповідей.</p>
           <div id="pay-cases-wrap"></div>
         </div>
       </div>
@@ -676,7 +676,7 @@ export function renderPaywall(ctx, errorCode) {
       <div class="group">
         <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести та кейси — все на 30 днів.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ — навчання, тести та кейси.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
