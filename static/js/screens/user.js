@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-11";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-12";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -49,29 +49,12 @@ export function renderHome(ctx) {
   const { user, catalog, stats } = ctx.state.bootstrap;
   const modules = selectedModules(catalog);
   const last = stats.last;
-  const access = user.access.has_access;
 
   ctx.setChrome({ showBack: false });
-
-  const initial = initialOf(user.first_name);
-  const name = ctx.escapeHtml(user.first_name || "Користувач");
-  const accessChipClass = access ? "chip--success" : "chip--danger";
-  const accessLabel = access ? "Активний доступ" : "Доступ обмежено";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Головна</h1>
-
-      <div class="greeting">
-        <div class="greeting__avatar">${ctx.escapeHtml(initial)}</div>
-        <div class="greeting__copy">
-          <div class="greeting__hello">Вітаємо</div>
-          <div class="greeting__name">${name}</div>
-        </div>
-        <span class="chip ${accessChipClass}">${accessLabel}</span>
-      </div>
-
-      <div class="stack" id="home-cta"></div>
 
       ${ctx.group({
         header: "Швидкий старт",
@@ -131,16 +114,6 @@ export function renderHome(ctx) {
       })}
     </section>
   `;
-
-  // Primary CTA — start mistakes session if any
-  const cta = ctx.refs.mainPanel.querySelector("#home-cta");
-  cta.append(
-    ctx.actionButton(
-      "Почати тренування з помилок",
-      ctx.startMistakesSession,
-      "block",
-    ),
-  );
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }

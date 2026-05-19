@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-11";
-import { state } from "./core/state.js?v=20260519-minimal-11";
-import { api } from "./core/api.js?v=20260519-minimal-11";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-11";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-11";
+import { refs } from "./core/dom.js?v=20260519-minimal-12";
+import { state } from "./core/state.js?v=20260519-minimal-12";
+import { api } from "./core/api.js?v=20260519-minimal-12";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-12";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-12";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-11";
+} from "./core/ui.js?v=20260519-minimal-12";
 import {
   loadCaseDetail,
   loadCases,
@@ -25,7 +25,7 @@ import {
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-11";
+} from "./screens/user.js?v=20260519-minimal-12";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -39,8 +39,8 @@ import {
   renderAdminSettings,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-11";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-11";
+} from "./screens/admin.js?v=20260519-minimal-12";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-12";
 
 window.__APP_READY__ = false;
 
