@@ -1,4 +1,4 @@
-import { tg } from "./telegram.js?v=20260519-minimal-12";
+import { tg } from "./telegram.js?v=20260519-minimal-13";
 
 function getAuthHeaders() {
   const params = new URLSearchParams(window.location.search);

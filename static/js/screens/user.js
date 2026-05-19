@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-12";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-13";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -720,10 +720,6 @@ export async function loadCases(ctx) {
       list.append(row);
     });
   } catch (error) {
-    if (error.code === "cases_access_required" || error.code === "access_expired") {
-      renderPaywall(ctx, error.code);
-      return;
-    }
     ctx.setMessage("error", error.message);
   }
 }

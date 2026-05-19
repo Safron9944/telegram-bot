@@ -1093,7 +1093,6 @@ class MiniAppService:
         return self.build_test_result_view(state)
 
     async def list_cases(self, auth: AuthContext) -> dict[str, Any]:
-        self.ensure_cases_access(auth)
         cases = await self.store.list_case_banks()
         return {"items": [serialize_case_bank(item) for item in cases]}
 

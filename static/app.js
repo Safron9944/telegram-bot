@@ -1,1 +1,1 @@
-import "/static/js/app.js?v=20260519-minimal-12";
+import "/static/js/app.js?v=20260519-minimal-13";
