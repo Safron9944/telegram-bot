@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-19";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-20";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -151,7 +151,7 @@ export function renderLearning(ctx) {
   const modules = selectedModules(catalog);
   const tab = ctx.state.learningTab || "law";
 
-  ctx.setChrome({ showBack: false });
+  ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
@@ -226,31 +226,29 @@ function renderLawTab(ctx, root) {
 
 function renderOkTab(ctx, root, modules) {
   const { catalog } = ctx.state.bootstrap;
+
   root.innerHTML = `
     <div class="group">
       <div class="group__label">Активні модулі</div>
       <div class="group__list" id="active-modules"></div>
-      <div class="group__footer">Запускайте по рівнях. Зміна вибору модулів — нижче.</div>
+      <div class="group__footer">Натисніть рівень, щоб розпочати навчання.</div>
     </div>
-
-    <div style="height: 12px"></div>
 
     <div class="group">
       <div class="group__label">Вибір модулів</div>
-      <div class="group__list" style="padding: 12px;">
-        <div class="row" id="module-picker"></div>
-        <div style="height: 10px"></div>
-        <div id="module-save"></div>
-      </div>
+      <div class="group__list" id="module-picker-list"></div>
     </div>
+
+    <div style="padding: 0 4px 4px;" id="module-save"></div>
   `;
 
+  // Active modules
   const activeRoot = root.querySelector("#active-modules");
   if (!modules.length) {
     activeRoot.innerHTML = `
       <div class="empty empty--inline">
         <h2>Немає активних модулів</h2>
-        <p>Виберіть нижче — і вони з’являться тут.</p>
+        <p>Виберіть нижче.</p>
       </div>
     `;
   } else {
@@ -262,7 +260,6 @@ function renderOkTab(ctx, root, modules) {
         <span class="cell__icon cell__icon--purple">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
         <span class="cell__body">
           <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
-          <span class="cell__subtitle">Рівні: ${item.levels.map((l) => "L" + l.level).join(" · ")}</span>
         </span>
         <span class="row-actions" style="gap:6px"></span>
       `;
@@ -270,9 +267,8 @@ function renderOkTab(ctx, root, modules) {
       item.levels.forEach((entry) => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "pill";
+        btn.className = "pill" + (entry.level === item.last_level ? " is-selected" : "");
         btn.textContent = `L${entry.level}`;
-        if (entry.level === item.last_level) btn.classList.add("is-selected");
         btn.addEventListener("click", () => {
           ctx.impact("light");
           ctx.startLearning({ kind: "ok", module: item.name, level: entry.level });
@@ -283,27 +279,47 @@ function renderOkTab(ctx, root, modules) {
     });
   }
 
-  // Module picker
-  const selector = root.querySelector("#module-picker");
+  // Module picker — cell list with checkmarks
+  const pickerList = root.querySelector("#module-picker-list");
   const selected = new Set(modules.map((m) => m.name));
+
   catalog.ok_modules.forEach((item) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "pill" + (selected.has(item.name) ? " is-selected" : "");
-    btn.textContent = item.label;
-    btn.addEventListener("click", () => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    const isOn = selected.has(item.name);
+
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--${isOn ? "purple" : "gray"}" id="icon-${ctx.escapeHtml(item.name)}">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
+      </span>
+      ${isOn ? `<span style="color: var(--accent); font-size: 18px; flex-shrink:0;">✓</span>` : `<span style="width:18px; flex-shrink:0;"></span>`}
+    `;
+
+    row.addEventListener("click", () => {
       ctx.impact("light");
-      if (selected.has(item.name)) {
+      const nowOn = selected.has(item.name);
+      if (nowOn) {
         selected.delete(item.name);
-        btn.classList.remove("is-selected");
       } else {
         selected.add(item.name);
-        btn.classList.add("is-selected");
+      }
+      const icon = row.querySelector(`#icon-${CSS.escape(item.name)}`);
+      const check = row.querySelector("span:last-child");
+      if (icon) {
+        icon.className = `cell__icon cell__icon--${selected.has(item.name) ? "purple" : "gray"}`;
+      }
+      if (check) {
+        check.innerHTML = selected.has(item.name) ? "✓" : "";
+        check.style.color = "var(--accent)";
       }
     });
-    selector.append(btn);
+
+    pickerList.append(row);
   });
 
+  // Save button
   const saveRoot = root.querySelector("#module-save");
   saveRoot.append(
     ctx.actionButton(
@@ -405,7 +421,7 @@ export function renderTesting(ctx) {
   const { catalog } = ctx.state.bootstrap;
   const modules = selectedModules(catalog);
 
-  ctx.setChrome({ showBack: false });
+  ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
@@ -517,7 +533,7 @@ export function renderStats(ctx) {
   const { stats } = ctx.state.bootstrap;
   const last = stats.last;
 
-  ctx.setChrome({ showBack: false });
+  ctx.setChrome({ showBack: true });
 
   const pctClass = last
     ? last.percent >= 60
