@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-14";
-import { state } from "./core/state.js?v=20260519-minimal-14";
-import { api } from "./core/api.js?v=20260519-minimal-14";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-14";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-14";
+import { refs } from "./core/dom.js?v=20260519-minimal-15";
+import { state } from "./core/state.js?v=20260519-minimal-15";
+import { api } from "./core/api.js?v=20260519-minimal-15";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-15";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-15";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,12 +12,13 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-14";
+} from "./core/ui.js?v=20260519-minimal-15";
 import {
   loadCaseDetail,
   loadCases,
   renderCaseDetail,
   renderCases,
+  renderCustoms,
   renderHelp,
   renderHome,
   renderLawParts,
@@ -25,7 +26,7 @@ import {
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-14";
+} from "./screens/user.js?v=20260519-minimal-15";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -39,8 +40,8 @@ import {
   renderAdminSettings,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-14";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-14";
+} from "./screens/admin.js?v=20260519-minimal-15";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-15";
 
 window.__APP_READY__ = false;
 
@@ -193,6 +194,7 @@ function render() {
     case "home":              renderHome(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
+    case "customs":           renderCustoms(ctx); break;
     case "cases":             renderCases(ctx); break;
     case "case-detail":       renderCaseDetail(ctx); break;
     case "testing":           renderTesting(ctx); break;

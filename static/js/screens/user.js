@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-14";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-15";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -57,36 +57,14 @@ export function renderHome(ctx) {
       <h1 class="page-title">Головна</h1>
 
       ${ctx.group({
-        header: "Митні компетенції",
         children: [
           ctx.cell({
-            title: "Навчання",
-            subtitle: `${catalog.law_groups.length} розділів закону`,
-            icon: "📚",
+            title: "Митні компетенції",
+            subtitle: "Навчання, тестування, статистика",
+            icon: "🎓",
             tint: "blue",
-            screen: "learning",
+            screen: "customs",
           }),
-          ctx.cell({
-            title: "Тестування",
-            subtitle: "Зібрати з модулів і закону",
-            icon: "🧪",
-            tint: "purple",
-            screen: "testing",
-          }),
-          ctx.cell({
-            title: "Статистика",
-            subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест",
-            icon: "📊",
-            tint: "teal",
-            screen: "stats",
-            detail: last ? percentLabel(last.percent) : undefined,
-          }),
-        ].join(""),
-      })}
-
-      ${ctx.group({
-        header: "Кейси",
-        children: [
           ctx.cell({
             title: "Кейси",
             subtitle: "Питання та правильні відповіді",
@@ -116,6 +94,49 @@ export function renderHome(ctx) {
                 screen: "admin",
               })
             : "",
+        ].join(""),
+      })}
+    </section>
+  `;
+
+  ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+}
+
+/* ===================== CUSTOMS ===================== */
+export function renderCustoms(ctx) {
+  const { catalog, stats } = ctx.state.bootstrap;
+  const last = stats.last;
+
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Митні компетенції</h1>
+
+      ${ctx.group({
+        children: [
+          ctx.cell({
+            title: "Навчання",
+            subtitle: `${catalog.law_groups.length} розділів закону`,
+            icon: "📚",
+            tint: "blue",
+            screen: "learning",
+          }),
+          ctx.cell({
+            title: "Тестування",
+            subtitle: "Зібрати з модулів і закону",
+            icon: "🧪",
+            tint: "purple",
+            screen: "testing",
+          }),
+          ctx.cell({
+            title: "Статистика",
+            subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест",
+            icon: "📊",
+            tint: "teal",
+            screen: "stats",
+            detail: last ? percentLabel(last.percent) : undefined,
+          }),
         ].join(""),
       })}
     </section>
