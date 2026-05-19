@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-16";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-17";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -684,7 +684,7 @@ export function renderPaywall(ctx, errorCode) {
   `;
 
   ctx.refs.mainPanel.querySelector("#pay-cases-wrap").append(
-    ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block-ghost"),
+    ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block"),
   );
   ctx.refs.mainPanel.querySelector("#pay-full-wrap").append(
     ctx.actionButton(`Оплатити ${prices.full} ⭐ — повний доступ`, () => void ctx.openPayment("full"), "block"),
