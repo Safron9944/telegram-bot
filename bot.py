@@ -191,6 +191,13 @@ class Storage:
             await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_tier TEXT;")
 
             await con.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+            """)
+
+            await con.execute("""
                 CREATE TABLE IF NOT EXISTS ui_state (
                     user_id BIGINT PRIMARY KEY,
                     chat_id BIGINT,
@@ -384,6 +391,16 @@ class Storage:
         assert self.pool
         async with self.pool.acquire() as con:
             return await con.execute(sql, *params)
+
+    async def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        row = await self._fetchrow("SELECT value FROM settings WHERE key=$1", key)
+        return row["value"] if row else default
+
+    async def set_setting(self, key: str, value: str) -> None:
+        await self._exec("""
+            INSERT INTO settings(key, value) VALUES($1, $2)
+            ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value
+        """, key, value)
 
     async def ensure_user(
             self,
@@ -1678,16 +1695,14 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
     return False, "expired"
 
 
-async def create_stars_invoice_link(bot: "Bot", tier: str) -> str:
+async def create_stars_invoice_link(bot: "Bot", tier: str, amount: int) -> str:
     """Create a Telegram Stars invoice link for the given tier."""
     if tier == "cases":
         title = "Доступ до кейсів"
         description = "30 днів доступу до розділу Кейси"
-        amount = 100
     else:
         title = "Повний доступ"
         description = "30 днів повного доступу (навчання, тести, кейси)"
-        amount = 250
     link = await bot.create_invoice_link(
         title=title,
         description=description,

@@ -30,6 +30,13 @@ export function renderAdminHub(ctx) {
             tint: "green",
             screen: "admin-cases",
           }),
+          ctx.cell({
+            title: "Налаштування",
+            subtitle: "Ціни підписки",
+            icon: "⚙",
+            tint: "teal",
+            screen: "admin-settings",
+          }),
         ].join(""),
       })}
     </section>
@@ -638,6 +645,75 @@ export async function loadAdminCases(ctx) {
       actions.append(openBtn, delBtn);
       list.append(row);
     });
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+/* ===================== ADMIN SETTINGS ===================== */
+export function renderAdminSettings(ctx) {
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Налаштування</h1>
+      <p class="page-subtitle">Кількість Telegram Stars для кожного тарифу підписки.</p>
+
+      <div class="group">
+        <div class="group__label">Тарифи</div>
+        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Тільки кейси (⭐)</label>
+            <input id="price-cases" class="input" type="number" min="1" placeholder="100" style="width: 100%;" />
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Повний доступ (⭐)</label>
+            <input id="price-full" class="input" type="number" min="1" placeholder="250" style="width: 100%;" />
+          </div>
+          <div id="settings-save-wrap"></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+export async function loadAdminSettings(ctx) {
+  if (ctx.state.currentScreen !== "admin-settings") return;
+  try {
+    const payload = await ctx.api("/api/admin/settings");
+    const casesInput = document.querySelector("#price-cases");
+    const fullInput = document.querySelector("#price-full");
+    if (casesInput) casesInput.value = String(payload.price_cases);
+    if (fullInput) fullInput.value = String(payload.price_full);
+
+    const wrap = document.querySelector("#settings-save-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    wrap.append(
+      ctx.actionButton(
+        "Зберегти",
+        async () => {
+          const cases = parseInt(document.querySelector("#price-cases")?.value, 10);
+          const full = parseInt(document.querySelector("#price-full")?.value, 10);
+          if (!cases || cases < 1 || !full || full < 1) {
+            ctx.setMessage("error", "Введіть коректні значення (ціле число ≥ 1).");
+            return;
+          }
+          try {
+            await ctx.api("/api/admin/settings", {
+              method: "POST",
+              body: { price_cases: cases, price_full: full },
+            });
+            ctx.impact("medium");
+            ctx.setMessage("success", "Ціни збережено.");
+            await ctx.loadBootstrap();
+          } catch (error) {
+            ctx.setMessage("error", error.message);
+          }
+        },
+        "block",
+      ),
+    );
   } catch (error) {
     ctx.setMessage("error", error.message);
   }

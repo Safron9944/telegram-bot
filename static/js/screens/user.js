@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-10";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-minimal-11";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -657,6 +657,7 @@ export function renderHelp(ctx) {
 export function renderPaywall(ctx, errorCode) {
   ctx.setChrome({ showBack: true });
 
+  const prices = ctx.state.bootstrap?.payment_prices || { cases: 100, full: 250 };
   const title = errorCode === "access_expired" ? "Потрібна підписка" : "Доступ до кейсів";
 
   ctx.refs.mainPanel.innerHTML = `
@@ -665,7 +666,7 @@ export function renderPaywall(ctx, errorCode) {
       <p class="page-subtitle">Оберіть тариф і отримайте доступ через Telegram Stars. Підписка діє 30 днів.</p>
 
       <div class="group">
-        <div class="group__label">Тільки кейси — 100 ⭐</div>
+        <div class="group__label">Тільки кейси — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
           <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Доступ до всіх кейсів і правильних відповідей на 30 днів.</p>
           <div id="pay-cases-wrap"></div>
@@ -673,7 +674,7 @@ export function renderPaywall(ctx, errorCode) {
       </div>
 
       <div class="group">
-        <div class="group__label">Повний доступ — 250 ⭐</div>
+        <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
           <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести та кейси — все на 30 днів.</p>
           <div id="pay-full-wrap"></div>
@@ -683,10 +684,10 @@ export function renderPaywall(ctx, errorCode) {
   `;
 
   ctx.refs.mainPanel.querySelector("#pay-cases-wrap").append(
-    ctx.actionButton("Оплатити 100 ⭐ — кейси", () => void ctx.openPayment("cases"), "block-ghost"),
+    ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block-ghost"),
   );
   ctx.refs.mainPanel.querySelector("#pay-full-wrap").append(
-    ctx.actionButton("Оплатити 250 ⭐ — повний доступ", () => void ctx.openPayment("full"), "block"),
+    ctx.actionButton(`Оплатити ${prices.full} ⭐ — повний доступ`, () => void ctx.openPayment("full"), "block"),
   );
 }
 

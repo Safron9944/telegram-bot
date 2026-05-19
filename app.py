@@ -105,6 +105,18 @@ def format_dt(value: Any) -> str | None:
     return value.strftime("%d.%m.%Y %H:%M")
 
 
+DEFAULT_PRICES: dict[str, int] = {"cases": 100, "full": 250}
+
+
+async def get_payment_prices(store: "Storage") -> dict[str, int]:
+    cases_raw = await store.get_setting("price_cases")
+    full_raw = await store.get_setting("price_full")
+    return {
+        "cases": int(cases_raw) if cases_raw else DEFAULT_PRICES["cases"],
+        "full": int(full_raw) if full_raw else DEFAULT_PRICES["full"],
+    }
+
+
 def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     has_access, state = access_status(user)
     tier = access_tier(user)
@@ -501,6 +513,7 @@ class MiniAppService:
     async def bootstrap(self, auth: AuthContext) -> dict[str, Any]:
         stats = await self.store.stats(auth.user_id)
         saved_view = await self.saved_view(auth)
+        prices = await get_payment_prices(self.store)
         return {
             "user": self.serialize_user(auth),
             "links": {
@@ -511,6 +524,7 @@ class MiniAppService:
             "catalog": self.serialize_catalog(auth),
             "stats": self.serialize_stats(stats),
             "saved_view": saved_view,
+            "payment_prices": prices,
         }
 
     async def saved_view(self, auth: AuthContext) -> dict[str, Any] | None:
@@ -1607,8 +1621,36 @@ async def api_payment_create_link(request: Request, auth: AuthContext = Depends(
         require_http(400, "invalid_tier", "tier must be 'cases' or 'full'")
     if not runtime.bot:
         require_http(503, "bot_unavailable", "Бот не підключено.")
-    link = await create_stars_invoice_link(runtime.bot, tier)
+    prices = await get_payment_prices(runtime.store)
+    amount = prices.get(tier, DEFAULT_PRICES.get(tier, 100))
+    link = await create_stars_invoice_link(runtime.bot, tier, amount)
     return {"invoice_link": link}
+
+
+@app.get("/api/admin/settings")
+async def api_admin_get_settings(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    prices = await get_payment_prices(runtime.store)
+    return {"price_cases": prices["cases"], "price_full": prices["full"]}
+
+
+@app.post("/api/admin/settings")
+async def api_admin_set_settings(request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    body = await request.json()
+    price_cases = body.get("price_cases")
+    price_full = body.get("price_full")
+    if price_cases is not None:
+        if not isinstance(price_cases, int) or price_cases < 1:
+            require_http(400, "invalid_price", "price_cases повинно бути цілим числом ≥ 1.")
+        await runtime.store.set_setting("price_cases", str(price_cases))
+    if price_full is not None:
+        if not isinstance(price_full, int) or price_full < 1:
+            require_http(400, "invalid_price", "price_full повинно бути цілим числом ≥ 1.")
+        await runtime.store.set_setting("price_full", str(price_full))
+    return {"ok": True}
 
 
 @app.post("/api/admin/cases/import")

@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260519-minimal-10";
-import { state } from "./core/state.js?v=20260519-minimal-10";
-import { api } from "./core/api.js?v=20260519-minimal-10";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-10";
-import { initializeTheme } from "./core/theme.js?v=20260519-minimal-10";
+import { refs } from "./core/dom.js?v=20260519-minimal-11";
+import { state } from "./core/state.js?v=20260519-minimal-11";
+import { api } from "./core/api.js?v=20260519-minimal-11";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260519-minimal-11";
+import { initializeTheme } from "./core/theme.js?v=20260519-minimal-11";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260519-minimal-10";
+} from "./core/ui.js?v=20260519-minimal-11";
 import {
   loadCaseDetail,
   loadCases,
@@ -25,20 +25,22 @@ import {
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260519-minimal-10";
+} from "./screens/user.js?v=20260519-minimal-11";
 import {
   loadAdminCases,
   loadAdminQuestions,
+  loadAdminSettings,
   loadAdminUserDetail,
   loadAdminUsers,
   loadQuestionDetail,
   renderAdminCases,
   renderAdminHub,
   renderAdminQuestions,
+  renderAdminSettings,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260519-minimal-10";
-import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-10";
+} from "./screens/admin.js?v=20260519-minimal-11";
+import { renderCurrentView } from "./screens/session.js?v=20260519-minimal-11";
 
 window.__APP_READY__ = false;
 
@@ -78,6 +80,7 @@ function createContext() {
     loadAdminUserDetail: (userId) => loadAdminUserDetail(createContext(), userId),
     loadAdminQuestions: (page = state.adminQuestionsPage) => loadAdminQuestions(createContext(), page),
     loadAdminCases: () => loadAdminCases(createContext()),
+    loadAdminSettings: () => loadAdminSettings(createContext()),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
     loadCases: () => loadCases(createContext()),
@@ -158,6 +161,7 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-users") void loadAdminUsers(createContext(), state.adminUsersOffset);
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
+  if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
 }
@@ -198,6 +202,7 @@ function render() {
     case "admin-users":       renderAdminUsers(ctx); break;
     case "admin-questions":   renderAdminQuestions(ctx); break;
     case "admin-cases":       renderAdminCases(ctx); break;
+    case "admin-settings":    renderAdminSettings(ctx); break;
     default:
       state.currentScreen = "home";
       renderHome(ctx);
