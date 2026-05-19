@@ -430,7 +430,12 @@ export function renderCurrentView(ctx) {
 
   window.scrollTo({ top: 0, behavior: "instant" });
 
-  if (view.mode === "pretest") return renderPretest(ctx, view);
+  if (view.mode === "pretest") {
+    ctx.api("/api/pretest/start", { method: "POST" })
+      .then((result) => { ctx.state.currentView = result; ctx.render(); })
+      .catch((err) => ctx.setMessage("error", err.message));
+    return;
+  }
   if (view.screen === "question") return renderQuestionView(ctx, view);
   if (view.screen === "feedback") return renderFeedbackView(ctx, view);
   if (view.screen === "result") return renderResultView(ctx, view);
