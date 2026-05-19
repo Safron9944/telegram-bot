@@ -90,7 +90,11 @@ class CustomsCodeRepository:
                   s.title,
                   s.position,
                   COUNT(DISTINCT c.id) AS chapters_count,
-                  COUNT(DISTINCT a.id) AS articles_count
+                  COUNT(DISTINCT a.id) AS articles_count,
+                  MIN(CAST(c.number AS INTEGER)) AS first_chapter,
+                  MAX(CAST(c.number AS INTEGER)) AS last_chapter,
+                  MIN(CAST(a.number AS INTEGER)) AS first_article,
+                  MAX(CAST(a.number AS INTEGER)) AS last_article
                 FROM customs_sections s
                 LEFT JOIN customs_chapters c ON c.section_id = s.id
                 LEFT JOIN customs_articles a ON a.section_id = s.id

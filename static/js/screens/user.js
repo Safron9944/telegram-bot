@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-customs-code-04";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-customs-code-05";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -154,6 +154,25 @@ export function renderCustoms(ctx) {
 }
 
 /* ===================== CUSTOMS CODE REFERENCE ===================== */
+function sectionRange(item) {
+  const parts = [];
+  if (item.first_chapter != null && item.last_chapter != null) {
+    parts.push(
+      item.first_chapter === item.last_chapter
+        ? `Глава ${item.first_chapter}`
+        : `Глави ${item.first_chapter}–${item.last_chapter}`
+    );
+  }
+  if (item.first_article != null && item.last_article != null) {
+    parts.push(
+      item.first_article === item.last_article
+        ? `Стаття ${item.first_article}`
+        : `Статті ${item.first_article}–${item.last_article}`
+    );
+  }
+  return parts.length ? parts.join(" · ") : `${item.chapters_count} глав · ${item.articles_count} статей`;
+}
+
 function customsMetaLine(ctx) {
   const meta = ctx.state.customsCodeMeta || {};
   const counts = ctx.state.customsCodeCounts || {};
@@ -284,7 +303,7 @@ function drawCustomsCodeContent(ctx, root) {
       <span class="cell__icon cell__icon--indigo">${ctx.escapeHtml(item.number)}</span>
       <span class="cell__body">
         <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-        <span class="cell__subtitle">${item.chapters_count} глав · ${item.articles_count} статей</span>
+        <span class="cell__subtitle">${sectionRange(item)}</span>
       </span>
       <span class="cell__chevron" aria-hidden="true"></span>
     `;
