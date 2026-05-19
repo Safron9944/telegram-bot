@@ -25,6 +25,8 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    LabeledPrice,
+    PreCheckoutQuery,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -186,6 +188,7 @@ class Storage:
             # ---- migration: add new columns if DB already exists ----
             await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name TEXT;")
             await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name TEXT;")
+            await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_tier TEXT;")
 
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS ui_state (
@@ -466,10 +469,10 @@ class Storage:
             UPDATE users SET ok_last_levels_json=$1 WHERE user_id=$2
         """, json.dumps(mp, ensure_ascii=False), user_id)
 
-    async def set_subscription(self, user_id: int, sub_end: datetime | None, infinite: bool):
+    async def set_subscription(self, user_id: int, sub_end: datetime | None, infinite: bool, tier: str = "full"):
         await self._exec("""
-            UPDATE users SET sub_end=$1, sub_infinite=$2 WHERE user_id=$3
-        """, sub_end, 1 if infinite else 0, user_id)
+            UPDATE users SET sub_end=$1, sub_infinite=$2, sub_tier=$3 WHERE user_id=$4
+        """, sub_end, 1 if infinite else 0, tier if not infinite else "full", user_id)
 
     async def get_ui(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM ui_state WHERE user_id=$1", user_id)
@@ -1642,25 +1645,57 @@ class QuestionBank:
 
 # -------------------- Access --------------------
 
+def access_tier(user: Dict[str, Any]) -> str:
+    """Return the effective access tier: 'none' | 'trial_full' | 'cases' | 'full'."""
+    if not user:
+        return "none"
+    inf: bool = bool(user.get("sub_infinite"))
+    tier: Optional[str] = user.get("sub_tier")
+    s_end: Optional[datetime] = user.get("sub_end")
+    t_end: Optional[datetime] = user.get("trial_end")
+    n = now()
+    if inf:
+        return "full"
+    if tier in ("cases", "full") and s_end and n <= s_end:
+        return tier
+    if t_end and n <= t_end:
+        return "trial_full"  # навчання+тест, але НЕ кейси
+    return "none"
+
+
 def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
+    tier = access_tier(user)
+    if tier == "full":
+        if bool(user.get("sub_infinite")):
+            return True, "sub_infinite"
+        return True, "sub_full"
+    if tier == "cases":
+        return True, "sub_cases"
+    if tier == "trial_full":
+        return True, "trial"
     if not user:
         return False, "not_registered"
-
-    t_end: Optional[datetime] = user.get("trial_end")
-    s_end: Optional[datetime] = user.get("sub_end")
-    inf: bool = bool(user.get("sub_infinite"))
-
-    n = now()
-
-    # ✅ ПІДПИСКА має пріоритет над тріалом
-    if inf:
-        return True, "sub_infinite"
-    if s_end and n <= s_end:
-        return True, "sub_active"
-    if t_end and n <= t_end:
-        return True, "trial"
-
     return False, "expired"
+
+
+async def create_stars_invoice_link(bot: "Bot", tier: str) -> str:
+    """Create a Telegram Stars invoice link for the given tier."""
+    if tier == "cases":
+        title = "Доступ до кейсів"
+        description = "30 днів доступу до розділу Кейси"
+        amount = 100
+    else:
+        title = "Повний доступ"
+        description = "30 днів повного доступу (навчання, тести, кейси)"
+        amount = 250
+    link = await bot.create_invoice_link(
+        title=title,
+        description=description,
+        payload=tier,
+        currency="XTR",
+        prices=[LabeledPrice(label=title, amount=amount)],
+    )
+    return link
 
 
 # -------------------- UI helpers --------------------

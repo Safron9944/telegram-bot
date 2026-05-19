@@ -30,7 +30,9 @@ from bot import (
     QuestionBank,
     Storage,
     access_status,
+    access_tier,
     clean_law_title,
+    create_stars_invoice_link,
     dt_to_iso,
     find_question_ids_by_title,
     get_admin_contact_url,
@@ -40,6 +42,7 @@ from bot import (
     ok_full_label,
     ok_sort_key,
 )
+from aiogram.types import PreCheckoutQuery
 
 load_dotenv()
 
@@ -104,15 +107,18 @@ def format_dt(value: Any) -> str | None:
 
 def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     has_access, state = access_status(user)
+    tier = access_tier(user)
     trial_end = format_dt(user.get("trial_end"))
     sub_end = format_dt(user.get("sub_end"))
 
-    if has_access and state == "trial":
+    if state == "trial":
         label = f"Тріал до {trial_end}" if trial_end else "Тріал активний"
-    elif has_access and state == "sub_infinite":
+    elif state == "sub_infinite":
         label = "Підписка активна безстроково"
-    elif has_access and state == "sub_active":
-        label = f"Підписка до {sub_end}" if sub_end else "Підписка активна"
+    elif state == "sub_full":
+        label = f"Повний доступ до {sub_end}" if sub_end else "Повний доступ активний"
+    elif state == "sub_cases":
+        label = f"Кейси до {sub_end}" if sub_end else "Доступ до кейсів активний"
     elif state == "not_registered":
         label = "Користувача ще не зареєстровано"
     else:
@@ -120,6 +126,7 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "has_access": has_access,
+        "tier": tier,          # 'none' | 'trial_full' | 'cases' | 'full'
         "state": state,
         "label": label,
         "trial_end": dt_to_iso(user.get("trial_end")),
@@ -402,9 +409,18 @@ class MiniAppService:
         await self.store.set_state(user_id, state)
 
     def ensure_access(self, auth: AuthContext) -> None:
-        if access_payload(auth.user)["has_access"]:
+        """Full access: навчання, тести (trial included)."""
+        tier = access_tier(auth.user)
+        if tier in ("full", "trial_full"):
             return
-        require_http(403, "access_expired", "Доступ завершився. Потрібна активна підписка.")
+        require_http(403, "access_expired", "Потрібна підписка на повний доступ (250 ⭐).")
+
+    def ensure_cases_access(self, auth: AuthContext) -> None:
+        """Cases access: тільки за підпискою, без тріалу."""
+        tier = access_tier(auth.user)
+        if tier in ("cases", "full"):
+            return
+        require_http(403, "cases_access_required", "Кейси доступні тільки за підпискою (100 ⭐ або 250 ⭐).")
 
     def serialize_user(self, auth: AuthContext) -> dict[str, Any]:
         user = auth.user
@@ -1063,10 +1079,12 @@ class MiniAppService:
         return self.build_test_result_view(state)
 
     async def list_cases(self, auth: AuthContext) -> dict[str, Any]:
+        self.ensure_cases_access(auth)
         cases = await self.store.list_case_banks()
         return {"items": [serialize_case_bank(item) for item in cases]}
 
     async def case_detail(self, auth: AuthContext, case_id: int, offset: int = 0, limit: int = 50, query: str = "") -> dict[str, Any]:
+        self.ensure_cases_access(auth)
         case = await self.store.get_case_bank(case_id)
         if not case:
             require_http(404, "case_not_found", "Кейс не знайдено.")
@@ -1384,6 +1402,22 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
         )
         await message.answer(text, reply_markup=markup)
 
+    @router.pre_checkout_query()
+    async def pre_checkout(query: PreCheckoutQuery) -> None:
+        await query.answer(ok=True)
+
+    @router.message(F.successful_payment)
+    async def successful_payment(message: Message) -> None:
+        tier = message.successful_payment.invoice_payload  # 'cases' or 'full'
+        if tier not in ("cases", "full"):
+            return
+        user_id = message.from_user.id
+        from datetime import timedelta
+        sub_end = now() + timedelta(days=30)
+        await runtime.store.set_subscription(user_id, sub_end, infinite=False, tier=tier)
+        label = "кейсів" if tier == "cases" else "повного доступу"
+        await message.answer(f"✅ Оплата успішна! 30 днів доступу до {label} активовано.")
+
     return router
 
 
@@ -1563,6 +1597,18 @@ async def api_cases(auth: AuthContext = Depends(get_auth_context), runtime: Runt
 @app.get("/api/cases/{case_id}")
 async def api_case_detail(case_id: int, offset: int = 0, limit: int = 50, q: str = "", auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).case_detail(auth, case_id, max(0, offset), max(1, min(limit, 100)), q)
+
+
+@app.post("/api/payment/create-link")
+async def api_payment_create_link(request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    body = await request.json()
+    tier = body.get("tier", "")
+    if tier not in ("cases", "full"):
+        require_http(400, "invalid_tier", "tier must be 'cases' or 'full'")
+    if not runtime.bot:
+        require_http(503, "bot_unavailable", "Бот не підключено.")
+    link = await create_stars_invoice_link(runtime.bot, tier)
+    return {"invoice_link": link}
 
 
 @app.post("/api/admin/cases/import")
