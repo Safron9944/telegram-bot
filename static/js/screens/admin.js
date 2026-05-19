@@ -64,8 +64,6 @@ export function renderAdminUsers(ctx) {
       </div>
 
       <div class="row" id="admin-users-pagination" style="justify-content: center; gap: 8px;"></div>
-
-      <div id="admin-user-detail"></div>
     </section>
   `;
 }
@@ -158,6 +156,10 @@ export async function loadAdminUsers(ctx, offset = 0) {
   }
 }
 
+function closeAdminModal() {
+  document.querySelector(".modal-overlay")?.remove();
+}
+
 export async function loadAdminUserDetail(ctx, userId) {
   if (ctx.state.currentScreen !== "admin-users") return;
 
@@ -166,22 +168,29 @@ export async function loadAdminUserDetail(ctx, userId) {
     const payload = await ctx.api(`/api/admin/users/${userId}`);
     if (ctx.state.currentScreen !== "admin-users") return;
 
-    const root = document.querySelector("#admin-user-detail");
-    if (!root) return;
+    closeAdminModal();
 
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ") || "—";
     const isInfinite = payload.access.state === "sub_infinite";
 
-    root.innerHTML = `
-      <div style="height: 6px"></div>
-      <div class="group">
-        <div class="group__label">Деталі</div>
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeAdminModal(); });
+
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.innerHTML = `
+      <div class="modal__header">
+        <span class="modal__title">${ctx.escapeHtml(name)}</span>
+        <button class="modal__close" type="button" aria-label="Закрити">✕</button>
+      </div>
+      <div class="group" style="margin-bottom: 12px;">
         <div class="group__list">
           <div class="cell" style="cursor: default;">
             <span class="cell__icon cell__icon--blue">i</span>
             <span class="cell__body">
-              <span class="cell__title">${ctx.escapeHtml(name)}</span>
-              <span class="cell__subtitle">ID ${payload.user_id} · ${ctx.escapeHtml(payload.access.label)}</span>
+              <span class="cell__title">ID ${payload.user_id}</span>
+              <span class="cell__subtitle">${ctx.escapeHtml(payload.access.label)}</span>
             </span>
           </div>
           <div class="cell" style="cursor: default;">
@@ -193,10 +202,12 @@ export async function loadAdminUserDetail(ctx, userId) {
           </div>
         </div>
       </div>
-      <div class="sticky-cta" id="admin-user-actions"></div>
+      <div id="modal-actions" style="display: flex; flex-direction: column; gap: 8px;"></div>
     `;
 
-    const actions = root.querySelector("#admin-user-actions");
+    modal.querySelector(".modal__close").addEventListener("click", closeAdminModal);
+
+    const actions = modal.querySelector("#modal-actions");
     actions.append(
       ctx.actionButton(
         isInfinite ? "Скасувати безстроковий доступ" : "Дати безстроковий доступ",
@@ -207,9 +218,9 @@ export async function loadAdminUserDetail(ctx, userId) {
               body: { infinite: !isInfinite },
             });
             ctx.impact("medium");
+            closeAdminModal();
             ctx.setMessage("success", "Доступ оновлено.");
             await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
-            await loadAdminUserDetail(ctx, userId);
           } catch (error) {
             ctx.setMessage("error", error.message);
           }
@@ -226,9 +237,9 @@ export async function loadAdminUserDetail(ctx, userId) {
               method: "POST",
               body: { infinite: false },
             });
+            closeAdminModal();
             ctx.setMessage("success", "Доступ оновлено.");
             await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
-            await loadAdminUserDetail(ctx, userId);
           } catch (error) {
             ctx.setMessage("error", error.message);
           }
@@ -236,6 +247,9 @@ export async function loadAdminUserDetail(ctx, userId) {
         "block-ghost",
       ),
     );
+
+    overlay.append(modal);
+    document.body.append(overlay);
   } catch (error) {
     ctx.setMessage("error", error.message);
   }
