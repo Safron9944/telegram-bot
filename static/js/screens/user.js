@@ -585,21 +585,92 @@ function renderLawTab(ctx, root) {
   });
 }
 
-function renderOkTab(ctx, root, modules) {
+function openModulePicker(ctx, selected, onSave) {
+  const overlay = document.createElement("div");
+  overlay.className = "bottom-sheet-overlay";
+
+  const sheet = document.createElement("div");
+  sheet.className = "bottom-sheet";
+  sheet.innerHTML = `
+    <div class="bottom-sheet__handle"></div>
+    <div class="bottom-sheet__header">
+      <span class="bottom-sheet__title">Вибір модулів</span>
+      <button class="bottom-sheet__close" type="button">✕</button>
+    </div>
+    <div class="bottom-sheet__body">
+      <div class="group__list" id="sheet-picker-list"></div>
+    </div>
+    <div class="bottom-sheet__footer" id="sheet-save"></div>
+  `;
+
+  document.body.append(overlay, sheet);
+  requestAnimationFrame(() => {
+    overlay.classList.add("is-open");
+    sheet.classList.add("is-open");
+  });
+
+  const close = () => {
+    overlay.classList.remove("is-open");
+    sheet.classList.remove("is-open");
+    setTimeout(() => { overlay.remove(); sheet.remove(); }, 300);
+  };
+
+  overlay.addEventListener("click", close);
+  sheet.querySelector(".bottom-sheet__close").addEventListener("click", close);
+
+  const pickerList = sheet.querySelector("#sheet-picker-list");
   const { catalog } = ctx.state.bootstrap;
 
+  catalog.ok_modules.forEach((item) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    const isOn = selected.has(item.name);
+
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--${isOn ? "purple" : "gray"}" id="sicon-${ctx.escapeHtml(item.name)}">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
+      </span>
+      <span style="color: var(--accent); font-size: 18px; flex-shrink:0;">${selected.has(item.name) ? "✓" : ""}</span>
+    `;
+
+    row.addEventListener("click", () => {
+      ctx.impact("light");
+      if (selected.has(item.name)) {
+        selected.delete(item.name);
+      } else {
+        selected.add(item.name);
+      }
+      const icon = row.querySelector(`#sicon-${CSS.escape(item.name)}`);
+      const check = row.querySelector("span:last-child");
+      if (icon) icon.className = `cell__icon cell__icon--${selected.has(item.name) ? "purple" : "gray"}`;
+      if (check) check.textContent = selected.has(item.name) ? "✓" : "";
+    });
+
+    pickerList.append(row);
+  });
+
+  const saveFooter = sheet.querySelector("#sheet-save");
+  saveFooter.append(
+    ctx.actionButton("Зберегти вибір", async () => {
+      try {
+        await onSave(Array.from(selected));
+        close();
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    }, "block"),
+  );
+}
+
+function renderOkTab(ctx, root, modules) {
   root.innerHTML = `
     <div class="group">
       <div class="group__label">Активні модулі</div>
       <div class="group__list" id="active-modules"></div>
       <div class="group__footer">Натисніть рівень, щоб розпочати навчання.</div>
     </div>
-
-    <div class="group">
-      <div class="group__label">Вибір модулів</div>
-      <div class="group__list" id="module-picker-list"></div>
-    </div>
-
     <div style="padding: 0 4px 4px;" id="module-save"></div>
   `;
 
@@ -609,7 +680,7 @@ function renderOkTab(ctx, root, modules) {
     activeRoot.innerHTML = `
       <div class="empty empty--inline">
         <h2>Немає активних модулів</h2>
-        <p>Виберіть нижче.</p>
+        <p>Натисніть «Змінити вибір», щоб додати.</p>
       </div>
     `;
   } else {
@@ -640,68 +711,24 @@ function renderOkTab(ctx, root, modules) {
     });
   }
 
-  // Module picker — cell list with checkmarks
-  const pickerList = root.querySelector("#module-picker-list");
-  const selected = new Set(modules.map((m) => m.name));
-
-  catalog.ok_modules.forEach((item) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "cell";
-    const isOn = selected.has(item.name);
-
-    row.innerHTML = `
-      <span class="cell__icon cell__icon--${isOn ? "purple" : "gray"}" id="icon-${ctx.escapeHtml(item.name)}">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
-      <span class="cell__body">
-        <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
-      </span>
-      ${isOn ? `<span style="color: var(--accent); font-size: 18px; flex-shrink:0;">✓</span>` : `<span style="width:18px; flex-shrink:0;"></span>`}
-    `;
-
-    row.addEventListener("click", () => {
-      ctx.impact("light");
-      const nowOn = selected.has(item.name);
-      if (nowOn) {
-        selected.delete(item.name);
-      } else {
-        selected.add(item.name);
-      }
-      const icon = row.querySelector(`#icon-${CSS.escape(item.name)}`);
-      const check = row.querySelector("span:last-child");
-      if (icon) {
-        icon.className = `cell__icon cell__icon--${selected.has(item.name) ? "purple" : "gray"}`;
-      }
-      if (check) {
-        check.innerHTML = selected.has(item.name) ? "✓" : "";
-        check.style.color = "var(--accent)";
-      }
-    });
-
-    pickerList.append(row);
-  });
-
-  // Save button
+  // "Змінити вибір" button
   const saveRoot = root.querySelector("#module-save");
   saveRoot.append(
-    ctx.actionButton(
-      "Зберегти вибір",
-      async () => {
-        try {
-          const response = await ctx.api("/api/preferences/ok-modules", {
-            method: "POST",
-            body: { modules: Array.from(selected) },
-          });
-          ctx.state.bootstrap.user = response.user;
-          ctx.state.bootstrap.catalog = response.catalog;
-          ctx.setMessage("success", "Збережено.");
-          ctx.impact("medium");
-          renderLearning(ctx);
-        } catch (error) {
-          ctx.setMessage("error", error.message);
-        }
-      },
-      "block",
-    ),
+    ctx.actionButton("Змінити вибір", () => {
+      ctx.impact("light");
+      const selected = new Set(modules.map((m) => m.name));
+      openModulePicker(ctx, selected, async (modulesList) => {
+        const response = await ctx.api("/api/preferences/ok-modules", {
+          method: "POST",
+          body: { modules: modulesList },
+        });
+        ctx.state.bootstrap.user = response.user;
+        ctx.state.bootstrap.catalog = response.catalog;
+        ctx.setMessage("success", "Збережено.");
+        ctx.impact("medium");
+        renderLearning(ctx);
+      });
+    }, "block-ghost"),
   );
 }
 
