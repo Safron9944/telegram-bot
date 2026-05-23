@@ -1,4 +1,4 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-customs-code-05";
+import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260523-cases-search-01";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -1160,7 +1160,7 @@ function showSearchResults(ctx) {
   if (searchResults) searchResults.style.display = "";
 }
 
-export async function loadCasesSearch(ctx, offset = 0) {
+async function loadCasesSearch(ctx, offset = 0) {
   if (ctx.state.currentScreen !== "cases") return;
   const query = ctx.state.casesGlobalQuery || "";
   if (!query) { showCasesList(ctx); return; }
