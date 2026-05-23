@@ -2,6 +2,7 @@ import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260519-custom
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
+let casesSearchRequestId = 0;
 let customsSearchTimer = null;
 
 /* ===================== HELPERS ===================== */
@@ -1076,14 +1077,123 @@ export function renderCases(ctx) {
       <h1 class="page-title">Кейси</h1>
       <p class="page-subtitle">Оберіть кейс, щоб переглянути питання й правильні відповіді.</p>
 
-      <div class="group">
+      <div class="case-search">
+        <span class="case-search__icon" aria-hidden="true"></span>
+        <input class="case-search__input" id="cases-global-search" type="search" value="${ctx.escapeHtml(ctx.state.casesGlobalQuery || "")}" placeholder="Пошук по всіх кейсах" />
+      </div>
+
+      <div class="group" id="cases-list-group">
         <div class="group__label">Доступні кейси</div>
         <div class="group__list" id="cases-list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
         </div>
       </div>
+
+      <div id="cases-search-results" style="display:none;">
+        <div class="group__label" id="cases-search-label">Результати пошуку</div>
+        <div class="case-answer-list" id="cases-search-list"></div>
+        <div class="row" id="cases-search-pagination" style="justify-content:center; gap:8px; margin-top:12px;"></div>
+      </div>
     </section>
   `;
+
+  const input = ctx.refs.mainPanel.querySelector("#cases-global-search");
+  const run = () => {
+    ctx.state.casesGlobalQuery = input.value.trim();
+    if (ctx.state.casesGlobalQuery) {
+      loadCasesSearch(ctx, 0);
+    } else {
+      showCasesList(ctx);
+    }
+  };
+  const runLive = () => {
+    window.clearTimeout(caseSearchTimer);
+    caseSearchTimer = window.setTimeout(run, 350);
+  };
+  input?.addEventListener("input", runLive);
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      window.clearTimeout(caseSearchTimer);
+      run();
+    }
+  });
+}
+
+function showCasesList(ctx) {
+  const listGroup = document.querySelector("#cases-list-group");
+  const searchResults = document.querySelector("#cases-search-results");
+  if (listGroup) listGroup.style.display = "";
+  if (searchResults) searchResults.style.display = "none";
+}
+
+function showSearchResults(ctx) {
+  const listGroup = document.querySelector("#cases-list-group");
+  const searchResults = document.querySelector("#cases-search-results");
+  if (listGroup) listGroup.style.display = "none";
+  if (searchResults) searchResults.style.display = "";
+}
+
+export async function loadCasesSearch(ctx, offset = 0) {
+  if (ctx.state.currentScreen !== "cases") return;
+  const query = ctx.state.casesGlobalQuery || "";
+  if (!query) { showCasesList(ctx); return; }
+  const requestId = ++casesSearchRequestId;
+  showSearchResults(ctx);
+  const list = document.querySelector("#cases-search-list");
+  const label = document.querySelector("#cases-search-label");
+  const pagination = document.querySelector("#cases-search-pagination");
+  if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+  try {
+    const payload = await ctx.api(`/api/cases/search?q=${encodeURIComponent(query)}&offset=${offset}&limit=25`);
+    if (requestId !== casesSearchRequestId || ctx.state.currentScreen !== "cases") return;
+    if (label) label.textContent = `Результати пошуку: «${query}»`;
+    if (!list) return;
+    if (!payload.items?.length) {
+      list.innerHTML = `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`;
+    } else {
+      list.innerHTML = "";
+      payload.items.forEach((q) => {
+        const block = document.createElement("article");
+        block.className = "case-answer";
+        block.style.cursor = "pointer";
+        block.innerHTML = `
+          <div class="case-answer__head">
+            <span class="case-answer__number">Кейс ${ctx.escapeHtml(q.case_number)} · Питання ${ctx.escapeHtml(q.position)}</span>
+            ${q.correct_count > 1 ? `<span class="case-answer__count">${q.correct_count} відповіді</span>` : ""}
+          </div>
+          <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
+          <div class="case-answer__label">Правильна відповідь</div>
+          <div class="case-answer__correct">
+            <span class="case-answer__check" aria-hidden="true">✓</span>
+            <div class="case-answer__correct-body">${renderCorrectAnswer(ctx, q.correct_answer, q.correct_count)}</div>
+          </div>
+        `;
+        block.addEventListener("click", () => {
+          const caseItem = (ctx.state.cases || []).find((c) => c.id === q.case_id) || { id: q.case_id, case_number: q.case_number };
+          ctx.state.selectedCase = caseItem;
+          ctx.state.caseOffset = 0;
+          ctx.state.caseQuery = "";
+          ctx.navigate("case-detail");
+        });
+        list.append(block);
+      });
+    }
+    if (pagination) {
+      pagination.innerHTML = "";
+      if (payload.has_prev) {
+        pagination.append(ctx.actionButton("← Назад", async () => loadCasesSearch(ctx, Math.max(0, offset - payload.limit)), "sm"));
+      }
+      if (payload.has_next) {
+        pagination.append(ctx.actionButton("Далі →", async () => loadCasesSearch(ctx, offset + payload.limit), "sm"));
+      }
+    }
+  } catch (error) {
+    if (error.code === "cases_access_required" || error.code === "access_expired") {
+      renderPaywall(ctx, error.code);
+      return;
+    }
+    if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
+  }
 }
 
 export async function loadCases(ctx) {
@@ -1123,6 +1233,9 @@ export async function loadCases(ctx) {
       });
       list.append(row);
     });
+    if (ctx.state.casesGlobalQuery) {
+      loadCasesSearch(ctx, 0);
+    }
   } catch (error) {
     ctx.setMessage("error", error.message);
   }
