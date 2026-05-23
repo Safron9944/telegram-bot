@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash skills/git-pushing/scripts/smart_commit.sh \"fix: remove sticky positioning from CTA buttons to prevent overlap on long questions\")",
+      "Bash(xargs wc *)",
+      "Bash(python3 -c \"import utils; print\\('utils OK'\\)\")",
+      "Bash(python -c \"import utils; print\\('utils OK'\\)\")",
+      "Bash(where python *)",
+      "Bash(where py *)",
+      "Bash(py -3 -c \"import sys; print\\(sys.version\\)\")",
+      "Read(//usr/**)",
+      "Read(//usr/local/**)",
+      "Bash(bash \"C:/Users/Lucky/.claude/skills/git-pushing/scripts/smart_commit.sh\" \"refactor: split bot.py into access, ui, handlers modules\")",
+      "Bash(bash skills/git-pushing/scripts/smart_commit.sh \"feat: add cross-case question search on cases screen\")",
+      "Bash(bash /c/Users/Lucky/.claude/skills/git-pushing/scripts/smart_commit.sh \"feat: add cross-case question search on cases screen\")"
+    ]
+  }
+}

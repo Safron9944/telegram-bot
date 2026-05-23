@@ -1097,6 +1097,28 @@ class MiniAppService:
         cases = await self.store.list_case_banks()
         return {"items": [serialize_case_bank(item) for item in cases]}
 
+    async def search_cases_all(self, auth: AuthContext, query: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        self.ensure_cases_access(auth)
+        limit = clamp(int(limit), 1, 100)
+        offset = max(0, int(offset))
+        rows = await self.store.search_case_questions_all(query, limit=limit + 1, offset=offset)
+        has_next = len(rows) > limit
+        items = rows[:limit]
+        serialized = []
+        for item in items:
+            s = serialize_case_question(item)
+            s["case_id"] = int(item.get("case_id") or 0)
+            s["case_number"] = item.get("case_number") or ""
+            serialized.append(s)
+        return {
+            "items": serialized,
+            "offset": offset,
+            "limit": limit,
+            "has_next": has_next,
+            "has_prev": offset > 0,
+            "query": query or "",
+        }
+
     async def case_detail(self, auth: AuthContext, case_id: int, offset: int = 0, limit: int = 50, query: str = "") -> dict[str, Any]:
         self.ensure_cases_access(auth)
         case = await self.store.get_case_bank(case_id)
@@ -1650,6 +1672,11 @@ async def api_customs_code_search(q: str = "", limit: int = 25, offset: int = 0,
 @app.get("/api/cases")
 async def api_cases(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).list_cases(auth)
+
+
+@app.get("/api/cases/search")
+async def api_cases_search(q: str = "", offset: int = 0, limit: int = 50, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).search_cases_all(auth, q, max(1, min(limit, 100)), max(0, offset))
 
 
 @app.get("/api/cases/{case_id}")

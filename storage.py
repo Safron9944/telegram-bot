@@ -450,6 +450,24 @@ class Storage:
             )
         return [dict(r) for r in rows]
 
+    async def search_case_questions_all(self, query: str, limit: int = 50, offset: int = 0) -> list[dict]:
+        if not (query or "").strip():
+            return []
+        like = f"%{query.strip()}%"
+        rows = await self._fetch(
+            """
+            SELECT cq.id, cq.case_id, cq.position, cq.source_question_id, cq.question, cq.description,
+                   cq.question_type, cq.correct_answer, cq.correct_count, cq.answers, cb.case_number
+            FROM case_questions cq
+            JOIN case_banks cb ON cq.case_id = cb.id
+            WHERE cq.question ILIKE $1 OR cq.correct_answer ILIKE $1 OR cq.description ILIKE $1
+            ORDER BY cb.case_number, cq.position ASC
+            LIMIT $2 OFFSET $3
+            """,
+            like, int(limit), int(offset),
+        )
+        return [dict(r) for r in rows]
+
     async def delete_case_bank(self, case_id: int) -> bool:
         assert self.pool
         async with self.pool.acquire() as con:
