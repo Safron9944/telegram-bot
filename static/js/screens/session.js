@@ -134,16 +134,13 @@ function renderQuestionView(ctx, view) {
         <div class="muted-sm" style="font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;">
           ${ctx.escapeHtml(view.header || "Сесія")}
         </div>
-        <div class="muted-sm">${view.progress.current} / ${view.progress.total}${phase}</div>
+        <div class="muted-sm" style="font-weight: 600; white-space: nowrap; flex-shrink: 0;">${view.progress.current} / ${view.progress.total}${phase}</div>
       </div>
 
       ${progressBar(view.progress.current, view.progress.total)}
 
       <div class="question-card">
         <h3 class="question-card__text">${ctx.escapeHtml(question.question)}</h3>
-        ${question.ok_label || question.topic || question.section
-          ? `<div class="question-card__topic">${ctx.escapeHtml(question.ok_label || question.topic || question.section)}</div>`
-          : ""}
       </div>
 
       <div class="stack" style="gap: 8px;">${choices}</div>
@@ -185,6 +182,26 @@ function renderQuestionView(ctx, view) {
     );
   }
   actions.append(ctx.actionButton("Завершити", ctx.leaveCurrentView, "block-ghost"));
+
+  // scroll hint
+  const hint = document.createElement("div");
+  hint.className = "scroll-hint";
+  hint.textContent = "↓";
+  document.body.appendChild(hint);
+
+  const updateHint = () => {
+    const needsScroll = document.documentElement.scrollHeight > window.innerHeight + 4;
+    const nearBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 60;
+    hint.classList.toggle("is-visible", needsScroll && !nearBottom);
+  };
+
+  updateHint();
+  window.addEventListener("scroll", updateHint, { passive: true });
+  window.addEventListener("resize", updateHint, { passive: true });
+  window._scrollHintCleanup = () => {
+    window.removeEventListener("scroll", updateHint);
+    window.removeEventListener("resize", updateHint);
+  };
 }
 
 /* ===================== FEEDBACK ===================== */
@@ -429,6 +446,11 @@ export function renderCurrentView(ctx) {
   }
 
   window.scrollTo({ top: 0, behavior: "instant" });
+
+  // cleanup scroll hint from previous screen
+  const oldHint = document.querySelector(".scroll-hint");
+  if (oldHint) oldHint.remove();
+  if (window._scrollHintCleanup) { window._scrollHintCleanup(); window._scrollHintCleanup = null; }
 
   if (view.mode === "pretest") {
     ctx.api("/api/pretest/start", { method: "POST" })
