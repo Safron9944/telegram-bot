@@ -1,4 +1,3 @@
-import { toggleTheme, getCurrentTheme } from "../core/theme.js?v=20260523-cases-search-01";
 
 let caseSearchTimer = null;
 let caseDetailRequestId = 0;
@@ -987,28 +986,6 @@ export function renderHelp(ctx) {
         ].join(""),
       })}
 
-      ${ctx.group({
-        header: "Інтерфейс",
-        children: [
-          `<button class="cell" type="button" id="theme-toggle">
-            <span class="cell__icon cell__icon--gray">${getCurrentTheme() === "dark" ? "🌙" : "☀"}</span>
-            <span class="cell__body">
-              <span class="cell__title">Тема</span>
-              <span class="cell__subtitle" id="theme-subtitle">${getCurrentTheme() === "dark" ? "Темна" : "Світла"}</span>
-            </span>
-            <span class="cell__chevron" aria-hidden="true"></span>
-          </button>`,
-          `<button class="cell" type="button" id="refresh-data">
-            <span class="cell__icon cell__icon--green">↻</span>
-            <span class="cell__body">
-              <span class="cell__title">Оновити дані</span>
-              <span class="cell__subtitle">Синхронізувати з сервером</span>
-            </span>
-            <span class="cell__chevron" aria-hidden="true"></span>
-          </button>`,
-        ].join(""),
-      })}
-
       ${
         user.is_admin
           ? ctx.group({
@@ -1039,20 +1016,6 @@ export function renderHelp(ctx) {
       })}
     </section>
   `;
-
-  // Theme toggle
-  ctx.refs.mainPanel.querySelector("#theme-toggle")?.addEventListener("click", () => {
-    ctx.impact("light");
-    const next = toggleTheme();
-    ctx.refs.mainPanel.querySelector("#theme-subtitle").textContent = next === "dark" ? "Темна" : "Світла";
-    const iconEl = ctx.refs.mainPanel.querySelector("#theme-toggle .cell__icon");
-    if (iconEl) iconEl.textContent = next === "dark" ? "🌙" : "☀";
-  });
-
-  ctx.refs.mainPanel.querySelector("#refresh-data")?.addEventListener("click", async () => {
-    ctx.impact("light");
-    await ctx.loadBootstrap(true);
-  });
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
