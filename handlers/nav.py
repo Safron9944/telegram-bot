@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from aiogram import Bot, F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.types import CallbackQuery, Message
 
-from access import access_status
+from access import access_status, access_tier
 from questions import QuestionBank
 from storage import Storage
 from ui import (
@@ -20,9 +21,18 @@ from ui import (
     screen_ok_levels,
     screen_ok_menu,
     screen_ok_modules_pick,
+    screen_ok_search_prompt,
+    screen_ok_search_results,
     screen_test_config,
 )
-from utils import CASE_QUESTIONS_PER_PAGE, clamp_callback, get_admin_contact_url
+from utils import (
+    CASE_QUESTIONS_PER_PAGE,
+    OK_QUESTIONS_PER_PAGE,
+    OK_SEARCH_AWAITING,
+    OK_SEARCH_QUERY,
+    clamp_callback,
+    get_admin_contact_url,
+)
 
 router = Router()
 
@@ -288,3 +298,97 @@ async def testlaw_toggle(cb: CallbackQuery, bot: Bot, store: Storage, qb: Questi
     text, kb = screen_test_config(mod_list, qb, temp_levels, include_law=include_law)
     await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
     await cb.answer()
+
+
+@router.callback_query(F.data == "nav:oksearch")
+async def nav_ok_search(cb: CallbackQuery, bot: Bot, store: Storage, admin_ids: set[int]):
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+    uid = cb.from_user.id
+    user = await store.get_user(uid)
+
+    if access_tier(user) != "full":
+        admin_url = get_admin_contact_url(admin_ids)
+        text = (
+            "🔐 <b>Питання ОК</b>\n\n"
+            "Цей розділ доступний лише для користувачів з <b>повним оплаченим доступом</b>.\n"
+            "Зверніться до адміністратора для отримання доступу."
+        )
+        b = InlineKeyboardBuilder()
+        if admin_url:
+            b.button(text="📩 Написати адміну", url=admin_url)
+        b.button(text="⬅️ Меню", callback_data="nav:menu")
+        b.adjust(1)
+        await render_main(bot, store, uid, cb.message.chat.id, text, b.as_markup(), message=cb.message)
+        await cb.answer()
+        return
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    st[OK_SEARCH_AWAITING] = True
+    st.pop(OK_SEARCH_QUERY, None)
+    await store.set_state(uid, st)
+
+    text, kb = screen_ok_search_prompt()
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("oksearch:pg:"))
+async def ok_search_page(cb: CallbackQuery, bot: Bot, store: Storage):
+    uid = cb.from_user.id
+    try:
+        offset = max(0, int(cb.data.split(":", 2)[2]))
+    except Exception:
+        offset = 0
+
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+    query = (st.get(OK_SEARCH_QUERY) or "").strip()
+
+    if not query:
+        text, kb = screen_ok_search_prompt(error="Запит не збережено. Введіть новий.")
+        await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+        await cb.answer()
+        return
+
+    rows = await store.search_ok_questions(query, limit=OK_QUESTIONS_PER_PAGE + 1, offset=offset)
+    has_next = len(rows) > OK_QUESTIONS_PER_PAGE
+    results = rows[:OK_QUESTIONS_PER_PAGE]
+
+    text, kb = screen_ok_search_results(query, results, offset, has_prev=(offset > 0), has_next=has_next)
+    await render_main(bot, store, uid, cb.message.chat.id, text, kb, message=cb.message)
+    await cb.answer()
+
+
+@router.message(F.text)
+async def ok_search_text_input(message: Message, bot: Bot, store: Storage):
+    uid = message.from_user.id
+    ui = await store.get_ui(uid)
+    st = ui.get("state", {}) or {}
+
+    if not st.get(OK_SEARCH_AWAITING):
+        raise SkipHandler()
+
+    query = (message.text or "").strip()
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    if len(query) < 3:
+        text, kb = screen_ok_search_prompt(error="Введіть хоча б 3 символи.")
+        await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)
+        return
+
+    st[OK_SEARCH_AWAITING] = False
+    st[OK_SEARCH_QUERY] = query
+    await store.set_state(uid, st)
+
+    rows = await store.search_ok_questions(query, limit=OK_QUESTIONS_PER_PAGE + 1, offset=0)
+    has_next = len(rows) > OK_QUESTIONS_PER_PAGE
+    results = rows[:OK_QUESTIONS_PER_PAGE]
+
+    text, kb = screen_ok_search_results(query, results, 0, has_prev=False, has_next=has_next)
+    await render_main(bot, store, uid, ui.get("chat_id") or message.chat.id, text, kb, message=None)

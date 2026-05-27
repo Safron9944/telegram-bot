@@ -468,6 +468,22 @@ class Storage:
         )
         return [dict(r) for r in rows]
 
+    async def search_ok_questions(self, query: str, limit: int = 10, offset: int = 0) -> list[dict]:
+        if not (query or "").strip():
+            return []
+        like = f"%{query.strip()}%"
+        rows = await self._fetch(
+            """
+            SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
+            FROM questions
+            WHERE ok IS NOT NULL AND (question ILIKE $1 OR correct_texts::text ILIKE $1)
+            ORDER BY ok, COALESCE(qnum, 99999), id
+            LIMIT $2 OFFSET $3
+            """,
+            like, int(limit), int(offset),
+        )
+        return [dict(r) for r in rows]
+
     async def delete_case_bank(self, case_id: int) -> bool:
         assert self.pool
         async with self.pool.acquire() as con:

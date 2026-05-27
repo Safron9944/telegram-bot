@@ -17,7 +17,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from access import access_status, access_tier
 from questions import Q, QuestionBank
 from storage import Storage
-from utils import CASES_PER_PAGE, CASE_QUESTIONS_PER_PAGE, GROUP_URL, clamp_callback
+from utils import CASES_PER_PAGE, CASE_QUESTIONS_PER_PAGE, OK_QUESTIONS_PER_PAGE, GROUP_URL, clamp_callback
 
 
 def kb_inline(
@@ -142,13 +142,15 @@ def screen_main_menu(user: Dict[str, Any], is_admin: bool) -> Tuple[str, InlineK
         "ℹ️ <b>Підказка</b>:\n"
         "• 📚 <b>Навчання</b> — розділ для вивчення матеріалів (законодавство та ОК-модулі).\n"
         "• 📝 <b>Тестування</b> — розділ для перевірки знань за законодавством і ОК-модулями.\n"
-        "• 🗂 <b>Кейси</b> — питання та правильні відповіді, які додає адміністратор."
+        "• 🗂 <b>Кейси</b> — питання та правильні відповіді, які додає адміністратор.\n"
+        "• 🔍 <b>Питання ОК</b> — пошук питань митних компетенцій з правильними відповідями (повний доступ)."
     )
 
     rows = [
         [InlineKeyboardButton(text="📚 Навчання", callback_data="nav:learn")],
         [InlineKeyboardButton(text="📝 Тестування", callback_data="nav:test")],
         [InlineKeyboardButton(text="🗂 Кейси", callback_data="nav:cases:0")],
+        [InlineKeyboardButton(text="🔍 Питання ОК", callback_data="nav:oksearch")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="nav:stats")],
         [InlineKeyboardButton(text="❓ Допомога", callback_data="nav:help")],
     ]
@@ -714,6 +716,82 @@ def screen_test_pick_level(idx: int, module: str, qb: QuestionBank, current: Opt
 
     buttons.append(("⬅️ Назад", "testlvl:back"))
     return text, kb_inline(buttons, row=2)
+
+
+def screen_ok_search_prompt(error: Optional[str] = None) -> Tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "🔍 <b>Питання ОК — пошук</b>\n\n"
+        "Введіть текст для пошуку серед питань операційних митних компетенцій.\n"
+        "Пошук здійснюється по тексту питання та правильних відповідей.\n\n"
+        "✏️ <i>Надішліть запит у відповідь на це повідомлення.</i>"
+    )
+    if error:
+        text += f"\n\n❗️ {hescape(error)}"
+    kb = kb_inline([("⬅️ Меню", "nav:menu")], row=1)
+    return text, kb
+
+
+def screen_ok_search_results(
+        query: str,
+        results: List[Dict[str, Any]],
+        offset: int,
+        has_prev: bool,
+        has_next: bool,
+) -> Tuple[str, InlineKeyboardMarkup]:
+    import json as _json
+
+    def _parse_ct(v: Any) -> List[str]:
+        if isinstance(v, list):
+            return [str(x) for x in v if x]
+        if isinstance(v, str):
+            try:
+                parsed = _json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed if x]
+            except Exception:
+                pass
+        return []
+
+    q_escaped = hescape((query or "").strip())
+    parts: List[str] = [f"🔍 <b>Питання ОК</b> · пошук: «{q_escaped}»"]
+
+    if not results:
+        parts.append("Нічого не знайдено. Спробуйте інший запит.")
+    else:
+        for row in results:
+            ok_code = str(row.get("ok") or "ОК").strip()
+            level = row.get("level")
+            lvl_str = f" · Рівень {level}" if level else ""
+            header = f"[{ok_code}]{lvl_str}"
+
+            question = hescape(_clip_for_telegram(row.get("question") or "", 500))
+            correct_texts = _parse_ct(row.get("correct_texts"))
+            answer_raw = "; ".join(correct_texts) if correct_texts else "—"
+            answer = hescape(_clip_for_telegram(answer_raw, 400))
+
+            parts.append(
+                f"<b>{hescape(header)}</b>\n"
+                f"{question}\n"
+                f"✅ <b>Правильна відповідь:</b>\n{answer}"
+            )
+
+    rows_kb: List[List[InlineKeyboardButton]] = []
+    nav_row: List[InlineKeyboardButton] = []
+    if has_prev:
+        prev_off = max(0, offset - OK_QUESTIONS_PER_PAGE)
+        nav_row.append(InlineKeyboardButton(
+            text="⬅️ Назад", callback_data=clamp_callback(f"oksearch:pg:{prev_off}")
+        ))
+    if has_next:
+        nav_row.append(InlineKeyboardButton(
+            text="Далі ➡️", callback_data=clamp_callback(f"oksearch:pg:{offset + OK_QUESTIONS_PER_PAGE}")
+        ))
+    if nav_row:
+        rows_kb.append(nav_row)
+    rows_kb.append([InlineKeyboardButton(text="🔍 Новий пошук", callback_data="nav:oksearch")])
+    rows_kb.append([InlineKeyboardButton(text="⬅️ Меню", callback_data="nav:menu")])
+
+    return "\n\n".join(p for p in parts if p), InlineKeyboardMarkup(inline_keyboard=rows_kb)
 
 
 # -------------------- Session rendering --------------------
