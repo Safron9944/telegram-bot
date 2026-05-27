@@ -1070,6 +1070,7 @@ export function renderPaywall(ctx, errorCode) {
 
 /* ===================== CASES ===================== */
 export function renderCases(ctx) {
+  ctx.state.casesGlobalQuery = "";
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
@@ -1295,6 +1296,8 @@ export function renderCaseDetail(ctx) {
 
 /* ===================== OK QUESTIONS ===================== */
 export function renderOkQuestions(ctx) {
+  ctx.state.okSearchQuery = "";
+  ctx.state.okSearchOffset = 0;
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
