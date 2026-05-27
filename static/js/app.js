@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260523-cases-search-02";
-import { state } from "./core/state.js?v=20260523-cases-search-02";
-import { api } from "./core/api.js?v=20260523-cases-search-02";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260523-cases-search-02";
-import { initializeTheme } from "./core/theme.js?v=20260523-cases-search-02";
+import { refs } from "./core/dom.js?v=20260527-ok-questions-01";
+import { state } from "./core/state.js?v=20260527-ok-questions-01";
+import { api } from "./core/api.js?v=20260527-ok-questions-01";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260527-ok-questions-01";
+import { initializeTheme } from "./core/theme.js?v=20260527-ok-questions-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260523-cases-search-02";
+} from "./core/ui.js?v=20260527-ok-questions-01";
 import {
   loadCaseDetail,
   loadCases,
@@ -29,10 +29,11 @@ import {
   renderHome,
   renderLawParts,
   renderLearning,
+  renderOkQuestions,
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260523-cases-search-02";
+} from "./screens/user.js?v=20260527-ok-questions-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -46,8 +47,8 @@ import {
   renderAdminSettings,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260523-cases-search-02";
-import { renderCurrentView } from "./screens/session.js?v=20260523-cases-search-02";
+} from "./screens/admin.js?v=20260527-ok-questions-01";
+import { renderCurrentView } from "./screens/session.js?v=20260527-ok-questions-01";
 
 window.__APP_READY__ = false;
 
@@ -218,6 +219,7 @@ function render() {
     case "customs-code-article": renderCustomsArticle(ctx); break;
     case "cases":             renderCases(ctx); break;
     case "case-detail":       renderCaseDetail(ctx); break;
+    case "ok-questions":      renderOkQuestions(ctx); break;
     case "testing":           renderTesting(ctx); break;
     case "stats":             renderStats(ctx); break;
     case "help":              renderHelp(ctx); break;

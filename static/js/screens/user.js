@@ -3,6 +3,8 @@ let caseSearchTimer = null;
 let caseDetailRequestId = 0;
 let casesSearchRequestId = 0;
 let customsSearchTimer = null;
+let okSearchTimer = null;
+let okSearchRequestId = 0;
 
 /* ===================== HELPERS ===================== */
 function selectedModules(catalog) {
@@ -72,6 +74,13 @@ export function renderHome(ctx) {
             icon: "🗂",
             tint: "green",
             screen: "cases",
+          }),
+          ctx.cell({
+            title: "Питання ОК",
+            subtitle: "Пошук питань митних компетенцій",
+            icon: "🔍",
+            tint: "purple",
+            screen: "ok-questions",
           }),
           ctx.cell({
             title: "Митний кодекс",
@@ -1282,6 +1291,110 @@ export function renderCaseDetail(ctx) {
       run();
     }
   });
+}
+
+/* ===================== OK QUESTIONS ===================== */
+export function renderOkQuestions(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Питання ОК</h1>
+      <p class="page-subtitle">Пошук питань операційних митних компетенцій з правильними відповідями.</p>
+
+      <div class="case-search">
+        <span class="case-search__icon" aria-hidden="true"></span>
+        <input class="case-search__input" id="ok-search-input" type="search" value="${ctx.escapeHtml(ctx.state.okSearchQuery || "")}" placeholder="Введіть текст для пошуку…" />
+      </div>
+
+      <div id="ok-search-results">
+        ${ctx.state.okSearchQuery
+          ? `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`
+          : `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Пошук по тексту питання та правильних відповідях.</p></div>`
+        }
+      </div>
+      <div class="row" id="ok-search-pagination" style="justify-content:center; gap:8px; margin-top:12px;"></div>
+    </section>
+  `;
+
+  const input = ctx.refs.mainPanel.querySelector("#ok-search-input");
+  const run = () => {
+    ctx.state.okSearchQuery = input.value.trim();
+    if (ctx.state.okSearchQuery) {
+      void loadOkSearch(ctx, 0);
+    } else {
+      const results = document.querySelector("#ok-search-results");
+      const pag = document.querySelector("#ok-search-pagination");
+      if (results) results.innerHTML = `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Пошук по тексту питання та правильних відповідях.</p></div>`;
+      if (pag) pag.innerHTML = "";
+    }
+  };
+  const runLive = () => {
+    window.clearTimeout(okSearchTimer);
+    okSearchTimer = window.setTimeout(run, 350);
+  };
+  input?.addEventListener("input", runLive);
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      window.clearTimeout(okSearchTimer);
+      run();
+    }
+  });
+
+  if (ctx.state.okSearchQuery) void loadOkSearch(ctx, ctx.state.okSearchOffset || 0);
+}
+
+async function loadOkSearch(ctx, offset = 0) {
+  if (ctx.state.currentScreen !== "ok-questions") return;
+  const query = ctx.state.okSearchQuery || "";
+  if (!query) return;
+  const requestId = ++okSearchRequestId;
+  const results = document.querySelector("#ok-search-results");
+  const pagination = document.querySelector("#ok-search-pagination");
+  if (results) results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+  try {
+    const payload = await ctx.api(`/api/ok-questions/search?q=${encodeURIComponent(query)}&offset=${offset}&limit=25`);
+    if (requestId !== okSearchRequestId || ctx.state.currentScreen !== "ok-questions") return;
+    ctx.state.okSearchOffset = offset;
+    if (!results) return;
+    if (!payload.items?.length) {
+      results.innerHTML = `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`;
+    } else {
+      results.innerHTML = "";
+      payload.items.forEach((q) => {
+        const correctAnswer = (q.correct_texts || []).join("; ") || "—";
+        const block = document.createElement("article");
+        block.className = "case-answer";
+        block.innerHTML = `
+          <div class="case-answer__head">
+            <span class="case-answer__number">${ctx.escapeHtml(q.ok || "ОК")}${q.level != null ? ` · Рівень ${ctx.escapeHtml(String(q.level))}` : ""}</span>
+          </div>
+          <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
+          <div class="case-answer__label">Правильна відповідь</div>
+          <div class="case-answer__correct">
+            <span class="case-answer__check" aria-hidden="true">✓</span>
+            <div class="case-answer__correct-body">${renderCorrectAnswer(ctx, correctAnswer, q.correct_texts?.length || 1)}</div>
+          </div>
+        `;
+        results.append(block);
+      });
+    }
+    if (pagination) {
+      pagination.innerHTML = "";
+      if (payload.has_prev) {
+        pagination.append(ctx.actionButton("← Назад", () => void loadOkSearch(ctx, Math.max(0, offset - payload.limit)), "sm"));
+      }
+      if (payload.has_next) {
+        pagination.append(ctx.actionButton("Далі →", () => void loadOkSearch(ctx, offset + payload.limit), "sm"));
+      }
+    }
+  } catch (error) {
+    if (error.code === "ok_questions_access_required" || error.code === "access_expired") {
+      ctx.navigate("home", { replace: true });
+      renderPaywall(ctx, "access_expired");
+      return;
+    }
+    if (results) results.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
+  }
 }
 
 export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {

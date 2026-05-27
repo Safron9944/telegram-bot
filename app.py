@@ -435,6 +435,12 @@ class MiniAppService:
             return
         require_http(403, "cases_access_required", "Кейси доступні тільки за підпискою (100 ⭐ або 250 ⭐).")
 
+    def ensure_full_access(self, auth: AuthContext) -> None:
+        """Тільки повний оплачений доступ — без тріалу та без cases."""
+        if access_tier(auth.user) == "full":
+            return
+        require_http(403, "ok_questions_access_required", "Питання ОК доступні тільки з повним доступом (250 ⭐).")
+
     def serialize_user(self, auth: AuthContext) -> dict[str, Any]:
         user = auth.user
         first_name = (user.get("first_name") or auth.telegram_user.get("first_name") or "").strip()
@@ -1093,6 +1099,39 @@ class MiniAppService:
         await self.set_state(auth.user_id, state)
         return self.build_test_result_view(state)
 
+    async def search_ok_questions(self, auth: AuthContext, query: str, limit: int = 25, offset: int = 0) -> dict[str, Any]:
+        self.ensure_full_access(auth)
+        limit = clamp(int(limit), 1, 100)
+        offset = max(0, int(offset))
+        rows = await self.store.search_ok_questions(query, limit=limit + 1, offset=offset)
+        has_next = len(rows) > limit
+        items = rows[:limit]
+        serialized = []
+        for row in items:
+            ct = row.get("correct_texts")
+            if isinstance(ct, str):
+                import json as _json
+                try:
+                    ct = _json.loads(ct)
+                except Exception:
+                    ct = []
+            serialized.append({
+                "id": int(row.get("id") or 0),
+                "ok": str(row.get("ok") or ""),
+                "level": row.get("level"),
+                "topic": str(row.get("topic") or ""),
+                "question": str(row.get("question") or ""),
+                "correct_texts": ct if isinstance(ct, list) else [],
+            })
+        return {
+            "items": serialized,
+            "offset": offset,
+            "limit": limit,
+            "has_next": has_next,
+            "has_prev": offset > 0,
+            "query": query or "",
+        }
+
     async def list_cases(self, auth: AuthContext) -> dict[str, Any]:
         cases = await self.store.list_case_banks()
         return {"items": [serialize_case_bank(item) for item in cases]}
@@ -1667,6 +1706,11 @@ async def api_customs_code_search(q: str = "", limit: int = 25, offset: int = 0,
         return customs_code_repository.search(q, limit=limit, offset=offset)
     except FileNotFoundError:
         require_http(404, "customs_code_missing", "Базу Митного кодексу ще не створено.")
+
+
+@app.get("/api/ok-questions/search")
+async def api_ok_questions_search(q: str = "", offset: int = 0, limit: int = 25, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).search_ok_questions(auth, q, max(1, min(limit, 100)), max(0, offset))
 
 
 @app.get("/api/cases")
