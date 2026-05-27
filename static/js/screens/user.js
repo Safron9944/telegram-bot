@@ -1299,18 +1299,15 @@ export function renderOkQuestions(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Питання ОК</h1>
-      <p class="page-subtitle">Пошук питань операційних митних компетенцій з правильними відповідями.</p>
+      <p class="page-subtitle">Питання операційних митних компетенцій з правильними відповідями.</p>
 
       <div class="case-search">
         <span class="case-search__icon" aria-hidden="true"></span>
-        <input class="case-search__input" id="ok-search-input" type="search" value="${ctx.escapeHtml(ctx.state.okSearchQuery || "")}" placeholder="Введіть текст для пошуку…" />
+        <input class="case-search__input" id="ok-search-input" type="search" value="${ctx.escapeHtml(ctx.state.okSearchQuery || "")}" placeholder="Пошук по питанню або відповіді" />
       </div>
 
       <div id="ok-search-results">
-        ${ctx.state.okSearchQuery
-          ? `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`
-          : `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Пошук по тексту питання та правильних відповідях.</p></div>`
-        }
+        <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
       </div>
       <div class="row" id="ok-search-pagination" style="justify-content:center; gap:8px; margin-top:12px;"></div>
     </section>
@@ -1319,14 +1316,8 @@ export function renderOkQuestions(ctx) {
   const input = ctx.refs.mainPanel.querySelector("#ok-search-input");
   const run = () => {
     ctx.state.okSearchQuery = input.value.trim();
-    if (ctx.state.okSearchQuery) {
-      void loadOkSearch(ctx, 0);
-    } else {
-      const results = document.querySelector("#ok-search-results");
-      const pag = document.querySelector("#ok-search-pagination");
-      if (results) results.innerHTML = `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Пошук по тексту питання та правильних відповідях.</p></div>`;
-      if (pag) pag.innerHTML = "";
-    }
+    ctx.state.okSearchOffset = 0;
+    void loadOkSearch(ctx, 0);
   };
   const runLive = () => {
     window.clearTimeout(okSearchTimer);
@@ -1340,13 +1331,12 @@ export function renderOkQuestions(ctx) {
     }
   });
 
-  if (ctx.state.okSearchQuery) void loadOkSearch(ctx, ctx.state.okSearchOffset || 0);
+  void loadOkSearch(ctx, ctx.state.okSearchOffset || 0);
 }
 
 async function loadOkSearch(ctx, offset = 0) {
   if (ctx.state.currentScreen !== "ok-questions") return;
   const query = ctx.state.okSearchQuery || "";
-  if (!query) return;
   const requestId = ++okSearchRequestId;
   const results = document.querySelector("#ok-search-results");
   const pagination = document.querySelector("#ok-search-pagination");
@@ -1357,7 +1347,9 @@ async function loadOkSearch(ctx, offset = 0) {
     ctx.state.okSearchOffset = offset;
     if (!results) return;
     if (!payload.items?.length) {
-      results.innerHTML = `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`;
+      results.innerHTML = query
+        ? `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`
+        : `<div class="empty empty--inline"><h2>Питань ОК ще немає</h2></div>`;
     } else {
       results.innerHTML = "";
       payload.items.forEach((q) => {
