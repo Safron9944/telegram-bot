@@ -435,7 +435,7 @@ class Storage:
                 """
                 SELECT id, case_id, position, source_question_id, question, description, question_type, correct_answer, correct_count, answers
                 FROM case_questions
-                WHERE case_id=$1 AND (question ILIKE $2 OR correct_answer ILIKE $2 OR description ILIKE $2)
+                WHERE case_id=$1 AND question ILIKE $2
                 ORDER BY position ASC, id ASC LIMIT $3 OFFSET $4
                 """,
                 int(case_id), like, int(limit), int(offset),
@@ -460,7 +460,7 @@ class Storage:
                    cq.question_type, cq.correct_answer, cq.correct_count, cq.answers, cb.case_number
             FROM case_questions cq
             JOIN case_banks cb ON cq.case_id = cb.id
-            WHERE cq.question ILIKE $1 OR cq.correct_answer ILIKE $1 OR cq.description ILIKE $1
+            WHERE cq.question ILIKE $1
             ORDER BY cb.case_number, cq.position ASC
             LIMIT $2 OFFSET $3
             """,
@@ -475,7 +475,7 @@ class Storage:
                 """
                 SELECT id, section, topic, ok, level, qnum, question, choices, correct, correct_texts
                 FROM questions
-                WHERE ok IS NOT NULL AND (question ILIKE $1 OR correct_texts::text ILIKE $1)
+                WHERE ok IS NOT NULL AND question ILIKE $1
                 ORDER BY ok, COALESCE(qnum, 99999), id
                 LIMIT $2 OFFSET $3
                 """,
