@@ -42,10 +42,6 @@ ADMIN_QWORK_QUERY = "admin_qwork_query"
 
 CASES_PER_PAGE = 8
 CASE_QUESTIONS_PER_PAGE = 3
-OK_QUESTIONS_PER_PAGE = 3
-
-OK_SEARCH_AWAITING = "ok_search_awaiting"
-OK_SEARCH_QUERY = "ok_search_query"
 
 
 def get_admin_contact_url(admin_ids: set[int]) -> str:
