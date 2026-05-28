@@ -141,6 +141,9 @@ async function goBack() {
     }
 
     if (state.currentView.screen === "result") {
+      try {
+        await api("/api/session/leave", { method: "POST" });
+      } catch (_) {}
       state.currentView = null;
       await loadBootstrap();
       return;

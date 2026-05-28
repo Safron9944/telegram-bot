@@ -339,6 +339,9 @@ function renderResultView(ctx, view) {
     ctx.actionButton(
       "На головну",
       async () => {
+        try {
+          await ctx.api("/api/session/leave", { method: "POST" });
+        } catch (_) {}
         ctx.state.currentView = null;
         ctx.goHome();
         await ctx.loadBootstrap();
