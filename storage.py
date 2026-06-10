@@ -654,11 +654,6 @@ class Storage:
                         imported += 1
         return imported
 
-    async def test_exam_questions_count(self) -> int:
-        assert self.pool
-        async with self.pool.acquire() as con:
-            return int(await con.fetchval("SELECT COUNT(*) FROM test_exam_questions") or 0)
-
     async def import_test_exam_questions(self, items: list[dict]) -> int:
         assert self.pool
         inserted = 0
