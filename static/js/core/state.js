@@ -26,4 +26,8 @@ export const state = {
   customsSearchQuery: "",
   customsSearchResults: [],
   customsSearchLoading: false,
+  testQPage: 0,
+  testQSearchQuery: "",
+  testQSearchResults: null,
+  selectedTestQ: null,
 };

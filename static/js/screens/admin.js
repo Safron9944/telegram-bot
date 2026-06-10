@@ -31,6 +31,13 @@ export function renderAdminHub(ctx) {
             screen: "admin-cases",
           }),
           ctx.cell({
+            title: "Тестові питання",
+            subtitle: "База питань тестування",
+            icon: "📝",
+            tint: "orange",
+            screen: "admin-test-questions",
+          }),
+          ctx.cell({
             title: "Налаштування",
             subtitle: "Ціни підписки",
             icon: "⚙",
@@ -733,4 +740,219 @@ export async function loadAdminSettings(ctx) {
   } catch (error) {
     ctx.setMessage("error", error.message);
   }
+}
+
+/* ===================== ADMIN TEST EXAM QUESTIONS ===================== */
+export function renderAdminTestQuestions(ctx) {
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Тестові питання</h1>
+
+      <div class="field">
+        <input id="test-q-search-input" class="input" type="text"
+               value="${ctx.escapeHtml(ctx.state.testQSearchQuery || "")}"
+               placeholder="Пошук за текстом (від 3 символів)" />
+      </div>
+
+      <div class="row" id="test-q-search-actions" style="gap: 8px;"></div>
+
+      <div class="group">
+        <div class="group__list" id="test-q-list">
+          <div class="empty empty--inline">
+            <h2>Завантажуємо…</h2>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" id="test-q-pagination" style="justify-content: center; gap: 8px;"></div>
+
+      <div id="test-q-detail"></div>
+    </section>
+  `;
+}
+
+export async function loadAdminTestQuestions(ctx, page = 0) {
+  if (ctx.state.currentScreen !== "admin-test-questions") return;
+
+  try {
+    const payload = await ctx.api(`/api/admin/test-exam-questions?page=${page}&page_size=15`);
+    if (ctx.state.currentScreen !== "admin-test-questions") return;
+
+    ctx.state.testQPage = payload.page;
+    if (!ctx.state.testQSearchQuery) {
+      ctx.state.testQSearchResults = null;
+    }
+
+    const searchActions = document.querySelector("#test-q-search-actions");
+    if (searchActions) {
+      searchActions.innerHTML = "";
+      searchActions.append(
+        ctx.actionButton(
+          "Шукати",
+          async () => {
+            const query = document.querySelector("#test-q-search-input").value.trim();
+            await runTestQSearch(ctx, query);
+          },
+          "primary",
+        ),
+      );
+      if (ctx.state.testQSearchQuery) {
+        searchActions.append(
+          ctx.actionButton(
+            "Скинути",
+            async () => {
+              ctx.state.testQSearchQuery = "";
+              ctx.state.testQSearchResults = null;
+              const input = document.querySelector("#test-q-search-input");
+              if (input) input.value = "";
+              await loadAdminTestQuestions(ctx, 0);
+            },
+          ),
+        );
+      }
+    }
+
+    document.querySelector("#test-q-search-input")?.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const query = event.currentTarget.value.trim();
+        await runTestQSearch(ctx, query);
+      }
+    });
+
+    renderTestQList(ctx, ctx.state.testQSearchResults || payload.items);
+
+    const pagination = document.querySelector("#test-q-pagination");
+    if (pagination) {
+      pagination.innerHTML = "";
+      if (!ctx.state.testQSearchQuery) {
+        if (payload.page > 0) {
+          pagination.append(
+            ctx.actionButton("← Назад", async () => loadAdminTestQuestions(ctx, payload.page - 1), "sm"),
+          );
+        }
+        if (payload.page + 1 < payload.pages) {
+          pagination.append(
+            ctx.actionButton("Далі →", async () => loadAdminTestQuestions(ctx, payload.page + 1), "sm"),
+          );
+        }
+      }
+    }
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+export async function runTestQSearch(ctx, query) {
+  if (!query || query.length < 3) {
+    ctx.setMessage("error", "Введіть щонайменше 3 символи для пошуку.");
+    return;
+  }
+
+  try {
+    const result = await ctx.api(`/api/admin/test-exam-questions/search?q=${encodeURIComponent(query)}&limit=30`);
+    if (ctx.state.currentScreen !== "admin-test-questions") return;
+
+    ctx.state.testQSearchQuery = query;
+    ctx.state.testQSearchResults = result.items;
+    renderTestQList(ctx, result.items);
+    document.querySelector("#test-q-pagination").innerHTML = "";
+    ctx.impact("light");
+
+    const searchActions = document.querySelector("#test-q-search-actions");
+    if (searchActions) {
+      searchActions.innerHTML = "";
+      searchActions.append(
+        ctx.actionButton(
+          "Шукати",
+          async () => {
+            const q = document.querySelector("#test-q-search-input").value.trim();
+            await runTestQSearch(ctx, q);
+          },
+          "primary",
+        ),
+        ctx.actionButton(
+          "Скинути",
+          async () => {
+            ctx.state.testQSearchQuery = "";
+            ctx.state.testQSearchResults = null;
+            const input = document.querySelector("#test-q-search-input");
+            if (input) input.value = "";
+            await loadAdminTestQuestions(ctx, 0);
+          },
+        ),
+      );
+    }
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+function renderTestQList(ctx, items) {
+  const list = document.querySelector("#test-q-list");
+  if (!list) return;
+
+  list.innerHTML = "";
+  if (!items.length) {
+    list.innerHTML = `
+      <div class="empty empty--inline">
+        <h2>Нічого не знайдено</h2>
+        <p>Спробуйте інший фрагмент або поверніться до загального списку.</p>
+      </div>
+    `;
+    return;
+  }
+
+  items.forEach((item) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--orange">${ctx.escapeHtml((item.num || "?").replace("№ ", ""))}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
+        <span class="cell__subtitle">${ctx.escapeHtml(item.module || item.source || "")}</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", () => showTestQDetail(ctx, item));
+    list.append(row);
+  });
+}
+
+function showTestQDetail(ctx, item) {
+  const root = document.querySelector("#test-q-detail");
+  if (!root) return;
+
+  ctx.state.selectedTestQ = item.id;
+
+  root.innerHTML = `
+    <div style="height: 6px"></div>
+    <div class="group">
+      <div class="group__label">${ctx.escapeHtml(item.num || "")} · ${ctx.escapeHtml(item.source || "")}</div>
+      <div class="group__list" style="padding: 14px; display: flex; flex-direction: column; gap: 12px;">
+        <div>
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">Питання</div>
+          <div style="font-size: 15px; line-height: 1.5;">${ctx.escapeHtml(item.question)}</div>
+        </div>
+        ${item.module ? `
+        <div>
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Модуль</div>
+          <div style="font-size: 14px;">${ctx.escapeHtml(item.module)}</div>
+        </div>` : ""}
+        <div style="background: var(--bg-fill-soft); border-radius: 10px; padding: 12px;">
+          <div style="font-size: 13px; font-weight: 600; color: var(--color-green, #34c759); margin-bottom: 6px;">✓ Правильна відповідь</div>
+          <div style="font-size: 14px; line-height: 1.5;">${ctx.escapeHtml(item.correct_answer || "—")}</div>
+        </div>
+        ${item.justification ? `
+        <div>
+          <div style="font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">Правове обґрунтування</div>
+          <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">${ctx.escapeHtml(item.justification)}</div>
+        </div>` : ""}
+      </div>
+    </div>
+  `;
+  root.scrollIntoView({ behavior: "smooth", block: "start" });
 }
