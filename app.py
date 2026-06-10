@@ -1533,11 +1533,9 @@ async def lifespan(app: FastAPI):
 
     test_exam_path = BASE_DIR / "test_exam_questions.json"
     if test_exam_path.exists():
-        exam_count = await store.test_exam_questions_count()
-        if exam_count == 0:
-            with open(test_exam_path, encoding="utf-8") as _f:
-                exam_items = json.load(_f)
-            await store.import_test_exam_questions(exam_items)
+        with open(test_exam_path, encoding="utf-8") as _f:
+            exam_items = json.load(_f)
+        await store.import_test_exam_questions(exam_items)
 
     qb = QuestionBank(str(questions_path))
     await qb.load_from_db(store)
