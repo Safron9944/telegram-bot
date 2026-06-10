@@ -1827,18 +1827,10 @@ async def api_admin_question_update(qid: int, payload: QuestionPatchRequest, aut
 
 
 @app.get("/api/admin/test-exam-questions")
-async def api_admin_test_exam_questions(page: int = 0, page_size: int = 15, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+async def api_admin_test_exam_questions(q: str = "", offset: int = 0, limit: int = 20, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     if not auth.is_admin:
         require_http(403, "forbidden", "Потрібні права адміністратора.")
-    return await runtime.store.get_test_exam_questions_page(max(0, page), max(1, min(page_size, 50)))
-
-
-@app.get("/api/admin/test-exam-questions/search")
-async def api_admin_test_exam_questions_search(q: str, limit: int = 15, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    if not auth.is_admin:
-        require_http(403, "forbidden", "Потрібні права адміністратора.")
-    items = await runtime.store.search_test_exam_questions(q.strip(), max(1, min(limit, 50)))
-    return {"items": items}
+    return await runtime.store.search_test_exam_questions(q.strip(), max(1, min(limit, 50)), max(0, offset))
 
 
 @app.get("/")

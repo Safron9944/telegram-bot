@@ -49,7 +49,6 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-  runTestQSearch,
 } from "./screens/admin.js?v=20260610-test-questions-01";
 import { renderCurrentView } from "./screens/session.js?v=20260610-test-questions-01";
 
@@ -92,10 +91,9 @@ function createContext() {
     loadAdminQuestions: (page = state.adminQuestionsPage) => loadAdminQuestions(createContext(), page),
     loadAdminCases: () => loadAdminCases(createContext()),
     loadAdminSettings: () => loadAdminSettings(createContext()),
-    loadAdminTestQuestions: (page = state.testQPage || 0) => loadAdminTestQuestions(createContext(), page),
+    loadAdminTestQuestions: (offset = state.testQOffset || 0) => loadAdminTestQuestions(createContext(), offset),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
-    runTestQSearch: (query) => runTestQSearch(createContext(), query),
     loadCases: () => loadCases(createContext()),
     loadCaseDetail: (offset = state.caseOffset) => loadCaseDetail(createContext(), offset),
     loadCustomsCode: () => loadCustomsCode(createContext()),
@@ -187,7 +185,7 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
-  if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQPage || 0);
+  if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
   if (screen === "customs-code") void loadCustomsCode(createContext());

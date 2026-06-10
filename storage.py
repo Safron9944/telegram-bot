@@ -681,36 +681,36 @@ class Storage:
                     inserted += 1
         return inserted
 
-    async def get_test_exam_questions_page(self, page: int, page_size: int) -> dict:
+    async def search_test_exam_questions(self, query: str, limit: int = 20, offset: int = 0) -> dict:
         assert self.pool
-        offset = page * page_size
         async with self.pool.acquire() as con:
-            total = int(await con.fetchval("SELECT COUNT(*) FROM test_exam_questions") or 0)
-            rows = await con.fetch(
-                "SELECT id, num, module, question, correct_answer, justification, source FROM test_exam_questions ORDER BY id LIMIT $1 OFFSET $2",
-                page_size, offset,
-            )
-        pages = (total + page_size - 1) // page_size if page_size else 1
+            if query:
+                pattern = f"%{query}%"
+                total = int(await con.fetchval(
+                    "SELECT COUNT(*) FROM test_exam_questions WHERE question ILIKE $1 OR correct_answer ILIKE $1 OR num ILIKE $1",
+                    pattern,
+                ) or 0)
+                rows = await con.fetch(
+                    """
+                    SELECT id, num, module, question, correct_answer, justification, source
+                    FROM test_exam_questions
+                    WHERE question ILIKE $1 OR correct_answer ILIKE $1 OR num ILIKE $1
+                    ORDER BY id
+                    LIMIT $2 OFFSET $3
+                    """,
+                    pattern, limit, offset,
+                )
+            else:
+                total = int(await con.fetchval("SELECT COUNT(*) FROM test_exam_questions") or 0)
+                rows = await con.fetch(
+                    "SELECT id, num, module, question, correct_answer, justification, source FROM test_exam_questions ORDER BY id LIMIT $1 OFFSET $2",
+                    limit, offset,
+                )
         return {
             "items": [dict(r) for r in rows],
             "total": total,
-            "page": page,
-            "pages": pages,
-            "page_size": page_size,
+            "offset": offset,
+            "limit": limit,
+            "has_prev": offset > 0,
+            "has_next": offset + limit < total,
         }
-
-    async def search_test_exam_questions(self, query: str, limit: int = 15, offset: int = 0) -> list[dict]:
-        assert self.pool
-        pattern = f"%{query}%"
-        async with self.pool.acquire() as con:
-            rows = await con.fetch(
-                """
-                SELECT id, num, module, question, correct_answer, justification, source
-                FROM test_exam_questions
-                WHERE question ILIKE $1 OR correct_answer ILIKE $1 OR num ILIKE $1
-                ORDER BY id
-                LIMIT $2 OFFSET $3
-                """,
-                pattern, limit, offset,
-            )
-        return [dict(r) for r in rows]
