@@ -830,11 +830,6 @@ export async function loadAdminTestQuestions(ctx, offset = ctx.state.testQOffset
               <div class="case-answer__correct-text">${ctx.escapeHtml(item.correct_answer || "—")}</div>
             </div>
           </div>
-          ${item.justification ? `
-          <div class="case-answer__label" style="margin-top:8px;">Правове обґрунтування</div>
-          <div style="font-size:13px; color:var(--text-secondary); line-height:1.5; padding: 0 2px 2px;">
-            ${ctx.escapeHtml(item.justification)}
-          </div>` : ""}
         `;
         list.append(block);
       });
