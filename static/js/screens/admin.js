@@ -696,6 +696,22 @@ export function renderAdminSettings(ctx) {
           <div id="settings-save-wrap"></div>
         </div>
       </div>
+
+      <div class="group" style="margin-top: 16px;">
+        <div class="group__label">Тестові питання</div>
+        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input id="test-questions-visible" type="checkbox" style="width: 18px; height: 18px; cursor: pointer;" />
+            <span style="font-size: 14px; line-height: 1.4;">
+              Показати вкладку «Тестові питання» для користувачів з повною підпискою
+            </span>
+          </label>
+          <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">
+            Увімкніть тільки після того, як заповните всі тестові питання в адмін-панелі.
+          </p>
+          <div id="settings-tq-save-wrap"></div>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -706,37 +722,65 @@ export async function loadAdminSettings(ctx) {
     const payload = await ctx.api("/api/admin/settings");
     const casesInput = document.querySelector("#price-cases");
     const fullInput = document.querySelector("#price-full");
+    const tqCheckbox = document.querySelector("#test-questions-visible");
     if (casesInput) casesInput.value = String(payload.price_cases);
     if (fullInput) fullInput.value = String(payload.price_full);
+    if (tqCheckbox) tqCheckbox.checked = Boolean(payload.test_questions_visible);
 
     const wrap = document.querySelector("#settings-save-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    wrap.append(
-      ctx.actionButton(
-        "Зберегти",
-        async () => {
-          const cases = parseInt(document.querySelector("#price-cases")?.value, 10);
-          const full = parseInt(document.querySelector("#price-full")?.value, 10);
-          if (!cases || cases < 1 || !full || full < 1) {
-            ctx.setMessage("error", "Введіть коректні значення (ціле число ≥ 1).");
-            return;
-          }
-          try {
-            await ctx.api("/api/admin/settings", {
-              method: "POST",
-              body: { price_cases: cases, price_full: full },
-            });
-            ctx.impact("medium");
-            ctx.setMessage("success", "Ціни збережено.");
-            await ctx.loadBootstrap();
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
-        },
-        "block",
-      ),
-    );
+    if (wrap) {
+      wrap.innerHTML = "";
+      wrap.append(
+        ctx.actionButton(
+          "Зберегти ціни",
+          async () => {
+            const cases = parseInt(document.querySelector("#price-cases")?.value, 10);
+            const full = parseInt(document.querySelector("#price-full")?.value, 10);
+            if (!cases || cases < 1 || !full || full < 1) {
+              ctx.setMessage("error", "Введіть коректні значення (ціле число ≥ 1).");
+              return;
+            }
+            try {
+              await ctx.api("/api/admin/settings", {
+                method: "POST",
+                body: { price_cases: cases, price_full: full },
+              });
+              ctx.impact("medium");
+              ctx.setMessage("success", "Ціни збережено.");
+              await ctx.loadBootstrap();
+            } catch (error) {
+              ctx.setMessage("error", error.message);
+            }
+          },
+          "block",
+        ),
+      );
+    }
+
+    const tqWrap = document.querySelector("#settings-tq-save-wrap");
+    if (tqWrap) {
+      tqWrap.innerHTML = "";
+      tqWrap.append(
+        ctx.actionButton(
+          "Зберегти видимість",
+          async () => {
+            const visible = document.querySelector("#test-questions-visible")?.checked ?? false;
+            try {
+              await ctx.api("/api/admin/settings", {
+                method: "POST",
+                body: { test_questions_visible: visible },
+              });
+              ctx.impact("medium");
+              ctx.setMessage("success", visible ? "Тестові питання тепер видимі для підписників." : "Тестові питання приховані.");
+              await ctx.loadBootstrap();
+            } catch (error) {
+              ctx.setMessage("error", error.message);
+            }
+          },
+          "block",
+        ),
+      );
+    }
   } catch (error) {
     ctx.setMessage("error", error.message);
   }

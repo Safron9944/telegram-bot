@@ -521,6 +521,7 @@ class MiniAppService:
         stats = await self.store.stats(auth.user_id)
         saved_view = await self.saved_view(auth)
         prices = await get_payment_prices(self.store)
+        tq_visible = (await self.store.get_setting("test_questions_visible", "0")) == "1"
         return {
             "user": self.serialize_user(auth),
             "links": {
@@ -532,6 +533,7 @@ class MiniAppService:
             "stats": self.serialize_stats(stats),
             "saved_view": saved_view,
             "payment_prices": prices,
+            "test_questions_visible": tq_visible,
         }
 
     async def saved_view(self, auth: AuthContext) -> dict[str, Any] | None:
@@ -1753,7 +1755,8 @@ async def api_admin_get_settings(auth: AuthContext = Depends(get_auth_context), 
     if not auth.is_admin:
         require_http(403, "forbidden", "Потрібні права адміністратора.")
     prices = await get_payment_prices(runtime.store)
-    return {"price_cases": prices["cases"], "price_full": prices["full"]}
+    tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
+    return {"price_cases": prices["cases"], "price_full": prices["full"], "test_questions_visible": tq_visible}
 
 
 @app.post("/api/admin/settings")
@@ -1763,6 +1766,7 @@ async def api_admin_set_settings(request: Request, auth: AuthContext = Depends(g
     body = await request.json()
     price_cases = body.get("price_cases")
     price_full = body.get("price_full")
+    tq_visible = body.get("test_questions_visible")
     if price_cases is not None:
         if not isinstance(price_cases, int) or price_cases < 1:
             require_http(400, "invalid_price", "price_cases повинно бути цілим числом ≥ 1.")
@@ -1771,6 +1775,8 @@ async def api_admin_set_settings(request: Request, auth: AuthContext = Depends(g
         if not isinstance(price_full, int) or price_full < 1:
             require_http(400, "invalid_price", "price_full повинно бути цілим числом ≥ 1.")
         await runtime.store.set_setting("price_full", str(price_full))
+    if tq_visible is not None:
+        await runtime.store.set_setting("test_questions_visible", "1" if tq_visible else "0")
     return {"ok": True}
 
 
@@ -1828,6 +1834,16 @@ async def api_admin_question_update(qid: int, payload: QuestionPatchRequest, aut
 async def api_admin_test_exam_questions(q: str = "", offset: int = 0, limit: int = 20, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     if not auth.is_admin:
         require_http(403, "forbidden", "Потрібні права адміністратора.")
+    return await runtime.store.search_test_exam_questions(q.strip(), max(1, min(limit, 50)), max(0, offset))
+
+
+@app.get("/api/test-exam-questions")
+async def api_user_test_exam_questions(q: str = "", offset: int = 0, limit: int = 20, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
+    if not tq_visible:
+        require_http(403, "not_available", "Тестові питання ще не опубліковані.")
+    if access_tier(auth.user) != "full":
+        require_http(403, "full_access_required", "Тестові питання доступні лише з повною підпискою.")
     return await runtime.store.search_test_exam_questions(q.strip(), max(1, min(limit, 50)), max(0, offset))
 
 

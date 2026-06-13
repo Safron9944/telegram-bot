@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260610-test-questions-01";
-import { state } from "./core/state.js?v=20260610-test-questions-01";
-import { api } from "./core/api.js?v=20260610-test-questions-01";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260610-test-questions-01";
-import { initializeTheme } from "./core/theme.js?v=20260610-test-questions-01";
+import { refs } from "./core/dom.js?v=20260613-test-questions-visible-01";
+import { state } from "./core/state.js?v=20260613-test-questions-visible-01";
+import { api } from "./core/api.js?v=20260613-test-questions-visible-01";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260613-test-questions-visible-01";
+import { initializeTheme } from "./core/theme.js?v=20260613-test-questions-visible-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,13 +12,14 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260610-test-questions-01";
+} from "./core/ui.js?v=20260613-test-questions-visible-01";
 import {
   loadCaseDetail,
   loadCases,
   loadCustomsArticle,
   loadCustomsCode,
   loadCustomsSection,
+  loadUserTestExamQuestions,
   renderCaseDetail,
   renderCases,
   renderCustoms,
@@ -33,7 +34,8 @@ import {
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260610-test-questions-01";
+  renderTestExamQuestions,
+} from "./screens/user.js?v=20260613-test-questions-visible-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -49,8 +51,8 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260610-test-questions-01";
-import { renderCurrentView } from "./screens/session.js?v=20260610-test-questions-01";
+} from "./screens/admin.js?v=20260613-test-questions-visible-01";
+import { renderCurrentView } from "./screens/session.js?v=20260613-test-questions-visible-01";
 
 window.__APP_READY__ = false;
 
@@ -99,6 +101,7 @@ function createContext() {
     loadCustomsCode: () => loadCustomsCode(createContext()),
     loadCustomsSection: () => loadCustomsSection(createContext()),
     loadCustomsArticle: () => loadCustomsArticle(createContext()),
+    loadUserTestExamQuestions: (offset = state.testExamOffset || 0) => loadUserTestExamQuestions(createContext(), offset),
   };
 }
 
@@ -186,6 +189,7 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
+  if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
   if (screen === "customs-code") void loadCustomsCode(createContext());
@@ -226,10 +230,11 @@ function render() {
     case "customs-code-article": renderCustomsArticle(ctx); break;
     case "cases":             renderCases(ctx); break;
     case "case-detail":       renderCaseDetail(ctx); break;
-    case "ok-questions":      renderOkQuestions(ctx); break;
-    case "testing":           renderTesting(ctx); break;
-    case "stats":             renderStats(ctx); break;
-    case "help":              renderHelp(ctx); break;
+    case "ok-questions":          renderOkQuestions(ctx); break;
+    case "test-exam-questions":   renderTestExamQuestions(ctx); break;
+    case "testing":               renderTesting(ctx); break;
+    case "stats":                 renderStats(ctx); break;
+    case "help":                  renderHelp(ctx); break;
     case "admin":             renderAdminHub(ctx); break;
     case "admin-users":       renderAdminUsers(ctx); break;
     case "admin-questions":   renderAdminQuestions(ctx); break;
