@@ -31,6 +31,13 @@ export function renderAdminHub(ctx) {
             screen: "admin-cases",
           }),
           ctx.cell({
+            title: "Тестові питання",
+            subtitle: "База питань тестування",
+            icon: "📝",
+            tint: "orange",
+            screen: "admin-test-questions",
+          }),
+          ctx.cell({
             title: "Налаштування",
             subtitle: "Ціни підписки",
             icon: "⚙",
@@ -689,6 +696,22 @@ export function renderAdminSettings(ctx) {
           <div id="settings-save-wrap"></div>
         </div>
       </div>
+
+      <div class="group" style="margin-top: 16px;">
+        <div class="group__label">Тестові питання</div>
+        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+            <input id="test-questions-visible" type="checkbox" style="width: 18px; height: 18px; cursor: pointer;" />
+            <span style="font-size: 14px; line-height: 1.4;">
+              Показати вкладку «Тестові питання» для користувачів з повною підпискою
+            </span>
+          </label>
+          <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">
+            Увімкніть тільки після того, як заповните всі тестові питання в адмін-панелі.
+          </p>
+          <div id="settings-tq-save-wrap"></div>
+        </div>
+      </div>
     </section>
   `;
 }
@@ -699,38 +722,173 @@ export async function loadAdminSettings(ctx) {
     const payload = await ctx.api("/api/admin/settings");
     const casesInput = document.querySelector("#price-cases");
     const fullInput = document.querySelector("#price-full");
+    const tqCheckbox = document.querySelector("#test-questions-visible");
     if (casesInput) casesInput.value = String(payload.price_cases);
     if (fullInput) fullInput.value = String(payload.price_full);
+    if (tqCheckbox) tqCheckbox.checked = Boolean(payload.test_questions_visible);
 
     const wrap = document.querySelector("#settings-save-wrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    wrap.append(
-      ctx.actionButton(
-        "Зберегти",
-        async () => {
-          const cases = parseInt(document.querySelector("#price-cases")?.value, 10);
-          const full = parseInt(document.querySelector("#price-full")?.value, 10);
-          if (!cases || cases < 1 || !full || full < 1) {
-            ctx.setMessage("error", "Введіть коректні значення (ціле число ≥ 1).");
-            return;
-          }
-          try {
-            await ctx.api("/api/admin/settings", {
-              method: "POST",
-              body: { price_cases: cases, price_full: full },
-            });
-            ctx.impact("medium");
-            ctx.setMessage("success", "Ціни збережено.");
-            await ctx.loadBootstrap();
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
-        },
-        "block",
-      ),
-    );
+    if (wrap) {
+      wrap.innerHTML = "";
+      wrap.append(
+        ctx.actionButton(
+          "Зберегти ціни",
+          async () => {
+            const cases = parseInt(document.querySelector("#price-cases")?.value, 10);
+            const full = parseInt(document.querySelector("#price-full")?.value, 10);
+            if (!cases || cases < 1 || !full || full < 1) {
+              ctx.setMessage("error", "Введіть коректні значення (ціле число ≥ 1).");
+              return;
+            }
+            try {
+              await ctx.api("/api/admin/settings", {
+                method: "POST",
+                body: { price_cases: cases, price_full: full },
+              });
+              ctx.impact("medium");
+              ctx.setMessage("success", "Ціни збережено.");
+              await ctx.loadBootstrap();
+            } catch (error) {
+              ctx.setMessage("error", error.message);
+            }
+          },
+          "block",
+        ),
+      );
+    }
+
+    const tqWrap = document.querySelector("#settings-tq-save-wrap");
+    if (tqWrap) {
+      tqWrap.innerHTML = "";
+      tqWrap.append(
+        ctx.actionButton(
+          "Зберегти видимість",
+          async () => {
+            const visible = document.querySelector("#test-questions-visible")?.checked ?? false;
+            try {
+              await ctx.api("/api/admin/settings", {
+                method: "POST",
+                body: { test_questions_visible: visible },
+              });
+              ctx.impact("medium");
+              ctx.setMessage("success", visible ? "Тестові питання тепер видимі для підписників." : "Тестові питання приховані.");
+              await ctx.loadBootstrap();
+            } catch (error) {
+              ctx.setMessage("error", error.message);
+            }
+          },
+          "block",
+        ),
+      );
+    }
   } catch (error) {
     ctx.setMessage("error", error.message);
+  }
+}
+
+/* ===================== ADMIN TEST EXAM QUESTIONS ===================== */
+let testQSearchTimer = 0;
+let testQRequestId = 0;
+
+export function renderAdminTestQuestions(ctx) {
+  ctx.state.testQSearchQuery = "";
+  ctx.state.testQOffset = 0;
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Тестові питання</h1>
+      <p class="page-subtitle">Питання та відповіді підсумкового тестування.</p>
+
+      <div class="case-search">
+        <span class="case-search__icon" aria-hidden="true"></span>
+        <input class="case-search__input" id="test-q-input" type="search"
+               placeholder="Пошук по питанню або відповіді" />
+      </div>
+
+      <section class="case-questions">
+        <h2 class="case-questions__title">Питання та правильні відповіді</h2>
+        <div class="case-answer-list" id="test-q-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+        </div>
+      </section>
+
+      <div class="row" id="test-q-pagination" style="justify-content:center; gap:8px; margin-top:12px;"></div>
+    </section>
+  `;
+
+  const input = ctx.refs.mainPanel.querySelector("#test-q-input");
+  const run = () => {
+    ctx.state.testQSearchQuery = input.value.trim();
+    ctx.state.testQOffset = 0;
+    void loadAdminTestQuestions(ctx, 0);
+  };
+  const runLive = () => {
+    window.clearTimeout(testQSearchTimer);
+    testQSearchTimer = window.setTimeout(run, 350);
+  };
+  input?.addEventListener("input", runLive);
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      window.clearTimeout(testQSearchTimer);
+      run();
+    }
+  });
+}
+
+export async function loadAdminTestQuestions(ctx, offset = ctx.state.testQOffset || 0) {
+  if (ctx.state.currentScreen !== "admin-test-questions") return;
+  const query = ctx.state.testQSearchQuery || "";
+  const requestId = ++testQRequestId;
+  const list = document.querySelector("#test-q-list");
+  const pagination = document.querySelector("#test-q-pagination");
+  if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+
+  try {
+    const payload = await ctx.api(
+      `/api/admin/test-exam-questions?q=${encodeURIComponent(query)}&offset=${offset}&limit=20`,
+    );
+    if (requestId !== testQRequestId || ctx.state.currentScreen !== "admin-test-questions") return;
+    ctx.state.testQOffset = offset;
+    if (!list) return;
+
+    if (!payload.items?.length) {
+      list.innerHTML = query
+        ? `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`
+        : `<div class="empty empty--inline"><h2>Питань ще немає</h2></div>`;
+    } else {
+      list.innerHTML = "";
+      payload.items.forEach((item) => {
+        const block = document.createElement("article");
+        block.className = "case-answer";
+        block.innerHTML = `
+          <div class="case-answer__head">
+            <span class="case-answer__number">${ctx.escapeHtml(item.num || "")}</span>
+            ${item.module ? `<span class="case-answer__count">${ctx.escapeHtml(item.module)}</span>` : `<span class="case-answer__count">${ctx.escapeHtml(item.source || "")}</span>`}
+          </div>
+          <h2 class="case-answer__question">${ctx.escapeHtml(item.question)}</h2>
+          <div class="case-answer__label">Правильна відповідь</div>
+          <div class="case-answer__correct">
+            <span class="case-answer__check" aria-hidden="true">✓</span>
+            <div class="case-answer__correct-body">
+              <div class="case-answer__correct-text">${ctx.escapeHtml(item.correct_answer || "—")}</div>
+            </div>
+          </div>
+        `;
+        list.append(block);
+      });
+    }
+
+    if (pagination) {
+      pagination.innerHTML = "";
+      if (payload.has_prev) {
+        pagination.append(ctx.actionButton("← Назад", () => void loadAdminTestQuestions(ctx, Math.max(0, offset - payload.limit)), "sm"));
+      }
+      if (payload.has_next) {
+        pagination.append(ctx.actionButton("Далі →", () => void loadAdminTestQuestions(ctx, offset + payload.limit), "sm"));
+      }
+    }
+  } catch (error) {
+    if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
   }
 }

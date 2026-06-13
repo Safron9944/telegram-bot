@@ -136,6 +136,19 @@ class Storage:
             """)
             await con.execute("CREATE INDEX IF NOT EXISTS idx_case_questions_case_id ON case_questions(case_id);")
             await con.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_case_questions_case_source ON case_questions(case_id, source_question_id);")
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS test_exam_questions (
+                    id BIGSERIAL PRIMARY KEY,
+                    num TEXT,
+                    module TEXT,
+                    question TEXT NOT NULL,
+                    correct_answer TEXT,
+                    justification TEXT,
+                    source TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """)
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_test_exam_questions_source ON test_exam_questions(source);")
             await self._maybe_migrate_question_revisions_changed_by(con)
 
     async def _fetchrow(self, sql: str, *params):
@@ -640,3 +653,59 @@ class Storage:
                         )
                         imported += 1
         return imported
+
+    async def import_test_exam_questions(self, items: list[dict]) -> int:
+        assert self.pool
+        inserted = 0
+        async with self.pool.acquire() as con:
+            for item in items:
+                row = await con.fetchrow(
+                    "SELECT id FROM test_exam_questions WHERE num=$1 AND source=$2",
+                    item.get("num"), item.get("source"),
+                )
+                if not row:
+                    await con.execute(
+                        """
+                        INSERT INTO test_exam_questions (num, module, question, correct_answer, justification, source)
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        """,
+                        item.get("num"), item.get("module"), item.get("question") or "",
+                        item.get("correct_answer") or "", item.get("justification") or "",
+                        item.get("source") or "",
+                    )
+                    inserted += 1
+        return inserted
+
+    async def search_test_exam_questions(self, query: str, limit: int = 20, offset: int = 0) -> dict:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            if query:
+                pattern = f"%{query}%"
+                total = int(await con.fetchval(
+                    "SELECT COUNT(*) FROM test_exam_questions WHERE question ILIKE $1 OR correct_answer ILIKE $1 OR num ILIKE $1",
+                    pattern,
+                ) or 0)
+                rows = await con.fetch(
+                    """
+                    SELECT id, num, module, question, correct_answer, justification, source
+                    FROM test_exam_questions
+                    WHERE question ILIKE $1 OR correct_answer ILIKE $1 OR num ILIKE $1
+                    ORDER BY id
+                    LIMIT $2 OFFSET $3
+                    """,
+                    pattern, limit, offset,
+                )
+            else:
+                total = int(await con.fetchval("SELECT COUNT(*) FROM test_exam_questions") or 0)
+                rows = await con.fetch(
+                    "SELECT id, num, module, question, correct_answer, justification, source FROM test_exam_questions ORDER BY id LIMIT $1 OFFSET $2",
+                    limit, offset,
+                )
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "has_prev": offset > 0,
+            "has_next": offset + limit < total,
+        }

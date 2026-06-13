@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260527-ok-questions-03";
-import { state } from "./core/state.js?v=20260527-ok-questions-03";
-import { api } from "./core/api.js?v=20260527-ok-questions-03";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260527-ok-questions-03";
-import { initializeTheme } from "./core/theme.js?v=20260527-ok-questions-03";
+import { refs } from "./core/dom.js?v=20260613-test-questions-visible-01";
+import { state } from "./core/state.js?v=20260613-test-questions-visible-01";
+import { api } from "./core/api.js?v=20260613-test-questions-visible-01";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260613-test-questions-visible-01";
+import { initializeTheme } from "./core/theme.js?v=20260613-test-questions-visible-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,13 +12,14 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260527-ok-questions-03";
+} from "./core/ui.js?v=20260613-test-questions-visible-01";
 import {
   loadCaseDetail,
   loadCases,
   loadCustomsArticle,
   loadCustomsCode,
   loadCustomsSection,
+  loadUserTestExamQuestions,
   renderCaseDetail,
   renderCases,
   renderCustoms,
@@ -33,11 +34,13 @@ import {
   renderPaywall,
   renderStats,
   renderTesting,
-} from "./screens/user.js?v=20260527-ok-questions-03";
+  renderTestExamQuestions,
+} from "./screens/user.js?v=20260613-test-questions-visible-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
   loadAdminSettings,
+  loadAdminTestQuestions,
   loadAdminUserDetail,
   loadAdminUsers,
   loadQuestionDetail,
@@ -45,10 +48,11 @@ import {
   renderAdminHub,
   renderAdminQuestions,
   renderAdminSettings,
+  renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260527-ok-questions-03";
-import { renderCurrentView } from "./screens/session.js?v=20260527-ok-questions-03";
+} from "./screens/admin.js?v=20260613-test-questions-visible-01";
+import { renderCurrentView } from "./screens/session.js?v=20260613-test-questions-visible-01";
 
 window.__APP_READY__ = false;
 
@@ -89,6 +93,7 @@ function createContext() {
     loadAdminQuestions: (page = state.adminQuestionsPage) => loadAdminQuestions(createContext(), page),
     loadAdminCases: () => loadAdminCases(createContext()),
     loadAdminSettings: () => loadAdminSettings(createContext()),
+    loadAdminTestQuestions: (offset = state.testQOffset || 0) => loadAdminTestQuestions(createContext(), offset),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
     loadCases: () => loadCases(createContext()),
@@ -96,6 +101,7 @@ function createContext() {
     loadCustomsCode: () => loadCustomsCode(createContext()),
     loadCustomsSection: () => loadCustomsSection(createContext()),
     loadCustomsArticle: () => loadCustomsArticle(createContext()),
+    loadUserTestExamQuestions: (offset = state.testExamOffset || 0) => loadUserTestExamQuestions(createContext(), offset),
   };
 }
 
@@ -182,6 +188,8 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
+  if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
+  if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
   if (screen === "customs-code") void loadCustomsCode(createContext());
@@ -222,15 +230,17 @@ function render() {
     case "customs-code-article": renderCustomsArticle(ctx); break;
     case "cases":             renderCases(ctx); break;
     case "case-detail":       renderCaseDetail(ctx); break;
-    case "ok-questions":      renderOkQuestions(ctx); break;
-    case "testing":           renderTesting(ctx); break;
-    case "stats":             renderStats(ctx); break;
-    case "help":              renderHelp(ctx); break;
+    case "ok-questions":          renderOkQuestions(ctx); break;
+    case "test-exam-questions":   renderTestExamQuestions(ctx); break;
+    case "testing":               renderTesting(ctx); break;
+    case "stats":                 renderStats(ctx); break;
+    case "help":                  renderHelp(ctx); break;
     case "admin":             renderAdminHub(ctx); break;
     case "admin-users":       renderAdminUsers(ctx); break;
     case "admin-questions":   renderAdminQuestions(ctx); break;
-    case "admin-cases":       renderAdminCases(ctx); break;
-    case "admin-settings":    renderAdminSettings(ctx); break;
+    case "admin-cases":         renderAdminCases(ctx); break;
+    case "admin-settings":      renderAdminSettings(ctx); break;
+    case "admin-test-questions": renderAdminTestQuestions(ctx); break;
     default:
       state.currentScreen = "home";
       renderHome(ctx);

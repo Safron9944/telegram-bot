@@ -26,4 +26,6 @@ export const state = {
   customsSearchQuery: "",
   customsSearchResults: [],
   customsSearchLoading: false,
+  testQOffset: 0,
+  testQSearchQuery: "",
 };

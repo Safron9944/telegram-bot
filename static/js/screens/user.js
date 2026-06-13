@@ -52,6 +52,10 @@ export function renderHome(ctx) {
   const { user, catalog, stats } = ctx.state.bootstrap;
   const modules = selectedModules(catalog);
   const last = stats.last;
+  const showTestQuestions =
+    user.is_admin ||
+    (ctx.state.bootstrap.test_questions_visible === true &&
+    user.access?.tier === "full");
 
   ctx.setChrome({ showBack: false });
 
@@ -89,6 +93,15 @@ export function renderHome(ctx) {
             tint: "indigo",
             screen: "customs-code",
           }),
+          showTestQuestions
+            ? ctx.cell({
+                title: "Тестові питання",
+                subtitle: "Питання підсумкового тестування",
+                icon: "📋",
+                tint: "orange",
+                screen: "test-exam-questions",
+              })
+            : "",
         ].join(""),
       })}
 
@@ -1448,5 +1461,112 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
       return;
     }
     ctx.setMessage("error", error.message);
+  }
+}
+
+/* ===================== TEST EXAM QUESTIONS (USER) ===================== */
+let testExamSearchTimer = null;
+let testExamRequestId = 0;
+
+export function renderTestExamQuestions(ctx) {
+  ctx.state.testExamSearchQuery = "";
+  ctx.state.testExamOffset = 0;
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Тестові питання</h1>
+      <p class="page-subtitle">Питання та відповіді підсумкового тестування.</p>
+
+      <div class="case-search">
+        <span class="case-search__icon" aria-hidden="true"></span>
+        <input class="case-search__input" id="test-exam-input" type="search"
+               placeholder="Пошук по питанню або відповіді" />
+      </div>
+
+      <section class="case-questions">
+        <h2 class="case-questions__title">Питання та правильні відповіді</h2>
+        <div class="case-answer-list" id="test-exam-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+        </div>
+      </section>
+
+      <div class="row" id="test-exam-pagination" style="justify-content:center; gap:8px; margin-top:12px;"></div>
+    </section>
+  `;
+
+  const input = ctx.refs.mainPanel.querySelector("#test-exam-input");
+  const run = () => {
+    ctx.state.testExamSearchQuery = input.value.trim();
+    ctx.state.testExamOffset = 0;
+    void loadUserTestExamQuestions(ctx, 0);
+  };
+  const runLive = () => {
+    window.clearTimeout(testExamSearchTimer);
+    testExamSearchTimer = window.setTimeout(run, 350);
+  };
+  input?.addEventListener("input", runLive);
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      window.clearTimeout(testExamSearchTimer);
+      run();
+    }
+  });
+}
+
+export async function loadUserTestExamQuestions(ctx, offset = ctx.state.testExamOffset || 0) {
+  if (ctx.state.currentScreen !== "test-exam-questions") return;
+  const query = ctx.state.testExamSearchQuery || "";
+  const requestId = ++testExamRequestId;
+  const list = document.querySelector("#test-exam-list");
+  const pagination = document.querySelector("#test-exam-pagination");
+  if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+
+  try {
+    const payload = await ctx.api(
+      `/api/test-exam-questions?q=${encodeURIComponent(query)}&offset=${offset}&limit=20`,
+    );
+    if (requestId !== testExamRequestId || ctx.state.currentScreen !== "test-exam-questions") return;
+    ctx.state.testExamOffset = offset;
+    if (!list) return;
+
+    if (!payload.items?.length) {
+      list.innerHTML = query
+        ? `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`
+        : `<div class="empty empty--inline"><h2>Питань поки немає</h2></div>`;
+    } else {
+      list.innerHTML = "";
+      payload.items.forEach((item) => {
+        const block = document.createElement("article");
+        block.className = "case-answer";
+        block.innerHTML = `
+          <div class="case-answer__head">
+            <span class="case-answer__number">${ctx.escapeHtml(item.num || "")}</span>
+            ${item.module ? `<span class="case-answer__count">${ctx.escapeHtml(item.module)}</span>` : ""}
+          </div>
+          <h2 class="case-answer__question">${ctx.escapeHtml(item.question)}</h2>
+          <div class="case-answer__label">Правильна відповідь</div>
+          <div class="case-answer__correct">
+            <span class="case-answer__check" aria-hidden="true">✓</span>
+            <div class="case-answer__correct-body">
+              <div class="case-answer__correct-text">${ctx.escapeHtml(item.correct_answer || "—")}</div>
+            </div>
+          </div>
+        `;
+        list.append(block);
+      });
+    }
+
+    if (pagination) {
+      pagination.innerHTML = "";
+      if (payload.has_prev) {
+        pagination.append(ctx.actionButton("← Назад", () => void loadUserTestExamQuestions(ctx, Math.max(0, offset - payload.limit)), "sm"));
+      }
+      if (payload.has_next) {
+        pagination.append(ctx.actionButton("Далі →", () => void loadUserTestExamQuestions(ctx, offset + payload.limit), "sm"));
+      }
+    }
+  } catch (error) {
+    if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
   }
 }
