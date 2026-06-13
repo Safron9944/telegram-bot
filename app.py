@@ -1839,11 +1839,12 @@ async def api_admin_test_exam_questions(q: str = "", offset: int = 0, limit: int
 
 @app.get("/api/test-exam-questions")
 async def api_user_test_exam_questions(q: str = "", offset: int = 0, limit: int = 20, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
-    if not tq_visible:
-        require_http(403, "not_available", "Тестові питання ще не опубліковані.")
-    if access_tier(auth.user) != "full":
-        require_http(403, "full_access_required", "Тестові питання доступні лише з повною підпискою.")
+    if not auth.is_admin:
+        tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
+        if not tq_visible:
+            require_http(403, "not_available", "Тестові питання ще не опубліковані.")
+        if access_tier(auth.user) != "full":
+            require_http(403, "full_access_required", "Тестові питання доступні лише з повною підпискою.")
     return await runtime.store.search_test_exam_questions(q.strip(), max(1, min(limit, 50)), max(0, offset))
 
 

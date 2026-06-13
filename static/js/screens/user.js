@@ -53,8 +53,9 @@ export function renderHome(ctx) {
   const modules = selectedModules(catalog);
   const last = stats.last;
   const showTestQuestions =
-    ctx.state.bootstrap.test_questions_visible === true &&
-    user.access?.tier === "full";
+    user.is_admin ||
+    (ctx.state.bootstrap.test_questions_visible === true &&
+    user.access?.tier === "full");
 
   ctx.setChrome({ showBack: false });
 
