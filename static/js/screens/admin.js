@@ -909,26 +909,21 @@ export function renderAdminGlobalSearch(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Пошук питань</h1>
-      <p class="page-subtitle">Шукає одночасно в ОК-модулях, кейсах і тестових питаннях.</p>
+      <p class="page-subtitle">Шукає в ОК-модулях, кейсах і тестових питаннях.</p>
 
       <div class="field">
         <input id="global-search-input" class="input" type="search"
                placeholder="Введіть текст (від 3 символів)" autocomplete="off" />
       </div>
-      <div id="global-search-action" style="margin-bottom: 4px;"></div>
       <div id="global-search-results"></div>
     </section>
   `;
 
   const panel = ctx.refs.mainPanel;
+  const results = panel.querySelector("#global-search-results");
+  let debounceTimer = null;
 
-  const runSearch = async () => {
-    const q = panel.querySelector("#global-search-input").value.trim();
-    if (q.length < 3) {
-      ctx.setMessage("error", "Введіть щонайменше 3 символи для пошуку.");
-      return;
-    }
-    const results = panel.querySelector("#global-search-results");
+  const runSearch = async (q) => {
     results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
     try {
       const data = await ctx.api(`/api/admin/global-search?q=${encodeURIComponent(q)}&limit=15`);
@@ -938,12 +933,15 @@ export function renderAdminGlobalSearch(ctx) {
     }
   };
 
-  panel.querySelector("#global-search-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); void runSearch(); }
+  panel.querySelector("#global-search-input").addEventListener("input", (e) => {
+    clearTimeout(debounceTimer);
+    const q = e.target.value.trim();
+    if (q.length < 3) {
+      results.innerHTML = "";
+      return;
+    }
+    debounceTimer = setTimeout(() => void runSearch(q), 400);
   });
-
-  const action = panel.querySelector("#global-search-action");
-  action.append(ctx.actionButton("Знайти", runSearch, "primary"));
 }
 
 function renderGlobalSearchResults(ctx, data, container) {
