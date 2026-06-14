@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260614-ok-levels-04";
-import { state } from "./core/state.js?v=20260614-ok-levels-04";
-import { api } from "./core/api.js?v=20260614-ok-levels-04";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260614-ok-levels-04";
-import { initializeTheme } from "./core/theme.js?v=20260614-ok-levels-04";
+import { refs } from "./core/dom.js?v=20260614-ok-levels-05";
+import { state } from "./core/state.js?v=20260614-ok-levels-05";
+import { api } from "./core/api.js?v=20260614-ok-levels-05";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260614-ok-levels-05";
+import { initializeTheme } from "./core/theme.js?v=20260614-ok-levels-05";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260614-ok-levels-04";
+} from "./core/ui.js?v=20260614-ok-levels-05";
 import {
   loadCaseDetail,
   loadCases,
@@ -36,7 +36,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260614-ok-levels-04";
+} from "./screens/user.js?v=20260614-ok-levels-05";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -46,6 +46,7 @@ import {
   loadAdminUsers,
   loadQuestionDetail,
   renderAdminCases,
+  renderAdminGlobalSearch,
   renderAdminHub,
   renderAdminQuestionDetail,
   renderAdminQuestions,
@@ -53,8 +54,8 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260614-ok-levels-04";
-import { renderCurrentView } from "./screens/session.js?v=20260614-ok-levels-04";
+} from "./screens/admin.js?v=20260614-ok-levels-05";
+import { renderCurrentView } from "./screens/session.js?v=20260614-ok-levels-05";
 
 window.__APP_READY__ = false;
 
@@ -238,8 +239,9 @@ function render() {
     case "testing":               renderTesting(ctx); break;
     case "stats":                 renderStats(ctx); break;
     case "help":                  renderHelp(ctx); break;
-    case "admin":             renderAdminHub(ctx); break;
-    case "admin-users":       renderAdminUsers(ctx); break;
+    case "admin":                  renderAdminHub(ctx); break;
+    case "admin-global-search":    renderAdminGlobalSearch(ctx); break;
+    case "admin-users":            renderAdminUsers(ctx); break;
     case "admin-questions":        renderAdminQuestions(ctx); break;
     case "admin-question-detail":  renderAdminQuestionDetail(ctx); break;
     case "admin-cases":            renderAdminCases(ctx); break;

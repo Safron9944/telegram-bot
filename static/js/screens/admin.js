@@ -44,6 +44,13 @@ export function renderAdminHub(ctx) {
             tint: "teal",
             screen: "admin-settings",
           }),
+          ctx.cell({
+            title: "Пошук питань",
+            subtitle: "По всіх банках одразу",
+            icon: "🔍",
+            tint: "gray",
+            screen: "admin-global-search",
+          }),
         ].join(""),
       })}
     </section>
@@ -892,5 +899,127 @@ export async function loadAdminTestQuestions(ctx, offset = ctx.state.testQOffset
     }
   } catch (error) {
     if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
+  }
+}
+
+/* ===================== ADMIN GLOBAL SEARCH ===================== */
+export function renderAdminGlobalSearch(ctx) {
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Пошук питань</h1>
+      <p class="page-subtitle">Шукає одночасно в ОК-модулях, кейсах і тестових питаннях.</p>
+
+      <div class="field">
+        <input id="global-search-input" class="input" type="search"
+               placeholder="Введіть текст (від 3 символів)" autocomplete="off" />
+      </div>
+      <div id="global-search-action" style="margin-bottom: 4px;"></div>
+      <div id="global-search-results"></div>
+    </section>
+  `;
+
+  const panel = ctx.refs.mainPanel;
+
+  const runSearch = async () => {
+    const q = panel.querySelector("#global-search-input").value.trim();
+    if (q.length < 3) {
+      ctx.setMessage("error", "Введіть щонайменше 3 символи для пошуку.");
+      return;
+    }
+    const results = panel.querySelector("#global-search-results");
+    results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+    try {
+      const data = await ctx.api(`/api/admin/global-search?q=${encodeURIComponent(q)}&limit=15`);
+      renderGlobalSearchResults(ctx, data, results);
+    } catch (error) {
+      results.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
+    }
+  };
+
+  panel.querySelector("#global-search-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); void runSearch(); }
+  });
+
+  const action = panel.querySelector("#global-search-action");
+  action.append(ctx.actionButton("Знайти", runSearch, "primary"));
+}
+
+function renderGlobalSearchResults(ctx, data, container) {
+  container.innerHTML = "";
+
+  const total = data.ok.length + data.cases.length + data.test.length;
+  if (!total) {
+    container.innerHTML = `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший текст.</p></div>`;
+    return;
+  }
+
+  if (data.ok.length) {
+    const section = document.createElement("div");
+    section.className = "group";
+    section.innerHTML = `<div class="group__label">ОК-модулі (${data.ok.length})</div><div class="group__list" id="gs-ok"></div>`;
+    const list = section.querySelector("#gs-ok");
+    data.ok.forEach((item) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "cell";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--purple">#${item.id}</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
+          <span class="cell__subtitle">${ctx.escapeHtml(item.ok || item.topic || "Без модуля")}</span>
+        </span>
+        <span class="cell__chevron" aria-hidden="true"></span>
+      `;
+      row.addEventListener("click", () => {
+        ctx.state.selectedQuestionId = item.id;
+        ctx.navigate("admin-question-detail");
+      });
+      list.append(row);
+    });
+    container.append(section);
+  }
+
+  if (data.cases.length) {
+    const section = document.createElement("div");
+    section.className = "group";
+    section.innerHTML = `<div class="group__label">Кейси (${data.cases.length})</div><div class="group__list" id="gs-cases"></div>`;
+    const list = section.querySelector("#gs-cases");
+    data.cases.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "cell";
+      row.style.cursor = "default";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--green">📋</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
+          <span class="cell__subtitle">Кейс ${ctx.escapeHtml(String(item.case_number))}${item.correct_answer ? " · " + ctx.escapeHtml(item.correct_answer) : ""}</span>
+        </span>
+      `;
+      list.append(row);
+    });
+    container.append(section);
+  }
+
+  if (data.test.length) {
+    const section = document.createElement("div");
+    section.className = "group";
+    section.innerHTML = `<div class="group__label">Тестові питання (${data.test.length})</div><div class="group__list" id="gs-test"></div>`;
+    const list = section.querySelector("#gs-test");
+    data.test.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "cell";
+      row.style.cursor = "default";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--orange">📝</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
+          <span class="cell__subtitle">${item.num ? ctx.escapeHtml(item.num) + " · " : ""}${ctx.escapeHtml(item.correct_answer || "")}</span>
+        </span>
+      `;
+      list.append(row);
+    });
+    container.append(section);
   }
 }

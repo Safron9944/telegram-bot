@@ -1828,6 +1828,39 @@ async def api_admin_question_update(qid: int, payload: QuestionPatchRequest, aut
     return await MiniAppService(runtime).admin_update_question(auth, qid, payload)
 
 
+@app.get("/api/admin/global-search")
+async def api_admin_global_search(q: str = "", limit: int = 10, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    q = q.strip()
+    if len(q) < 3:
+        require_http(400, "short_query", "Введіть щонайменше 3 символи для пошуку.")
+    per = max(1, min(int(limit), 20))
+
+    case_rows, test_data = await asyncio.gather(
+        runtime.store.search_case_questions_all(q, limit=per),
+        runtime.store.search_test_exam_questions(q, limit=per),
+    )
+
+    ok_ids = find_question_ids_by_title(runtime.qb, q, limit=per)
+    ok_items = []
+    for qid in ok_ids:
+        qobj = runtime.qb.by_id.get(int(qid))
+        if qobj:
+            ok_items.append({"id": int(qid), "question": qobj.question, "topic": qobj.topic, "ok": qobj.ok, "level": qobj.level})
+
+    case_items = [
+        {"id": r["id"], "case_id": r["case_id"], "case_number": r.get("case_number", ""), "question": r["question"], "correct_answer": r.get("correct_answer", "")}
+        for r in case_rows
+    ]
+    test_items = [
+        {"id": r["id"], "num": r.get("num", ""), "module": r.get("module", ""), "question": r["question"], "correct_answer": r.get("correct_answer", "")}
+        for r in test_data["items"]
+    ]
+
+    return {"query": q, "ok": ok_items, "cases": case_items, "test": test_items}
+
+
 @app.get("/api/admin/test-exam-questions")
 async def api_admin_test_exam_questions(q: str = "", offset: int = 0, limit: int = 20, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     if not auth.is_admin:
