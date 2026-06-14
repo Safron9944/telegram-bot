@@ -54,8 +54,7 @@ export function renderHome(ctx) {
   const last = stats.last;
   const showTestQuestions =
     user.is_admin ||
-    (ctx.state.bootstrap.test_questions_visible === true &&
-    user.access?.tier === "full");
+    ctx.state.bootstrap.test_questions_visible === true;
 
   ctx.setChrome({ showBack: false });
 
@@ -1048,13 +1047,15 @@ export function renderPaywall(ctx, errorCode) {
   ctx.setChrome({ showBack: true });
 
   const prices = ctx.state.bootstrap?.payment_prices || { cases: 100, full: 250 };
-  const title = errorCode === "access_expired" ? "Потрібна підписка" : "Доступ до кейсів";
+  const fullOnly = errorCode === "full_access_required" || errorCode === "ok_questions_access_required";
+  const title = fullOnly ? "Потрібна повна підписка" : "Потрібна підписка";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">${title}</h1>
-      <p class="page-subtitle">Оберіть тариф і отримайте безлімітний доступ через Telegram Stars.</p>
+      <p class="page-subtitle">Отримайте доступ через Telegram Stars.</p>
 
+      ${!fullOnly ? `
       <div class="group">
         <div class="group__label">Тільки кейси — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
@@ -1062,21 +1063,24 @@ export function renderPaywall(ctx, errorCode) {
           <div id="pay-cases-wrap"></div>
         </div>
       </div>
+      ` : ""}
 
       <div class="group">
         <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ — навчання, тести та кейси.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести, кейси та тестові питання.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
     </section>
   `;
 
-  ctx.refs.mainPanel.querySelector("#pay-cases-wrap").append(
-    ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block"),
-  );
-  ctx.refs.mainPanel.querySelector("#pay-full-wrap").append(
+  if (!fullOnly) {
+    ctx.refs.mainPanel.querySelector("#pay-cases-wrap")?.append(
+      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block"),
+    );
+  }
+  ctx.refs.mainPanel.querySelector("#pay-full-wrap")?.append(
     ctx.actionButton(`Оплатити ${prices.full} ⭐ — повний доступ`, () => void ctx.openPayment("full"), "block"),
   );
 }
@@ -1567,6 +1571,10 @@ export async function loadUserTestExamQuestions(ctx, offset = ctx.state.testExam
       }
     }
   } catch (error) {
+    if (error.code === "full_access_required") {
+      renderPaywall(ctx, "full_access_required");
+      return;
+    }
     if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
   }
 }
