@@ -26,14 +26,12 @@ from pydantic import BaseModel, Field
 from case_importer import extract_case_from_upload_bytes
 from customs_code import repository as customs_code_repository
 
-from bot import (
+from questions import QuestionBank
+from storage import Storage
+from access import access_status, access_tier, create_stars_invoice_link
+from utils import (
     GROUP_URL,
-    QuestionBank,
-    Storage,
-    access_status,
-    access_tier,
     clean_law_title,
-    create_stars_invoice_link,
     dt_to_iso,
     find_question_ids_by_title,
     get_admin_contact_url,

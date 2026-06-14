@@ -4,7 +4,8 @@ import os
 import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-from typing import Optional
+from difflib import SequenceMatcher
+from typing import List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 try:
@@ -87,6 +88,103 @@ def case_bank_sort_key(item: dict) -> tuple[int, str, int]:
     match = re.search(r"\d+", f"{raw_number} {title}")
     numeric = int(match.group(0)) if match else 10**12
     return numeric, raw_number.casefold() or title.casefold(), int(item.get("id") or 0)
+
+
+OK_TITLES: dict[str, str] = {
+    "ОК-1": "Кінологічне забезпечення",
+    "ОК-2": "Технічні засоби здійснення митного контролю",
+    "ОК-3": "Класифікація товарів",
+    "ОК-4": "Митні платежі",
+    "ОК-5": "Походження товарів",
+    "ОК-6": "Митна вартість",
+    "ОК-7": "Нетарифне регулювання",
+    "ОК-8": "Контроль за міжнародними передачами стратегічних товарів",
+    "ОК-9": "Авторизації",
+    "ОК-10": "Митні процедури",
+    "ОК-11": "Митний аудит",
+    "ОК-12": "Митна статистика",
+    "ОК-13": "Транзитні процедури",
+    "ОК-14": "Протидія контрабанді та боротьба з порушеннями митних правил",
+    "ОК-15": "Управління ризиками",
+    "ОК-16": "Захист прав інтелектуальної власності",
+    "ОК-17": "Підтримка митниці (організаційне забезпечення)",
+}
+
+_ok_code_any_re = re.compile(r"(?i)(?:\[\s*)?(?:ОК|OK)\s*[-–]?\s*(\d+)(?:\s*\])?")
+
+
+def clean_law_title(title: str) -> str:
+    t = (title or "").strip()
+    for p in [
+        "Питання на перевірку знання ",
+        "Питання на перевірку знань ",
+        "Питання на перевірку знання",
+        "Питання на перевірку знань",
+    ]:
+        if t.startswith(p):
+            t = t[len(p):].strip()
+    return t
+
+
+def ok_extract_code(s: str) -> Optional[str]:
+    if not s:
+        return None
+    m = _ok_code_any_re.search(s.strip())
+    if not m:
+        return None
+    try:
+        n = int(m.group(1))
+    except Exception:
+        return None
+    return f"ОК-{n}"
+
+
+def ok_full_label(s: str) -> str:
+    code = ok_extract_code(s) or (s or "").strip()
+    if code in OK_TITLES:
+        return f"[{code}] {OK_TITLES[code]}"
+    return s
+
+
+def ok_sort_key(name: str) -> Tuple:
+    code = ok_extract_code(name)
+    if code:
+        try:
+            return (0, int(code.split("-", 1)[1]))
+        except Exception:
+            pass
+    return (1, (name or "").lower())
+
+
+def _norm_qsearch(s: str) -> str:
+    s = (s or "").lower().strip()
+    s = re.sub(r"[^\w\s]", " ", s, flags=re.U)
+    s = re.sub(r"\s+", " ", s, flags=re.U)
+    return s.strip()
+
+
+def find_question_ids_by_title(qb: "QuestionBank", query: str, limit: int = 12) -> List[int]:
+    qn = _norm_qsearch(query)
+    if not qn:
+        return []
+    q_tokens = [t for t in qn.split() if t]
+    res: List[Tuple[float, int]] = []
+    for qid, q in qb.by_id.items():
+        qt = _norm_qsearch(getattr(q, "question", "") or "")
+        if not qt:
+            continue
+        if q_tokens and not any(t in qt for t in q_tokens):
+            continue
+        ratio = SequenceMatcher(None, qn, qt).ratio()
+        if qn in qt:
+            ratio = max(ratio, 0.95)
+        qtoks = set(qt.split())
+        qs = set(q_tokens)
+        jacc = (len(qs & qtoks) / max(1, len(qs | qtoks))) if qs else 0.0
+        score = 0.75 * ratio + 0.25 * jacc
+        res.append((score, int(qid)))
+    res.sort(key=lambda x: x[0], reverse=True)
+    return [qid for _, qid in res[: max(1, int(limit))]]
 
 
 def normalize_postgres_dsn(dsn: str) -> tuple[str, object | None]:
