@@ -289,8 +289,6 @@ export function renderAdminQuestions(ctx) {
       </div>
 
       <div class="row" id="question-pagination" style="justify-content: center; gap: 8px;"></div>
-
-      <div id="admin-question-editor"></div>
     </section>
   `;
 }
@@ -364,9 +362,6 @@ export async function loadAdminQuestions(ctx, page = 0) {
       }
     }
 
-    if (ctx.state.selectedQuestionId) {
-      void loadQuestionDetail(ctx, ctx.state.selectedQuestionId);
-    }
   } catch (error) {
     ctx.setMessage("error", error.message);
   }
@@ -445,44 +440,60 @@ function renderQuestionList(ctx, items) {
       </span>
       <span class="cell__chevron" aria-hidden="true"></span>
     `;
-    row.addEventListener("click", () => loadQuestionDetail(ctx, item.id));
+    row.addEventListener("click", () => {
+      ctx.state.selectedQuestionId = item.id;
+      ctx.navigate("admin-question-detail");
+    });
     list.append(row);
   });
 }
 
+export function renderAdminQuestionDetail(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+    </section>
+  `;
+  if (ctx.state.selectedQuestionId) {
+    void loadQuestionDetail(ctx, ctx.state.selectedQuestionId);
+  }
+}
+
 export async function loadQuestionDetail(ctx, questionId) {
-  if (ctx.state.currentScreen !== "admin-questions") return;
+  if (ctx.state.currentScreen !== "admin-question-detail") return;
 
   try {
     ctx.state.selectedQuestionId = questionId;
     const payload = await ctx.api(`/api/admin/questions/${questionId}`);
-    if (ctx.state.currentScreen !== "admin-questions") return;
+    if (ctx.state.currentScreen !== "admin-question-detail") return;
 
     const question = payload.question;
-    const root = document.querySelector("#admin-question-editor");
-    if (!root) return;
 
-    root.innerHTML = `
-      <div style="height: 6px"></div>
-      <div class="group">
-        <div class="group__label">Питання #${question.id} — ${ctx.escapeHtml(question.ok_label || question.topic || question.section || "Без групи")}</div>
-        <div class="group__list" style="padding: 14px;">
-          <form id="question-edit-form" class="stack" style="gap: 12px;">
-            <div class="field">
-              <label class="field__label" for="question-text">Текст питання</label>
-              <textarea id="question-text" class="textarea">${ctx.escapeHtml(question.question)}</textarea>
-            </div>
-            <div id="choices-editor" class="stack"></div>
-            <div class="row" style="gap: 8px; margin-top: 4px;">
-              <button class="btn btn--primary btn--lg" type="submit" style="flex: 1;">Зберегти</button>
-              <button class="btn btn--lg" type="button" id="reload-question">Скинути</button>
-            </div>
-          </form>
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <h1 class="page-title">Питання #${question.id}</h1>
+        <p class="page-subtitle">${ctx.escapeHtml(question.ok_label || question.topic || question.section || "Без групи")}</p>
+        <div class="group">
+          <div class="group__list" style="padding: 14px;">
+            <form id="question-edit-form" class="stack" style="gap: 12px;">
+              <div class="field">
+                <label class="field__label" for="question-text">Текст питання</label>
+                <textarea id="question-text" class="textarea">${ctx.escapeHtml(question.question)}</textarea>
+              </div>
+              <div id="choices-editor" class="stack"></div>
+              <div class="row" style="gap: 8px; margin-top: 4px;">
+                <button class="btn btn--primary btn--lg" type="submit" style="flex: 1;">Зберегти</button>
+                <button class="btn btn--lg" type="button" id="reload-question">Скинути</button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      </section>
     `;
 
-    const choicesEditor = document.querySelector("#choices-editor");
+    const panel = ctx.refs.mainPanel;
+    const choicesEditor = panel.querySelector("#choices-editor");
     question.choices.forEach((choice) => {
       const block = document.createElement("div");
       block.className = "stack";
@@ -506,17 +517,17 @@ export async function loadQuestionDetail(ctx, questionId) {
       choicesEditor.append(block);
     });
 
-    document.querySelector("#reload-question").addEventListener("click", async () => {
+    panel.querySelector("#reload-question").addEventListener("click", async () => {
       await loadQuestionDetail(ctx, questionId);
     });
 
-    document.querySelector("#question-edit-form").addEventListener("submit", async (event) => {
+    panel.querySelector("#question-edit-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const updatedChoices = [];
       const correct = [];
       question.choices.forEach((choice) => {
-        updatedChoices.push(document.querySelector(`#choice-${choice.index}`).value.trim());
-        if (document.querySelector(`#correct-${choice.index}`).checked) {
+        updatedChoices.push(panel.querySelector(`#choice-${choice.index}`).value.trim());
+        if (panel.querySelector(`#correct-${choice.index}`).checked) {
           correct.push(choice.index);
         }
       });
@@ -525,7 +536,7 @@ export async function loadQuestionDetail(ctx, questionId) {
         const updated = await ctx.api(`/api/admin/questions/${questionId}`, {
           method: "PATCH",
           body: {
-            question: document.querySelector("#question-text").value.trim(),
+            question: panel.querySelector("#question-text").value.trim(),
             choices: updatedChoices,
             correct,
           },
@@ -533,12 +544,6 @@ export async function loadQuestionDetail(ctx, questionId) {
         ctx.setMessage("success", "Питання збережено.");
         ctx.impact("medium");
         await loadQuestionDetail(ctx, updated.question.id);
-
-        if (ctx.state.questionSearchQuery) {
-          await runQuestionSearch(ctx, ctx.state.questionSearchQuery);
-        } else {
-          await loadAdminQuestions(ctx, ctx.state.adminQuestionsPage);
-        }
       } catch (error) {
         ctx.setMessage("error", error.message);
       }
