@@ -909,26 +909,33 @@ export function renderAdminGlobalSearch(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Пошук питань</h1>
-      <p class="page-subtitle">Шукає в ОК-модулях, кейсах і тестових питаннях.</p>
 
       <div class="field">
         <input id="global-search-input" class="input" type="search"
-               placeholder="Введіть текст (від 3 символів)" autocomplete="off" />
+               placeholder="Почніть вводити текст…" autocomplete="off" autofocus />
       </div>
-      <div id="global-search-results"></div>
+      <div id="global-search-results">
+        <div class="empty empty--inline">
+          <h2>Введіть запит</h2>
+          <p>Шукає одночасно в ОК-модулях, кейсах і тестових питаннях.</p>
+        </div>
+      </div>
     </section>
   `;
 
   const panel = ctx.refs.mainPanel;
   const results = panel.querySelector("#global-search-results");
   let debounceTimer = null;
+  let currentQuery = "";
 
   const runSearch = async (q) => {
-    results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+    currentQuery = q;
     try {
       const data = await ctx.api(`/api/admin/global-search?q=${encodeURIComponent(q)}&limit=15`);
+      if (q !== currentQuery) return;
       renderGlobalSearchResults(ctx, data, results);
     } catch (error) {
+      if (q !== currentQuery) return;
       results.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
     }
   };
@@ -937,10 +944,12 @@ export function renderAdminGlobalSearch(ctx) {
     clearTimeout(debounceTimer);
     const q = e.target.value.trim();
     if (q.length < 3) {
-      results.innerHTML = "";
+      currentQuery = "";
+      results.innerHTML = `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Шукає в ОК-модулях, кейсах і тестових питаннях.</p></div>`;
       return;
     }
-    debounceTimer = setTimeout(() => void runSearch(q), 400);
+    results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+    debounceTimer = setTimeout(() => void runSearch(q), 350);
   });
 }
 
