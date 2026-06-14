@@ -690,7 +690,7 @@ function renderOkTab(ctx, root, modules) {
     <div class="group">
       <div class="group__label">Активні модулі</div>
       <div class="group__list" id="active-modules"></div>
-      <div class="group__footer">Виберіть рівень та натисніть «Почати».</div>
+      <div class="group__footer">Натисніть рівень, щоб розпочати навчання.</div>
     </div>
     <div style="padding: 0 4px 4px;" id="module-save"></div>
   `;
@@ -706,8 +706,6 @@ function renderOkTab(ctx, root, modules) {
     `;
   } else {
     modules.forEach((item) => {
-      const selectedLevel = { value: item.last_level || item.levels[0]?.level };
-
       const row = document.createElement("div");
       row.className = "cell";
       row.style.cursor = "default";
@@ -716,34 +714,20 @@ function renderOkTab(ctx, root, modules) {
         <span class="cell__body">
           <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
         </span>
-        <span class="row-actions" style="display:flex; gap:6px; align-items:center; flex-shrink:0;"></span>
+        <span class="row-actions" style="gap:6px"></span>
       `;
       const actions = row.querySelector(".row-actions");
       item.levels.forEach((entry) => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "pill" + (entry.level === selectedLevel.value ? " is-selected" : "");
-        btn.textContent = `Рівень ${entry.level}`;
+        btn.className = "pill" + (entry.level === item.last_level ? " is-selected" : "");
+        btn.textContent = `${entry.level}`;
         btn.addEventListener("click", () => {
           ctx.impact("light");
-          selectedLevel.value = entry.level;
-          actions.querySelectorAll(".pill").forEach((p) => p.classList.remove("is-selected"));
-          btn.classList.add("is-selected");
+          ctx.startLearning({ kind: "ok", module: item.name, level: entry.level });
         });
         actions.append(btn);
       });
-
-      const startBtn = document.createElement("button");
-      startBtn.type = "button";
-      startBtn.className = "btn btn--sm btn--primary";
-      startBtn.style.flexShrink = "0";
-      startBtn.textContent = "Почати";
-      startBtn.addEventListener("click", () => {
-        ctx.impact("medium");
-        ctx.startLearning({ kind: "ok", module: item.name, level: selectedLevel.value });
-      });
-      actions.append(startBtn);
-
       activeRoot.append(row);
     });
   }
