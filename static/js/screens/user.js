@@ -648,13 +648,19 @@ function openModulePicker(ctx, selected, onSave) {
     row.className = "cell";
     const isOn = selected.has(item.name);
 
-    row.innerHTML = `
-      <span class="cell__icon cell__icon--${isOn ? "purple" : "gray"}" id="sicon-${ctx.escapeHtml(item.name)}">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
-      <span class="cell__body">
-        <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
-      </span>
-      <span style="color: var(--accent); font-size: 18px; flex-shrink:0;">${selected.has(item.name) ? "✓" : ""}</span>
-    `;
+    const iconEl = document.createElement("span");
+    iconEl.className = `cell__icon cell__icon--${isOn ? "purple" : "gray"}`;
+    iconEl.textContent = item.label.slice(0, 2).toUpperCase();
+
+    const bodyEl = document.createElement("span");
+    bodyEl.className = "cell__body";
+    bodyEl.innerHTML = `<span class="cell__title">${ctx.escapeHtml(item.label)}</span>`;
+
+    const checkEl = document.createElement("span");
+    checkEl.style.cssText = "color:var(--accent);font-size:18px;flex-shrink:0;";
+    checkEl.textContent = isOn ? "✓" : "";
+
+    row.append(iconEl, bodyEl, checkEl);
 
     row.addEventListener("click", () => {
       ctx.impact("light");
@@ -663,10 +669,9 @@ function openModulePicker(ctx, selected, onSave) {
       } else {
         selected.add(item.name);
       }
-      const icon = row.querySelector(`#sicon-${CSS.escape(item.name)}`);
-      const check = row.querySelector("span:last-child");
-      if (icon) icon.className = `cell__icon cell__icon--${selected.has(item.name) ? "purple" : "gray"}`;
-      if (check) check.textContent = selected.has(item.name) ? "✓" : "";
+      const on = selected.has(item.name);
+      iconEl.className = `cell__icon cell__icon--${on ? "purple" : "gray"}`;
+      checkEl.textContent = on ? "✓" : "";
     });
 
     pickerList.append(row);
@@ -706,27 +711,21 @@ function renderOkTab(ctx, root, modules) {
     `;
   } else {
     modules.forEach((item) => {
-      const row = document.createElement("div");
+      const row = document.createElement("button");
+      row.type = "button";
       row.className = "cell";
-      row.style.cursor = "default";
       row.innerHTML = `
         <span class="cell__icon cell__icon--purple">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
         <span class="cell__body">
           <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
+          <span class="cell__subtitle">${item.levels.length} ${item.levels.length === 1 ? "рівень" : "рівні"}</span>
         </span>
-        <span class="row-actions" style="gap:6px"></span>
+        <span class="cell__chevron" aria-hidden="true"></span>
       `;
-      const actions = row.querySelector(".row-actions");
-      item.levels.forEach((entry) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "pill" + (entry.level === item.last_level ? " is-selected" : "");
-        btn.textContent = `${entry.level}`;
-        btn.addEventListener("click", () => {
-          ctx.impact("light");
-          ctx.startLearning({ kind: "ok", module: item.name, level: entry.level });
-        });
-        actions.append(btn);
+      row.addEventListener("click", () => {
+        ctx.impact("light");
+        ctx.state.selectedOkModule = item;
+        ctx.navigate("ok-levels");
       });
       activeRoot.append(row);
     });
@@ -823,6 +822,47 @@ export function renderLawParts(ctx) {
     });
     list.append(row);
   }
+}
+
+/* ===================== OK LEVELS ===================== */
+export function renderOkLevels(ctx) {
+  const item = ctx.state.selectedOkModule;
+  if (!item) {
+    ctx.state.currentScreen = "learning";
+    renderLearning(ctx);
+    return;
+  }
+
+  ctx.setChrome({ showBack: true });
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">${ctx.escapeHtml(item.label)}</h1>
+      <p class="page-subtitle">Оберіть рівень, щоб розпочати навчання.</p>
+      <div class="group">
+        <div class="group__list" id="ok-levels-list"></div>
+      </div>
+    </section>
+  `;
+
+  const list = ctx.refs.mainPanel.querySelector("#ok-levels-list");
+  item.levels.forEach((entry) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell" + (entry.level === item.last_level ? " cell--accent" : "");
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--purple">${entry.level}</span>
+      <span class="cell__body">
+        <span class="cell__title">Рівень ${entry.level}</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", () => {
+      ctx.impact("medium");
+      ctx.startLearning({ kind: "ok", module: item.name, level: entry.level });
+    });
+    list.append(row);
+  });
 }
 
 /* ===================== TESTING ===================== */
