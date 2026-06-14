@@ -1849,12 +1849,9 @@ async def api_admin_global_search(q: str = "", limit: int = 10, auth: AuthContex
         if qobj:
             ok_items.append({"id": int(qid), "question": qobj.question, "topic": qobj.topic, "ok": qobj.ok, "level": qobj.level})
 
-    case_items = [
-        {"id": r["id"], "case_id": r["case_id"], "case_number": r.get("case_number", ""), "question": r["question"], "correct_answer": r.get("correct_answer", "")}
-        for r in case_rows
-    ]
+    case_items = [serialize_case_question(r) | {"case_number": r.get("case_number", "")} for r in case_rows]
     test_items = [
-        {"id": r["id"], "num": r.get("num", ""), "module": r.get("module", ""), "question": r["question"], "correct_answer": r.get("correct_answer", "")}
+        {"id": r["id"], "num": r.get("num", ""), "module": r.get("module", ""), "question": r["question"], "correct_answer": r.get("correct_answer", ""), "justification": r.get("justification", "")}
         for r in test_data["items"]
     ]
 

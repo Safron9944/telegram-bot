@@ -953,71 +953,155 @@ function renderGlobalSearchResults(ctx, data, container) {
     return;
   }
 
-  if (data.ok.length) {
+  const makeRow = (icon, tint, title, subtitle, onClick) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--${tint}">${icon}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(title)}</span>
+        <span class="cell__subtitle">${ctx.escapeHtml(subtitle)}</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", onClick);
+    return row;
+  };
+
+  const addSection = (label, items, buildRow) => {
     const section = document.createElement("div");
     section.className = "group";
-    section.innerHTML = `<div class="group__label">ОК-модулі (${data.ok.length})</div><div class="group__list" id="gs-ok"></div>`;
-    const list = section.querySelector("#gs-ok");
-    data.ok.forEach((item) => {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "cell";
-      row.innerHTML = `
-        <span class="cell__icon cell__icon--purple">#${item.id}</span>
-        <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
-          <span class="cell__subtitle">${ctx.escapeHtml(item.ok || item.topic || "Без модуля")}</span>
-        </span>
-        <span class="cell__chevron" aria-hidden="true"></span>
-      `;
-      row.addEventListener("click", () => {
-        ctx.state.selectedQuestionId = item.id;
-        ctx.navigate("admin-question-detail");
-      });
-      list.append(row);
-    });
+    const listId = `gs-${Math.random().toString(36).slice(2)}`;
+    section.innerHTML = `<div class="group__label">${label} (${items.length})</div><div class="group__list" id="${listId}"></div>`;
+    const list = section.querySelector(`#${listId}`);
+    items.forEach((item) => list.append(buildRow(item)));
     container.append(section);
+  };
+
+  if (data.ok.length) {
+    addSection("ОК-модулі", data.ok, (item) =>
+      makeRow(`#${item.id}`, "purple", item.question, item.ok || item.topic || "Без модуля", () => {
+        ctx.state.adminQuestionViewItem = { type: "ok", id: item.id, source: item.ok || item.topic || "" };
+        ctx.navigate("admin-question-view");
+      })
+    );
   }
 
   if (data.cases.length) {
-    const section = document.createElement("div");
-    section.className = "group";
-    section.innerHTML = `<div class="group__label">Кейси (${data.cases.length})</div><div class="group__list" id="gs-cases"></div>`;
-    const list = section.querySelector("#gs-cases");
-    data.cases.forEach((item) => {
-      const row = document.createElement("div");
-      row.className = "cell";
-      row.style.cursor = "default";
-      row.innerHTML = `
-        <span class="cell__icon cell__icon--green">📋</span>
-        <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
-          <span class="cell__subtitle">Кейс ${ctx.escapeHtml(String(item.case_number))}${item.correct_answer ? " · " + ctx.escapeHtml(item.correct_answer) : ""}</span>
-        </span>
-      `;
-      list.append(row);
-    });
-    container.append(section);
+    addSection("Кейси", data.cases, (item) =>
+      makeRow("📋", "green", item.question, `Кейс ${item.case_number}`, () => {
+        ctx.state.adminQuestionViewItem = { type: "case", ...item };
+        ctx.navigate("admin-question-view");
+      })
+    );
   }
 
   if (data.test.length) {
-    const section = document.createElement("div");
-    section.className = "group";
-    section.innerHTML = `<div class="group__label">Тестові питання (${data.test.length})</div><div class="group__list" id="gs-test"></div>`;
-    const list = section.querySelector("#gs-test");
-    data.test.forEach((item) => {
-      const row = document.createElement("div");
-      row.className = "cell";
-      row.style.cursor = "default";
-      row.innerHTML = `
-        <span class="cell__icon cell__icon--orange">📝</span>
-        <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(item.question)}</span>
-          <span class="cell__subtitle">${item.num ? ctx.escapeHtml(item.num) + " · " : ""}${ctx.escapeHtml(item.correct_answer || "")}</span>
-        </span>
+    addSection("Тестові питання", data.test, (item) =>
+      makeRow("📝", "orange", item.question, item.num || item.module || "", () => {
+        ctx.state.adminQuestionViewItem = { type: "test", ...item };
+        ctx.navigate("admin-question-view");
+      })
+    );
+  }
+}
+
+/* ===================== ADMIN QUESTION VIEW ===================== */
+export function renderAdminQuestionView(ctx) {
+  ctx.setChrome({ showBack: true });
+  const item = ctx.state.adminQuestionViewItem;
+  if (!item) { ctx.goBack(); return; }
+
+  if (item.type === "ok") {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+      </section>
+    `;
+    void ctx.api(`/api/admin/questions/${item.id}`).then((payload) => {
+      const q = payload.question;
+      const panel = ctx.refs.mainPanel;
+      panel.innerHTML = `
+        <section class="screen-content">
+          <p class="page-subtitle" style="margin-bottom: 4px;">${ctx.escapeHtml(item.source)}</p>
+          <h1 class="page-title">${ctx.escapeHtml(q.question)}</h1>
+          <div class="group" id="qv-choices"></div>
+        </section>
       `;
-      list.append(row);
+      const choicesEl = panel.querySelector("#qv-choices");
+      const list = document.createElement("div");
+      list.className = "group__list";
+      q.choices.forEach((choice) => {
+        const row = document.createElement("div");
+        row.className = "cell" + (choice.is_correct ? " cell--accent" : "");
+        row.style.cursor = "default";
+        row.innerHTML = `
+          <span class="cell__icon cell__icon--${choice.is_correct ? "green" : "gray"}">${choice.is_correct ? "✓" : choice.index}</span>
+          <span class="cell__body"><span class="cell__title">${ctx.escapeHtml(choice.text)}</span></span>
+        `;
+        list.append(row);
+      });
+      choicesEl.append(list);
+    }).catch((err) => {
+      ctx.refs.mainPanel.innerHTML = `<section class="screen-content"><div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(err.message)}</p></div></section>`;
     });
-    container.append(section);
+    return;
+  }
+
+  if (item.type === "case") {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <p class="page-subtitle" style="margin-bottom: 4px;">Кейс ${ctx.escapeHtml(String(item.case_number))}</p>
+        <h1 class="page-title">${ctx.escapeHtml(item.question)}</h1>
+        <div class="group">
+          <div class="group__label">Варіанти відповіді</div>
+          <div class="group__list" id="qv-answers"></div>
+        </div>
+      </section>
+    `;
+    const list = ctx.refs.mainPanel.querySelector("#qv-answers");
+    const answers = Array.isArray(item.answers) ? item.answers : [];
+    if (answers.length) {
+      answers.forEach((text, idx) => {
+        const isCorrect = text === item.correct_answer;
+        const row = document.createElement("div");
+        row.className = "cell" + (isCorrect ? " cell--accent" : "");
+        row.style.cursor = "default";
+        row.innerHTML = `
+          <span class="cell__icon cell__icon--${isCorrect ? "green" : "gray"}">${isCorrect ? "✓" : idx + 1}</span>
+          <span class="cell__body"><span class="cell__title">${ctx.escapeHtml(text)}</span></span>
+        `;
+        list.append(row);
+      });
+    } else {
+      list.innerHTML = `<div class="cell" style="cursor:default;"><span class="cell__body"><span class="cell__title">${ctx.escapeHtml(item.correct_answer || "—")}</span></span></div>`;
+    }
+    return;
+  }
+
+  if (item.type === "test") {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content">
+        <p class="page-subtitle" style="margin-bottom: 4px;">${ctx.escapeHtml(item.num ? item.num + (item.module ? " · " + item.module : "") : item.module || "")}</p>
+        <h1 class="page-title">${ctx.escapeHtml(item.question)}</h1>
+        <div class="group">
+          <div class="group__label">Правильна відповідь</div>
+          <div class="group__list">
+            <div class="cell cell--accent" style="cursor:default;">
+              <span class="cell__icon cell__icon--green">✓</span>
+              <span class="cell__body"><span class="cell__title">${ctx.escapeHtml(item.correct_answer || "—")}</span></span>
+            </div>
+          </div>
+        </div>
+        ${item.justification ? `
+        <div class="group">
+          <div class="group__label">Обґрунтування</div>
+          <div class="group__list">
+            <div style="padding: 14px; font-size: 14px; line-height: 1.5;">${ctx.escapeHtml(item.justification)}</div>
+          </div>
+        </div>` : ""}
+      </section>
+    `;
   }
 }

@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260614-ok-levels-06";
-import { state } from "./core/state.js?v=20260614-ok-levels-06";
-import { api } from "./core/api.js?v=20260614-ok-levels-06";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260614-ok-levels-06";
-import { initializeTheme } from "./core/theme.js?v=20260614-ok-levels-06";
+import { refs } from "./core/dom.js?v=20260614-ok-levels-07";
+import { state } from "./core/state.js?v=20260614-ok-levels-07";
+import { api } from "./core/api.js?v=20260614-ok-levels-07";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260614-ok-levels-07";
+import { initializeTheme } from "./core/theme.js?v=20260614-ok-levels-07";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260614-ok-levels-06";
+} from "./core/ui.js?v=20260614-ok-levels-07";
 import {
   loadCaseDetail,
   loadCases,
@@ -36,7 +36,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260614-ok-levels-06";
+} from "./screens/user.js?v=20260614-ok-levels-07";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -49,13 +49,14 @@ import {
   renderAdminGlobalSearch,
   renderAdminHub,
   renderAdminQuestionDetail,
+  renderAdminQuestionView,
   renderAdminQuestions,
   renderAdminSettings,
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260614-ok-levels-06";
-import { renderCurrentView } from "./screens/session.js?v=20260614-ok-levels-06";
+} from "./screens/admin.js?v=20260614-ok-levels-07";
+import { renderCurrentView } from "./screens/session.js?v=20260614-ok-levels-07";
 
 window.__APP_READY__ = false;
 
@@ -244,6 +245,7 @@ function render() {
     case "admin-users":            renderAdminUsers(ctx); break;
     case "admin-questions":        renderAdminQuestions(ctx); break;
     case "admin-question-detail":  renderAdminQuestionDetail(ctx); break;
+    case "admin-question-view":    renderAdminQuestionView(ctx); break;
     case "admin-cases":            renderAdminCases(ctx); break;
     case "admin-settings":      renderAdminSettings(ctx); break;
     case "admin-test-questions": renderAdminTestQuestions(ctx); break;
