@@ -699,18 +699,19 @@ export function renderAdminSettings(ctx) {
 
       <div class="group" style="margin-top: 16px;">
         <div class="group__label">Тестові питання</div>
-        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-            <input id="test-questions-visible" type="checkbox" style="width: 18px; height: 18px; cursor: pointer;" />
-            <span style="font-size: 14px; line-height: 1.4;">
-              Показати вкладку «Тестові питання» для користувачів з повною підпискою
+        <div class="group__list">
+          <div class="cell" style="cursor: default;">
+            <span class="cell__body">
+              <span class="cell__title">Видимість для підписників</span>
+              <span class="cell__subtitle">Показати вкладку користувачам з повним доступом</span>
             </span>
-          </label>
-          <p style="font-size: 12px; color: var(--text-secondary); margin: 0;">
-            Увімкніть тільки після того, як заповните всі тестові питання в адмін-панелі.
-          </p>
-          <div id="settings-tq-save-wrap"></div>
+            <label class="switch" id="tq-switch-label">
+              <input id="test-questions-visible" type="checkbox" />
+              <span class="switch__track"></span>
+            </label>
+          </div>
         </div>
+        <div class="group__footer">Увімкніть після того, як заповните всі тестові питання.</div>
       </div>
     </section>
   `;
@@ -723,9 +724,30 @@ export async function loadAdminSettings(ctx) {
     const casesInput = document.querySelector("#price-cases");
     const fullInput = document.querySelector("#price-full");
     const tqCheckbox = document.querySelector("#test-questions-visible");
+
     if (casesInput) casesInput.value = String(payload.price_cases);
     if (fullInput) fullInput.value = String(payload.price_full);
-    if (tqCheckbox) tqCheckbox.checked = Boolean(payload.test_questions_visible);
+    if (tqCheckbox) {
+      tqCheckbox.checked = Boolean(payload.test_questions_visible);
+      tqCheckbox.addEventListener("change", async () => {
+        const visible = tqCheckbox.checked;
+        tqCheckbox.disabled = true;
+        try {
+          await ctx.api("/api/admin/settings", {
+            method: "POST",
+            body: { test_questions_visible: visible },
+          });
+          ctx.impact("medium");
+          ctx.setMessage("success", visible ? "Тестові питання видимі для підписників." : "Тестові питання приховані.");
+          await ctx.loadBootstrap();
+        } catch (error) {
+          tqCheckbox.checked = !visible;
+          ctx.setMessage("error", error.message);
+        } finally {
+          tqCheckbox.disabled = false;
+        }
+      });
+    }
 
     const wrap = document.querySelector("#settings-save-wrap");
     if (wrap) {
@@ -747,31 +769,6 @@ export async function loadAdminSettings(ctx) {
               });
               ctx.impact("medium");
               ctx.setMessage("success", "Ціни збережено.");
-              await ctx.loadBootstrap();
-            } catch (error) {
-              ctx.setMessage("error", error.message);
-            }
-          },
-          "block",
-        ),
-      );
-    }
-
-    const tqWrap = document.querySelector("#settings-tq-save-wrap");
-    if (tqWrap) {
-      tqWrap.innerHTML = "";
-      tqWrap.append(
-        ctx.actionButton(
-          "Зберегти видимість",
-          async () => {
-            const visible = document.querySelector("#test-questions-visible")?.checked ?? false;
-            try {
-              await ctx.api("/api/admin/settings", {
-                method: "POST",
-                body: { test_questions_visible: visible },
-              });
-              ctx.impact("medium");
-              ctx.setMessage("success", visible ? "Тестові питання тепер видимі для підписників." : "Тестові питання приховані.");
               await ctx.loadBootstrap();
             } catch (error) {
               ctx.setMessage("error", error.message);
