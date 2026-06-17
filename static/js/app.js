@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260617-question-search-02";
-import { state } from "./core/state.js?v=20260617-question-search-02";
-import { api } from "./core/api.js?v=20260617-question-search-02";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-02";
-import { initializeTheme } from "./core/theme.js?v=20260617-question-search-02";
+import { refs } from "./core/dom.js?v=20260617-question-search-03";
+import { state } from "./core/state.js?v=20260617-question-search-03";
+import { api } from "./core/api.js?v=20260617-question-search-03";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-03";
+import { initializeTheme } from "./core/theme.js?v=20260617-question-search-03";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260617-question-search-02";
+} from "./core/ui.js?v=20260617-question-search-03";
 import {
   loadCaseDetail,
   loadCases,
@@ -37,7 +37,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260617-question-search-02";
+} from "./screens/user.js?v=20260617-question-search-03";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -56,8 +56,8 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260617-question-search-02";
-import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-02";
+} from "./screens/admin.js?v=20260617-question-search-03";
+import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-03";
 
 window.__APP_READY__ = false;
 

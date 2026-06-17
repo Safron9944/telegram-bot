@@ -155,7 +155,11 @@ export function openExternalLink(url) {
   if (!url) return;
   try {
     const parsed = new URL(url);
-    if (tg?.openTelegramLink && (parsed.hostname.endsWith("t.me") || parsed.protocol === "tg:")) {
+    if (parsed.protocol === "tg:") {
+      window.location.href = url;
+      return;
+    }
+    if (tg?.openTelegramLink && parsed.hostname.endsWith("t.me")) {
       tg.openTelegramLink(url);
       return;
     }
