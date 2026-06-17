@@ -1,8 +1,8 @@
-import { refs } from "./core/dom.js?v=20260614-ok-levels-08";
-import { state } from "./core/state.js?v=20260614-ok-levels-08";
-import { api } from "./core/api.js?v=20260614-ok-levels-08";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260614-ok-levels-08";
-import { initializeTheme } from "./core/theme.js?v=20260614-ok-levels-08";
+import { refs } from "./core/dom.js?v=20260617-question-search-01";
+import { state } from "./core/state.js?v=20260617-question-search-01";
+import { api } from "./core/api.js?v=20260617-question-search-01";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-01";
+import { initializeTheme } from "./core/theme.js?v=20260617-question-search-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -12,7 +12,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260614-ok-levels-08";
+} from "./core/ui.js?v=20260617-question-search-01";
 import {
   loadCaseDetail,
   loadCases,
@@ -33,10 +33,11 @@ import {
   renderOkLevels,
   renderOkQuestions,
   renderPaywall,
+  renderQuestionSearch,
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260614-ok-levels-08";
+} from "./screens/user.js?v=20260617-question-search-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -55,8 +56,8 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260614-ok-levels-08";
-import { renderCurrentView } from "./screens/session.js?v=20260614-ok-levels-08";
+} from "./screens/admin.js?v=20260617-question-search-01";
+import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-01";
 
 window.__APP_READY__ = false;
 
@@ -236,6 +237,7 @@ function render() {
     case "case-detail":       renderCaseDetail(ctx); break;
     case "ok-levels":              renderOkLevels(ctx); break;
     case "ok-questions":          renderOkQuestions(ctx); break;
+    case "question-search":       renderQuestionSearch(ctx); break;
     case "test-exam-questions":   renderTestExamQuestions(ctx); break;
     case "testing":               renderTesting(ctx); break;
     case "stats":                 renderStats(ctx); break;

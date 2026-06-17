@@ -1158,6 +1158,49 @@ class MiniAppService:
             "query": query or "",
         }
 
+    async def user_global_search(self, auth: AuthContext, query: str, limit: int = 15) -> dict[str, Any]:
+        self.ensure_full_access(auth)
+        query = (query or "").strip()
+        if len(query) < 3:
+            require_http(400, "short_query", "Введіть щонайменше 3 символи для пошуку.")
+        per = clamp(int(limit), 1, 30)
+
+        rows, case_rows = await asyncio.gather(
+            self.store.search_all_questions(query, limit=per),
+            self.store.search_case_questions_all(query, limit=per),
+        )
+
+        law_items: list[dict[str, Any]] = []
+        ok_items: list[dict[str, Any]] = []
+        for row in rows:
+            ct = row.get("correct_texts")
+            if isinstance(ct, str):
+                try:
+                    ct = json.loads(ct)
+                except Exception:
+                    ct = []
+            item: dict[str, Any] = {
+                "id": int(row.get("id") or 0),
+                "ok": str(row.get("ok") or ""),
+                "level": row.get("level"),
+                "topic": str(row.get("topic") or ""),
+                "question": str(row.get("question") or ""),
+                "correct_texts": ct if isinstance(ct, list) else [],
+            }
+            if row.get("ok"):
+                ok_items.append(item)
+            else:
+                law_items.append(item)
+
+        case_items = []
+        for item in case_rows:
+            s = serialize_case_question(item)
+            s["case_id"] = int(item.get("case_id") or 0)
+            s["case_number"] = item.get("case_number") or ""
+            case_items.append(s)
+
+        return {"query": query, "law": law_items, "ok": ok_items, "cases": case_items}
+
     async def case_detail(self, auth: AuthContext, case_id: int, offset: int = 0, limit: int = 50, query: str = "") -> dict[str, Any]:
         self.ensure_cases_access(auth)
         case = await self.store.get_case_bank(case_id)
@@ -1712,6 +1755,11 @@ async def api_customs_code_search(q: str = "", limit: int = 25, offset: int = 0,
         return customs_code_repository.search(q, limit=limit, offset=offset)
     except FileNotFoundError:
         require_http(404, "customs_code_missing", "Базу Митного кодексу ще не створено.")
+
+
+@app.get("/api/questions/search")
+async def api_questions_global_search(q: str = "", limit: int = 15, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).user_global_search(auth, q, max(1, min(limit, 30)))
 
 
 @app.get("/api/ok-questions/search")

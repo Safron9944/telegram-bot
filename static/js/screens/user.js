@@ -101,6 +101,15 @@ export function renderHome(ctx) {
                 screen: "test-exam-questions",
               })
             : "",
+          user.is_admin || user.access?.tier === "full"
+            ? ctx.cell({
+                title: "Пошук питань",
+                subtitle: "Пошук по законодавству, ОК та кейсах",
+                icon: "🔎",
+                tint: "teal",
+                screen: "question-search",
+              })
+            : "",
         ].join(""),
       })}
 
@@ -1617,4 +1626,145 @@ export async function loadUserTestExamQuestions(ctx, offset = ctx.state.testExam
     }
     if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
   }
+}
+
+/* ===================== QUESTION GLOBAL SEARCH ===================== */
+let questionSearchTimer = null;
+let questionSearchRequestId = 0;
+
+export function renderQuestionSearch(ctx) {
+  ctx.state.questionGlobalQuery = ctx.state.questionGlobalQuery || "";
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Пошук питань</h1>
+      <p class="page-subtitle">Пошук по законодавству, ОК-компетенціях та кейсах.</p>
+
+      <div class="case-search">
+        <span class="case-search__icon" aria-hidden="true"></span>
+        <input class="case-search__input" id="qs-input" type="search"
+               value="${ctx.escapeHtml(ctx.state.questionGlobalQuery || "")}"
+               placeholder="Введіть текст питання…" autofocus />
+      </div>
+
+      <div id="qs-results">
+        ${ctx.state.questionGlobalQuery
+          ? `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`
+          : `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Мінімум 3 символи для початку пошуку.</p></div>`}
+      </div>
+    </section>
+  `;
+
+  const input = ctx.refs.mainPanel.querySelector("#qs-input");
+  const run = () => {
+    ctx.state.questionGlobalQuery = input.value.trim();
+    void loadQuestionSearch(ctx);
+  };
+  input?.addEventListener("input", () => {
+    window.clearTimeout(questionSearchTimer);
+    questionSearchTimer = window.setTimeout(run, 350);
+  });
+  input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { window.clearTimeout(questionSearchTimer); run(); }
+  });
+
+  if (ctx.state.questionGlobalQuery) void loadQuestionSearch(ctx);
+}
+
+async function loadQuestionSearch(ctx) {
+  if (ctx.state.currentScreen !== "question-search") return;
+  const query = ctx.state.questionGlobalQuery || "";
+  const results = document.querySelector("#qs-results");
+  if (!query || query.length < 3) {
+    if (results) results.innerHTML = `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Мінімум 3 символи для початку пошуку.</p></div>`;
+    return;
+  }
+
+  const requestId = ++questionSearchRequestId;
+  if (results) results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
+
+  try {
+    const payload = await ctx.api(`/api/questions/search?q=${encodeURIComponent(query)}&limit=15`);
+    if (requestId !== questionSearchRequestId || ctx.state.currentScreen !== "question-search") return;
+    if (!results) return;
+
+    const totalCount = (payload.law?.length || 0) + (payload.ok?.length || 0) + (payload.cases?.length || 0);
+    if (!totalCount) {
+      results.innerHTML = `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший запит.</p></div>`;
+      return;
+    }
+
+    results.innerHTML = "";
+
+    if (payload.law?.length) {
+      const header = document.createElement("div");
+      header.className = "group__label";
+      header.textContent = `Законодавство (${payload.law.length})`;
+      results.append(header);
+      payload.law.forEach((q) => results.append(buildQuestionCard(ctx, q, "law")));
+    }
+
+    if (payload.ok?.length) {
+      const header = document.createElement("div");
+      header.className = "group__label";
+      header.textContent = `ОК-компетенції (${payload.ok.length})`;
+      results.append(header);
+      payload.ok.forEach((q) => results.append(buildQuestionCard(ctx, q, "ok")));
+    }
+
+    if (payload.cases?.length) {
+      const header = document.createElement("div");
+      header.className = "group__label";
+      header.textContent = `Кейси (${payload.cases.length})`;
+      results.append(header);
+      payload.cases.forEach((q) => results.append(buildCaseCard(ctx, q)));
+    }
+  } catch (error) {
+    if (error.code === "full_access_required" || error.code === "ok_questions_access_required") {
+      ctx.navigate("home", { replace: true });
+      renderPaywall(ctx, "access_expired");
+      return;
+    }
+    if (results && error.code !== "short_query") {
+      results.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
+    }
+  }
+}
+
+function buildQuestionCard(ctx, q, type) {
+  const badge = type === "ok" && q.ok
+    ? `${ctx.escapeHtml(q.ok)}${q.level != null ? ` · Рівень ${ctx.escapeHtml(String(q.level))}` : ""}`
+    : ctx.escapeHtml(q.topic || "Законодавство");
+  const correctAnswer = (q.correct_texts || []).join("; ") || "—";
+  const block = document.createElement("article");
+  block.className = "case-answer";
+  block.innerHTML = `
+    <div class="case-answer__head">
+      <span class="case-answer__number">${badge}</span>
+    </div>
+    <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
+    <div class="case-answer__label">Правильна відповідь</div>
+    <div class="case-answer__correct">
+      <span class="case-answer__check" aria-hidden="true">✓</span>
+      <div class="case-answer__correct-body">${renderCorrectAnswer(ctx, correctAnswer, q.correct_texts?.length || 1)}</div>
+    </div>
+  `;
+  return block;
+}
+
+function buildCaseCard(ctx, q) {
+  const block = document.createElement("article");
+  block.className = "case-answer";
+  block.innerHTML = `
+    <div class="case-answer__head">
+      <span class="case-answer__number">Кейс ${ctx.escapeHtml(q.case_number || "")}</span>
+    </div>
+    <h2 class="case-answer__question">${ctx.escapeHtml(q.question)}</h2>
+    <div class="case-answer__label">Правильна відповідь</div>
+    <div class="case-answer__correct">
+      <span class="case-answer__check" aria-hidden="true">✓</span>
+      <div class="case-answer__correct-body">${renderCorrectAnswer(ctx, q.correct_answer || "—", q.correct_count || 1)}</div>
+    </div>
+  `;
+  return block;
 }
