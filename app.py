@@ -520,11 +520,13 @@ class MiniAppService:
         saved_view = await self.saved_view(auth)
         prices = await get_payment_prices(self.store)
         tq_visible = (await self.store.get_setting("test_questions_visible", "0")) == "1"
+        db_admin_url = await self.store.get_setting("admin_contact_url", "")
+        admin_url = db_admin_url or get_admin_contact_url(self.runtime.admin_ids)
         return {
             "user": self.serialize_user(auth),
             "links": {
                 "group_url": GROUP_URL,
-                "admin_url": get_admin_contact_url(self.runtime.admin_ids),
+                "admin_url": admin_url,
                 "webapp_url": self.runtime.webapp_url,
             },
             "catalog": self.serialize_catalog(auth),
@@ -1802,7 +1804,8 @@ async def api_admin_get_settings(auth: AuthContext = Depends(get_auth_context), 
         require_http(403, "forbidden", "Потрібні права адміністратора.")
     prices = await get_payment_prices(runtime.store)
     tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
-    return {"price_cases": prices["cases"], "price_full": prices["full"], "test_questions_visible": tq_visible}
+    admin_contact_url = await runtime.store.get_setting("admin_contact_url", "")
+    return {"price_cases": prices["cases"], "price_full": prices["full"], "test_questions_visible": tq_visible, "admin_contact_url": admin_contact_url}
 
 
 @app.post("/api/admin/settings")
@@ -1823,6 +1826,12 @@ async def api_admin_set_settings(request: Request, auth: AuthContext = Depends(g
         await runtime.store.set_setting("price_full", str(price_full))
     if tq_visible is not None:
         await runtime.store.set_setting("test_questions_visible", "1" if tq_visible else "0")
+    admin_contact_url = body.get("admin_contact_url")
+    if admin_contact_url is not None:
+        url = (admin_contact_url or "").strip()
+        if url.startswith("@"):
+            url = f"https://t.me/{url[1:]}"
+        await runtime.store.set_setting("admin_contact_url", url)
     return {"ok": True}
 
 

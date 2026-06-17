@@ -710,6 +710,18 @@ export function renderAdminSettings(ctx) {
       </div>
 
       <div class="group" style="margin-top: 16px;">
+        <div class="group__label">Контакт адміністратора</div>
+        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Username або посилання</label>
+            <input id="admin-contact-url" class="input" type="text" placeholder="@username або https://t.me/username" style="width: 100%;" />
+          </div>
+          <div id="admin-contact-save-wrap"></div>
+        </div>
+        <div class="group__footer">Посилання відображається у кнопці "Адміністратор" у розділі Підтримка.</div>
+      </div>
+
+      <div class="group" style="margin-top: 16px;">
         <div class="group__label">Тестові питання</div>
         <div class="group__list">
           <div class="cell" style="cursor: default;">
@@ -759,6 +771,28 @@ export async function loadAdminSettings(ctx) {
           tqCheckbox.disabled = false;
         }
       });
+    }
+
+    const contactInput = document.querySelector("#admin-contact-url");
+    if (contactInput) {
+      contactInput.value = payload.admin_contact_url || "";
+      const contactWrap = document.querySelector("#admin-contact-save-wrap");
+      if (contactWrap) {
+        contactWrap.innerHTML = "";
+        contactWrap.append(
+          ctx.actionButton("Зберегти контакт", async () => {
+            const val = contactInput.value.trim();
+            try {
+              await ctx.api("/api/admin/settings", { method: "POST", body: { admin_contact_url: val } });
+              ctx.impact("medium");
+              ctx.setMessage("success", "Контакт збережено.");
+              await ctx.loadBootstrap();
+            } catch (error) {
+              ctx.setMessage("error", error.message);
+            }
+          }, "block"),
+        );
+      }
     }
 
     const wrap = document.querySelector("#settings-save-wrap");
