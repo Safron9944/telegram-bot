@@ -79,13 +79,6 @@ export function renderHome(ctx) {
             screen: "cases",
           }),
           ctx.cell({
-            title: "Питання ОК",
-            subtitle: "Пошук питань митних компетенцій",
-            icon: "🔍",
-            tint: "purple",
-            screen: "ok-questions",
-          }),
-          ctx.cell({
             title: "Митний кодекс",
             subtitle: "Розділи, глави, статті та пошук",
             icon: "⚖",
