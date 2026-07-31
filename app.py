@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from case_importer import extract_case_from_upload_bytes
 from customs_code import repository as customs_code_repository
 
+from attestation import AttestationBank, SECTION_KEYS
 from questions import QuestionBank
 from storage import Storage
 from access import access_status, access_tier, create_stars_invoice_link
@@ -150,6 +151,10 @@ def require_http(status_code: int, code: str, message: str) -> None:
     raise HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
+def has_attestation_full_access(auth: "AuthContext") -> bool:
+    return bool(auth.is_admin) or access_tier(auth.user) == "full"
+
+
 def clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
@@ -248,6 +253,7 @@ def pretest_limit(meta: dict[str, Any]) -> int:
 class RuntimeContext:
     store: Storage
     qb: QuestionBank
+    attestation_qb: AttestationBank
     admin_ids: set[int]
     bot_token: str
     webapp_url: str
@@ -281,6 +287,18 @@ class StartLearningRequest(BaseModel):
 class StartTestRequest(BaseModel):
     include_law: bool = True
     module_levels: dict[str, list[int]] = Field(default_factory=dict)
+
+
+class StartAttestationRequest(BaseModel):
+    section: Literal[
+        "constitution",
+        "civil_service",
+        "customs_code",
+        "anti_corruption",
+        "all",
+    ]
+    mode: Literal["part", "random", "demo"]
+    part: int = 1
 
 
 class SelectIndexRequest(BaseModel):
@@ -438,6 +456,109 @@ class MiniAppService:
         if access_tier(auth.user) == "full":
             return
         require_http(403, "ok_questions_access_required", "Питання ОК доступні тільки з повним доступом (250 ⭐).")
+
+    def serialize_attestation_catalog(
+        self,
+        auth: AuthContext,
+    ) -> dict[str, Any]:
+        full_access = has_attestation_full_access(auth)
+        sections = []
+        for key, title in SECTION_KEYS.items():
+            count = len(self.runtime.attestation_qb.by_section.get(key, []) or [])
+            sections.append(
+                {
+                    "key": key,
+                    "title": title,
+                    "count": count,
+                    "parts": (count + 49) // 50,
+                    "demo_count": min(10, count),
+                    "locked": not full_access,
+                }
+            )
+        total = sum(item["count"] for item in sections)
+        sections.append(
+            {
+                "key": "all",
+                "title": "Усі питання",
+                "count": total,
+                "parts": (total + 49) // 50,
+                "demo_count": sum(item["demo_count"] for item in sections),
+                "locked": not full_access,
+            }
+        )
+        return {
+            "title": "Перший етап атестації",
+            "access": "full" if full_access else "demo",
+            "sections": sections,
+        }
+
+    def select_attestation(
+        self,
+        auth: AuthContext,
+        section: str,
+        mode: str,
+        part: int = 1,
+    ):
+        full_access = has_attestation_full_access(auth)
+        if not full_access and mode != "demo":
+            require_http(
+                403,
+                "attestation_full_required",
+                "Повний банк доступний лише за повною підпискою.",
+            )
+        if full_access and mode == "demo":
+            mode = "part"
+            part = 1
+        selected = self.runtime.attestation_qb.select(
+            section,
+            mode,
+            max(1, int(part or 1)),
+        )
+        if not selected:
+            require_http(
+                404,
+                "attestation_selection_empty",
+                "У вибраному наборі немає питань.",
+            )
+        return selected
+
+    async def start_attestation(
+        self,
+        auth: AuthContext,
+        payload: StartAttestationRequest,
+    ) -> dict[str, Any]:
+        selected = self.select_attestation(
+            auth,
+            payload.section,
+            payload.mode,
+            payload.part,
+        )
+        access = "full" if has_attestation_full_access(auth) else "demo"
+        await self.set_state(
+            auth.user_id,
+            {
+                "mode": "attestation",
+                "header": "Перший етап атестації",
+                "pending": [question.id for question in selected],
+                "skipped": [],
+                "phase": "pending",
+                "feedback": None,
+                "current_qid": None,
+                "correct_count": 0,
+                "total": len(selected),
+                "started_at": dt_to_iso(now()),
+                "answers": {},
+                "chosen": {},
+                "meta": {
+                    "bank": "attestation",
+                    "section": payload.section,
+                    "selection_mode": payload.mode,
+                    "part": max(1, int(payload.part or 1)),
+                    "access": access,
+                },
+            },
+        )
+        return await self.build_session_view(auth)
 
     def serialize_user(self, auth: AuthContext) -> dict[str, Any]:
         user = auth.user
@@ -1590,6 +1711,7 @@ async def lifespan(app: FastAPI):
     runtime = RuntimeContext(
         store=store,
         qb=qb,
+        attestation_qb=AttestationBank(),
         admin_ids=admin_ids,
         bot_token=bot_token,
         webapp_url=resolve_webapp_url(),

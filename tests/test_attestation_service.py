@@ -1,0 +1,144 @@
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app import AuthContext, MiniAppService, StartAttestationRequest
+from attestation import AttestationBank, AttestationQuestion, SECTION_KEYS
+from utils import now
+
+
+def auth(tier="none", admin=False):
+    user = {}
+    if tier == "full":
+        user = {"sub_tier": "full", "sub_infinite": True}
+    elif tier == "trial_full":
+        user = {"trial_end": now() + timedelta(days=1)}
+    return AuthContext({}, user, 7, admin)
+
+
+def question(section="constitution", number=1, qid=1):
+    return AttestationQuestion(
+        id=qid,
+        section=section,
+        section_title=SECTION_KEYS[section],
+        qnum=number,
+        question=f"Питання {section} {number}?",
+        choices=["Варіант А", "Варіант Б"],
+        correct=[2],
+        source_page=3,
+        source_hash=f"hash-{section}-{number}",
+        verification_method="pdf_visual",
+    )
+
+
+class MemoryStore:
+    def __init__(self):
+        self.state = {}
+        self.save_test = AsyncMock()
+
+    async def get_ui(self, user_id):
+        return {"state": self.state}
+
+    async def set_state(self, user_id, state):
+        self.state = state
+
+    async def stats(self, user_id):
+        return {"count": 0, "avg": 0.0, "last": None}
+
+    async def get_setting(self, key, default=None):
+        return default
+
+
+@pytest.fixture
+def fake_runtime():
+    questions = []
+    qid = 1
+    for section in SECTION_KEYS:
+        for number in range(1, 121):
+            questions.append(question(section=section, number=number, qid=qid))
+            qid += 1
+    return SimpleNamespace(
+        store=MemoryStore(),
+        qb=SimpleNamespace(by_id={}, law_groups={}, ok_modules={}, law=[]),
+        attestation_qb=AttestationBank(questions),
+        admin_ids=set(),
+        bot_token="",
+        webapp_url="",
+        allow_dev_auth=True,
+        auth_max_age_seconds=0,
+    )
+
+
+def completed_attestation_state(section="constitution", mode="demo"):
+    return {
+        "mode": "attestation",
+        "pending": [],
+        "correct_count": 8,
+        "total": 10,
+        "answers": {str(number): number <= 8 for number in range(1, 11)},
+        "chosen": {str(number): 0 for number in range(1, 11)},
+        "started_at": now().isoformat(),
+        "meta": {
+            "bank": "attestation",
+            "section": section,
+            "selection_mode": mode,
+            "access": "demo",
+        },
+    }
+
+
+def test_catalog_exposes_four_sections_and_all(fake_runtime):
+    service = MiniAppService(fake_runtime)
+
+    catalog = service.serialize_attestation_catalog(auth())
+
+    assert [item["key"] for item in catalog["sections"]] == [
+        "constitution",
+        "civil_service",
+        "customs_code",
+        "anti_corruption",
+        "all",
+    ]
+    assert catalog["access"] == "demo"
+    assert catalog["sections"][0]["demo_count"] == 10
+    assert catalog["sections"][-1]["demo_count"] == 40
+
+
+@pytest.mark.asyncio
+async def test_demo_cannot_request_random_or_part(fake_runtime):
+    service = MiniAppService(fake_runtime)
+
+    with pytest.raises(Exception) as exc:
+        await service.start_attestation(
+            auth(),
+            StartAttestationRequest(section="constitution", mode="random"),
+        )
+
+    assert exc.value.status_code == 403
+
+
+def test_trial_also_receives_only_demo(fake_runtime):
+    service = MiniAppService(fake_runtime)
+
+    catalog = service.serialize_attestation_catalog(auth("trial_full"))
+
+    assert catalog["access"] == "demo"
+    with pytest.raises(Exception) as exc:
+        service.select_attestation(
+            auth("trial_full"), "constitution", "part", 1
+        )
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_full_and_admin_may_request_full_modes(fake_runtime):
+    service = MiniAppService(fake_runtime)
+
+    assert len(
+        service.select_attestation(auth("full"), "constitution", "random", 1)
+    ) == 50
+    assert len(
+        service.select_attestation(auth(admin=True), "constitution", "part", 1)
+    ) == 50
