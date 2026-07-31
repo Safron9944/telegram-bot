@@ -180,6 +180,32 @@ class Storage:
                 CREATE INDEX IF NOT EXISTS idx_attestation_questions_section
                 ON attestation_questions(section, qnum);
             """)
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS attestation_question_reviews (
+                    id BIGSERIAL PRIMARY KEY,
+                    section TEXT NOT NULL,
+                    section_title TEXT NOT NULL,
+                    qnum INT NOT NULL,
+                    extracted_question TEXT NOT NULL,
+                    extracted_choices JSONB NOT NULL,
+                    proposed_correct JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    source_page INT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    issues JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    matches JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    status TEXT NOT NULL DEFAULT 'needs_review',
+                    resolved_by BIGINT,
+                    resolved_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE(section, qnum, source_hash),
+                    CHECK (status IN ('needs_review', 'approved', 'rejected'))
+                );
+            """)
+            await con.execute("""
+                CREATE INDEX IF NOT EXISTS idx_attestation_reviews_status
+                ON attestation_question_reviews(status, section, qnum);
+            """)
             await self._maybe_migrate_question_revisions_changed_by(con)
 
     async def _fetchrow(self, sql: str, *params):
@@ -560,6 +586,271 @@ class Storage:
         counts = {str(row["section"]): int(row["count"]) for row in rows}
         counts["all"] = sum(counts.values())
         return counts
+
+    @staticmethod
+    def _decode_attestation_review(row) -> Optional[dict]:
+        if not row:
+            return None
+        item = dict(row)
+
+        def decode(value: Any, fallback):
+            if not isinstance(value, str):
+                return value if value is not None else fallback
+            try:
+                return json.loads(value)
+            except (TypeError, ValueError):
+                return fallback
+
+        item["extracted_choices"] = list(
+            decode(item.get("extracted_choices"), [])
+        )
+        proposed = decode(item.get("proposed_correct"), [])
+        if isinstance(proposed, int):
+            proposed = [proposed]
+        item["proposed_correct"] = [int(value) for value in proposed or []]
+        item["issues"] = list(decode(item.get("issues"), []))
+        item["matches"] = list(decode(item.get("matches"), []))
+        return item
+
+    async def import_attestation_reviews(self, items: list[dict]) -> int:
+        from attestation import SECTION_KEYS
+
+        assert self.pool
+        imported = 0
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                for item in items:
+                    section = str(item.get("section") or "")
+                    qnum = int(item.get("qnum") or 0)
+                    source_hash = str(item.get("source_hash") or "")
+                    existing = await con.fetchrow(
+                        "SELECT status FROM attestation_question_reviews "
+                        "WHERE section=$1 AND qnum=$2 AND source_hash=$3",
+                        section,
+                        qnum,
+                        source_hash,
+                    )
+                    if existing and existing.get("status") != "needs_review":
+                        continue
+                    proposed = item.get("proposed_correct")
+                    if isinstance(proposed, int):
+                        proposed = [proposed]
+                    await con.execute(
+                        """
+                        INSERT INTO attestation_question_reviews
+                            (section, section_title, qnum, extracted_question,
+                             extracted_choices, proposed_correct, source_page,
+                             source_hash, issues, matches, status, updated_at)
+                        VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,
+                                $9::jsonb,$10::jsonb,'needs_review',now())
+                        ON CONFLICT (section, qnum, source_hash) DO UPDATE SET
+                            section_title=EXCLUDED.section_title,
+                            extracted_question=EXCLUDED.extracted_question,
+                            extracted_choices=EXCLUDED.extracted_choices,
+                            proposed_correct=EXCLUDED.proposed_correct,
+                            source_page=EXCLUDED.source_page,
+                            issues=EXCLUDED.issues,
+                            matches=EXCLUDED.matches,
+                            updated_at=now()
+                        WHERE attestation_question_reviews.status='needs_review'
+                        """,
+                        section,
+                        str(
+                            item.get("section_title")
+                            or SECTION_KEYS.get(section)
+                            or section
+                        ),
+                        qnum,
+                        str(item.get("extracted_question") or ""),
+                        json.dumps(
+                            list(item.get("extracted_choices") or []),
+                            ensure_ascii=False,
+                        ),
+                        json.dumps(
+                            [int(value) for value in proposed or []],
+                            ensure_ascii=False,
+                        ),
+                        int(item.get("source_page") or 0),
+                        source_hash,
+                        json.dumps(list(item.get("issues") or []), ensure_ascii=False),
+                        json.dumps(list(item.get("matches") or []), ensure_ascii=False),
+                    )
+                    imported += 1
+        return imported
+
+    async def list_attestation_reviews(
+        self,
+        status: str = "needs_review",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> dict:
+        status = str(status or "needs_review")
+        if status not in {"needs_review", "approved", "rejected", "all"}:
+            raise ValueError("невідомий статус перевірки")
+        where = "" if status == "all" else "WHERE status=$1"
+        params = () if status == "all" else (status,)
+        total_row = await self._fetchrow(
+            f"SELECT COUNT(*) AS count FROM attestation_question_reviews {where}",
+            *params,
+        )
+        rows = await self._fetch(
+            f"""
+            SELECT * FROM attestation_question_reviews
+            {where}
+            ORDER BY section, qnum, id
+            LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}
+            """,
+            *params,
+            int(limit),
+            int(offset),
+        )
+        return {
+            "items": [self._decode_attestation_review(row) for row in rows],
+            "total": int(total_row["count"] if total_row else 0),
+            "offset": int(offset),
+            "limit": int(limit),
+        }
+
+    async def get_attestation_review(self, review_id: int) -> Optional[dict]:
+        row = await self._fetchrow(
+            "SELECT * FROM attestation_question_reviews WHERE id=$1",
+            int(review_id),
+        )
+        return self._decode_attestation_review(row)
+
+    async def attestation_review_summary(self) -> dict[str, int]:
+        status_rows = await self._fetch("""
+            SELECT status, COUNT(*) AS count
+            FROM attestation_question_reviews
+            GROUP BY status
+        """)
+        statuses = {
+            str(row["status"]): int(row["count"]) for row in status_rows
+        }
+        verified_row = await self._fetchrow("""
+            SELECT COUNT(*) AS verified,
+                   COUNT(*) FILTER (
+                       WHERE jsonb_array_length(match_evidence) > 0
+                   ) AS matched_database
+            FROM attestation_questions
+        """)
+        return {
+            "verified": int(verified_row["verified"] if verified_row else 0),
+            "matched_database": int(
+                verified_row["matched_database"] if verified_row else 0
+            ),
+            "needs_review": statuses.get("needs_review", 0),
+            "approved": statuses.get("approved", 0),
+            "rejected": statuses.get("rejected", 0),
+            "total_reviews": sum(statuses.values()),
+        }
+
+    async def _approve_attestation_review(
+        self,
+        con,
+        review_id: int,
+        payload: dict,
+        admin_id: int,
+    ) -> dict:
+        from attestation import AttestationQuestion, validate_question
+
+        async with con.transaction():
+            raw = await con.fetchrow(
+                "SELECT * FROM attestation_question_reviews "
+                "WHERE id=$1 FOR UPDATE",
+                int(review_id),
+            )
+            candidate = self._decode_attestation_review(raw)
+            if not candidate:
+                raise ValueError("проблемне питання не знайдено")
+            if candidate.get("status") != "needs_review":
+                raise ValueError("питання вже опрацьоване")
+
+            choices = [str(value).strip() for value in payload.get("choices") or []]
+            correct = [int(value) for value in payload.get("correct") or []]
+            question = AttestationQuestion(
+                id=int(candidate.get("id") or 0),
+                section=str(candidate.get("section") or ""),
+                section_title=str(candidate.get("section_title") or ""),
+                qnum=int(candidate.get("qnum") or 0),
+                question=str(payload.get("question") or "").strip(),
+                choices=choices,
+                correct=correct,
+                source_page=int(candidate.get("source_page") or 0),
+                source_hash=str(candidate.get("source_hash") or ""),
+                verification_method="admin",
+                match_evidence=list(candidate.get("matches") or []),
+            )
+            validate_question(question)
+            approved = dict(question.__dict__)
+            approved["verified_by"] = f"admin:{int(admin_id)}"
+            await self._upsert_attestation_row(con, approved, force=True)
+            await con.execute(
+                """
+                UPDATE attestation_question_reviews
+                SET status='approved', resolved_by=$2, resolved_at=now(),
+                    updated_at=now()
+                WHERE id=$1
+                """,
+                int(review_id),
+                int(admin_id),
+            )
+            candidate.update(
+                {
+                    "status": "approved",
+                    "resolved_by": int(admin_id),
+                    "approved_question": approved,
+                }
+            )
+            return candidate
+
+    async def approve_attestation_review(
+        self,
+        review_id: int,
+        payload: dict,
+        admin_id: int,
+    ) -> dict:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            return await self._approve_attestation_review(
+                con,
+                review_id,
+                payload,
+                admin_id,
+            )
+
+    async def reject_attestation_review(
+        self,
+        review_id: int,
+        admin_id: int,
+    ) -> dict:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                raw = await con.fetchrow(
+                    "SELECT * FROM attestation_question_reviews "
+                    "WHERE id=$1 FOR UPDATE",
+                    int(review_id),
+                )
+                candidate = self._decode_attestation_review(raw)
+                if not candidate:
+                    raise ValueError("проблемне питання не знайдено")
+                if candidate.get("status") != "needs_review":
+                    raise ValueError("питання вже опрацьоване")
+                await con.execute(
+                    """
+                    UPDATE attestation_question_reviews
+                    SET status='rejected', resolved_by=$2, resolved_at=now(),
+                        updated_at=now()
+                    WHERE id=$1
+                    """,
+                    int(review_id),
+                    int(admin_id),
+                )
+                candidate.update(
+                    {"status": "rejected", "resolved_by": int(admin_id)}
+                )
+                return candidate
 
     async def fetch_question(self, qid: int) -> Optional[dict]:
         row = await self._fetchrow(

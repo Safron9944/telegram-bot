@@ -7,6 +7,52 @@ import pytest
 from storage import Storage
 
 
+class FakeTransaction:
+    def __init__(self, con):
+        self.con = con
+
+    async def __aenter__(self):
+        self.con.transaction_entered = True
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class FakeReviewConnection:
+    def __init__(self, candidate):
+        self.candidate = candidate
+        self.transaction_entered = False
+        self.status_updates = []
+
+    def transaction(self):
+        return FakeTransaction(self)
+
+    async def fetchrow(self, sql, *args):
+        return self.candidate if "FOR UPDATE" in sql else None
+
+    async def execute(self, sql, *args):
+        if "UPDATE attestation_question_reviews" in sql:
+            self.status_updates.append(args)
+        return "UPDATE 1"
+
+
+def valid_review_candidate():
+    return {
+        "id": 9,
+        "section": "constitution",
+        "section_title": "Конституція України",
+        "qnum": 1,
+        "extracted_question": "Повне питання?",
+        "extracted_choices": ["А", "Б"],
+        "proposed_correct": [2],
+        "source_page": 3,
+        "source_hash": "source-9",
+        "issues": ["low_ocr_confidence"],
+        "matches": [],
+        "status": "needs_review",
+    }
+
+
 @pytest.mark.asyncio
 async def test_import_attestation_upserts_verified_but_preserves_admin_row():
     store = Storage("postgresql://unused")
@@ -119,3 +165,50 @@ async def test_standard_and_attestation_statistics_are_isolated():
 
     assert "test_type='standard'" in standard_sql
     assert "test_type='attestation'" in attestation_sql
+
+
+@pytest.mark.asyncio
+async def test_approve_review_validates_then_moves_question_atomically():
+    store = Storage("postgresql://unused")
+    con = FakeReviewConnection(candidate=valid_review_candidate())
+    store._upsert_attestation_row = AsyncMock(return_value=True)
+
+    result = await store._approve_attestation_review(
+        con,
+        review_id=9,
+        payload={
+            "question": "Повне питання?",
+            "choices": ["А", "Б"],
+            "correct": [2],
+        },
+        admin_id=123,
+    )
+
+    assert result["status"] == "approved"
+    assert con.transaction_entered
+    inserted = store._upsert_attestation_row.await_args.args[1]
+    assert inserted["verification_method"] == "admin"
+    assert inserted["verified_by"] == "admin:123"
+    assert con.status_updates
+
+
+@pytest.mark.asyncio
+async def test_approve_review_rejects_empty_choice_without_changing_status():
+    store = Storage("postgresql://unused")
+    con = FakeReviewConnection(candidate=valid_review_candidate())
+    store._upsert_attestation_row = AsyncMock(return_value=True)
+
+    with pytest.raises(ValueError, match="порожній варіант"):
+        await store._approve_attestation_review(
+            con,
+            9,
+            {
+                "question": "Питання?",
+                "choices": ["А", ""],
+                "correct": [1],
+            },
+            123,
+        )
+
+    assert con.status_updates == []
+    store._upsert_attestation_row.assert_not_awaited()
