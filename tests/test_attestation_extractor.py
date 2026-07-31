@@ -38,6 +38,22 @@ def test_group_page_lines_appends_wrapped_choice_text():
     assert row["choices"] == ["перша частина продовження відповіді", "інший варіант"]
 
 
+def test_group_page_lines_handles_bullet_detected_as_separate_box():
+    lines = [
+        {"text": "1", "confidence": 0.99, "box": [[100, 10], [120, 10], [120, 30], [100, 30]]},
+        {"text": "Питання?", "confidence": 0.99, "box": [[200, 10], [500, 10], [500, 30], [200, 30]]},
+        {"text": "•", "confidence": 0.95, "box": [[210, 50], [225, 50], [225, 70], [210, 70]], "is_choice": True, "ink_per_character": 20.0},
+        {"text": "перша відповідь", "confidence": 0.99, "box": [[250, 50], [500, 50], [500, 70], [250, 70]], "ink_per_character": 29.0},
+        {"text": "•", "confidence": 0.95, "box": [[210, 80], [225, 80], [225, 100], [210, 100]], "is_choice": True, "ink_per_character": 20.0},
+        {"text": "друга відповідь", "confidence": 0.99, "box": [[250, 80], [500, 80], [500, 100], [250, 100]], "ink_per_character": 20.0},
+    ]
+
+    row = group_page_lines(lines, page_number=3)[0]
+
+    assert row["choices"] == ["перша відповідь", "друга відповідь"]
+    assert row["choice_ink_scores"] == [29.0, 20.0]
+
+
 def test_join_cross_page_rows_merges_orphan_continuation():
     rows = [
         {"qnum": 9, "question": "Питання", "choices": ["довга відповідь"], "source_pages": [5], "confidences": [0.9], "choice_ink_scores": [20.0], "ended_before_next_number": False},

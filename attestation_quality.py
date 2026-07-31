@@ -88,6 +88,10 @@ def quality_issues(
 ) -> list[str]:
     issues: list[str] = []
     values = [str(question or ""), *(str(choice or "") for choice in choices)]
+    short_complete_words = {
+        "і", "й", "в", "у", "з", "із", "зі", "до", "за", "на", "по",
+        "та", "не", "ні", "чи", "її", "їх", "є", "як", "ми", "ви", "ти", "я",
+    }
 
     if not values[0].strip() or any(not choice.strip() for choice in values[1:]):
         issues.append("empty_text")
@@ -96,7 +100,8 @@ def quality_issues(
     if crossed_page and not ended_before_next_number:
         issues.append("page_break_not_closed")
     if any(
-        re.search(r"\b[а-яіїєґ]{1,2}$", value.strip(), re.IGNORECASE)
+        (match := re.search(r"\b[а-яіїєґ]{1,2}$", value.strip(), re.IGNORECASE))
+        and match.group(0).casefold() not in short_complete_words
         for value in values
         if value.strip()
     ):

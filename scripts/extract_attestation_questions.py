@@ -37,6 +37,7 @@ SECTION_PAGES: dict[str, range] = {
     "customs_code": range(62, 93),
     "anti_corruption": range(93, 129),
 }
+EXPECTED_QUESTION_COUNTS = {section: 200 for section in SECTION_PAGES}
 
 NUMBER_RE = re.compile(r"^\s*(\d{1,4})[.)]?\s*$")
 BULLET_RE = re.compile(r"^\s*[•●▪◦·]+\s*")
@@ -116,7 +117,7 @@ def group_page_lines(
         number_match = NUMBER_RE.fullmatch(text)
         # Question numbers live in the left margin. A numeric answer elsewhere
         # must not accidentally split the current question.
-        if number_match and left <= 180:
+        if number_match and (left <= 180 or line.get("synthetic_structure")):
             if current is not None:
                 current["ended_before_next_number"] = True
                 rows.append(current)
@@ -133,12 +134,15 @@ def group_page_lines(
         current["confidences"].append(float(line.get("confidence") or 0.0))
         if is_choice:
             choice = _strip_bullet(text)
-            if choice:
-                current["choices"].append(choice)
-                current["choice_ink_scores"].append(
-                    float(line.get("ink_per_character") or 0.0)
-                )
+            current["choices"].append(choice)
+            current["choice_ink_scores"].append(
+                float(line.get("ink_per_character") or 0.0)
+            )
         elif current["choices"]:
+            if not current["choices"][-1]:
+                current["choice_ink_scores"][-1] = float(
+                    line.get("ink_per_character") or 0.0
+                )
             current["choices"][-1] = _clean_text(
                 f'{current["choices"][-1]} {text}'
             )
@@ -270,6 +274,7 @@ def _review_record(
 def classify_candidates(
     candidates: Iterable[dict[str, Any]],
     references: Iterable[ReferenceQuestion] = (),
+    expected_counts: dict[str, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     candidates = [dict(candidate) for candidate in candidates]
     references = list(references)
@@ -280,10 +285,16 @@ def classify_candidates(
     )
     verified: list[dict[str, Any]] = []
     reviews: list[dict[str, Any]] = []
+    processed_keys: set[tuple[str, int]] = set()
 
     for candidate in candidates:
         section = str(candidate.get("section") or "")
         qnum = int(candidate.get("qnum") or 0)
+        candidate_key = (section, qnum)
+        if qnum > 0 and candidate_key in processed_keys:
+            continue
+        if qnum > 0:
+            processed_keys.add(candidate_key)
         question = _clean_text(candidate.get("question"))
         choices = [_clean_text(choice) for choice in candidate.get("choices") or []]
         pages = [int(page) for page in candidate.get("source_pages") or []]
@@ -360,7 +371,10 @@ def classify_candidates(
             if str(candidate.get("section") or "") == section
             and (qnum := int(candidate.get("qnum") or 0)) > 0
         ]
-        for qnum in range(1, max(observed, default=0) + 1):
+        expected_max = int(
+            (expected_counts or {}).get(section, max(observed, default=0))
+        )
+        for qnum in range(1, expected_max + 1):
             if represented[(section, qnum)]:
                 continue
             placeholder = {
@@ -453,29 +467,383 @@ def _ink_per_character(image: Any, box: Any, text: str) -> float:
     return darkness * crop.width * crop.height / glyphs / 100.0
 
 
-def run_ocr(image_path: Path, reader: Any) -> list[dict[str, Any]]:
+def _group_close_values(values: Iterable[int], distance: int = 4) -> list[int]:
+    groups: list[list[int]] = []
+    for value in sorted(set(int(item) for item in values)):
+        if not groups or value - groups[-1][-1] > distance:
+            groups.append([value])
+        else:
+            groups[-1].append(value)
+    return [round(sum(group) / len(group)) for group in groups]
+
+
+def annotate_page_structure(
+    image: Any,
+    lines: list[dict[str, Any]],
+    starting_question_number: int,
+) -> tuple[list[dict[str, Any]], int, dict[str, Any]]:
+    """Recover table rows, question numbers and answer bullets from pixels.
+
+    The source is a scan, and generic OCR frequently ignores the narrow number
+    column and isolated bullet glyphs. The document's printed table is much
+    more stable than OCR, so we use its horizontal/vertical rules as anchors
+    and inject deterministic structural markers before text grouping.
+    """
+
+    import cv2
+    import numpy as np
+
+    rgb = np.asarray(image.convert("RGB"))
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+    height, width = binary.shape
+
+    # Find the three long vertical table rules first. A small horizontal
+    # dilation absorbs scan skew; genuine rules cover nearly the full page.
+    expanded_vertical = cv2.dilate(
+        binary, np.ones((1, 13), dtype=np.uint8)
+    )
+    y_start, y_stop = round(height * 0.07), round(height * 0.96)
+    vertical_coverage = np.count_nonzero(
+        expanded_vertical[y_start:y_stop, :], axis=0
+    ) / max(1, y_stop - y_start)
+    rule_x = np.flatnonzero(vertical_coverage >= 0.75)
+    vertical_bands: list[list[int]] = []
+    for raw_x in rule_x:
+        x = int(raw_x)
+        if not vertical_bands or x - vertical_bands[-1][-1] > 1:
+            vertical_bands.append([x])
+        else:
+            vertical_bands[-1].append(x)
+    vertical_rules = [
+        round(sum(band) / len(band)) for band in vertical_bands
+    ]
+    plausible_rules = [
+        value for value in vertical_rules if width * 0.03 < value < width * 0.35
+    ]
+    if len(plausible_rules) >= 2:
+        table_left, divider = plausible_rules[:2]
+    else:
+        table_left, divider = round(width * 0.072), round(width * 0.126)
+
+    right_rules = [value for value in vertical_rules if value > width * 0.65]
+    table_right = right_rules[-1] if right_rules else round(width * 0.95)
+
+    # The row rules are a little tilted/broken. Dilating vertically turns each
+    # one into a solid band; a real rule covers almost the full table width,
+    # while text baselines do not. This recovers every row on the source scan.
+    expanded = cv2.dilate(binary, np.ones((13, 1), dtype=np.uint8))
+    coverage = np.count_nonzero(
+        expanded[:, table_left:table_right], axis=1
+    ) / max(1, table_right - table_left)
+    rule_y = np.flatnonzero(coverage >= 0.75)
+    boundary_bands: list[list[int]] = []
+    for raw_y in rule_y:
+        y = int(raw_y)
+        if not boundary_bands or y - boundary_bands[-1][-1] > 1:
+            boundary_bands.append([y])
+        else:
+            boundary_bands[-1].append(y)
+    boundaries = [round(sum(band) / len(band)) for band in boundary_bands]
+    boundaries = [
+        value for value in boundaries if height * 0.06 < value < height * 0.98
+    ]
+
+    if len(boundaries) < 2:
+        return lines, starting_question_number, {
+            "boundaries": boundaries,
+            "vertical_rules": vertical_rules,
+            "table_left": table_left,
+            "divider": divider,
+            "table_right": table_right,
+            "numbered_rows": 0,
+            "bullets": 0,
+            "structure_confidence": 0.0,
+        }
+
+    table_top, table_bottom = min(boundaries), max(boundaries)
+
+    # Remove unreliable OCR readings of question numbers. They are replaced by
+    # row markers derived from the table and the known sequential numbering.
+    cleaned_lines = []
+    for line in lines:
+        left, _top, _right, _bottom = _box_bounds(line)
+        if left < divider and NUMBER_RE.fullmatch(_clean_text(line.get("text"))):
+            continue
+        cleaned_lines.append(line)
+
+    next_question = max(1, int(starting_question_number))
+    markers: list[dict[str, Any]] = []
+    bullet_centers: list[int] = []
+    numbered_rows = 0
+    row_boundaries = [
+        value for value in boundaries if table_top <= value <= table_bottom
+    ]
+    for top, bottom in zip(row_boundaries, row_boundaries[1:]):
+        if bottom - top < 32:
+            continue
+        number_crop = binary[
+            top + 3:min(bottom - 2, top + max(48, height // 28)),
+            table_left + 5:max(table_left + 6, divider - 5),
+        ]
+        has_number = bool(number_crop.size and cv2.countNonZero(number_crop) >= 18)
+        if has_number:
+            markers.append(
+                {
+                    "text": str(next_question),
+                    "confidence": 1.0,
+                    "box": [
+                        [float(table_left + 8), float(top + 5)],
+                        [float(divider - 8), float(top + 5)],
+                        [float(divider - 8), float(top + 32)],
+                        [float(table_left + 8), float(top + 32)],
+                    ],
+                    "ink_per_character": 0.0,
+                    "is_choice": False,
+                    "synthetic_structure": True,
+                }
+            )
+            next_question += 1
+            numbered_rows += 1
+
+        row_roi = binary[top + 2:bottom - 1, divider + 28:divider + 62]
+        contours, _ = cv2.findContours(
+            row_roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            area = cv2.contourArea(contour)
+            fill = area / max(1.0, float(w * h))
+            if (
+                5 <= w <= 26
+                and 5 <= h <= 26
+                and 18 <= area <= 500
+                and 0.55 <= w / max(h, 1) <= 1.7
+                and fill >= 0.35
+            ):
+                bullet_centers.append(top + 2 + y + h // 2)
+
+    bullet_centers = _group_close_values(bullet_centers, distance=5)
+    for bullet_y in bullet_centers:
+        candidates = []
+        for line in cleaned_lines:
+            left, top, right, bottom = _box_bounds(line)
+            center_y = (top + bottom) / 2
+            if left >= divider + 80 and abs(center_y - bullet_y) <= max(18, (bottom - top)):
+                candidates.append((abs(center_y - bullet_y), left, line))
+        if candidates:
+            _distance, _left, target = min(candidates, key=lambda item: (item[0], item[1]))
+            target["is_choice"] = True
+
+    output = cleaned_lines + markers
+    return output, next_question, {
+        "boundaries": row_boundaries,
+        "vertical_rules": vertical_rules,
+        "table_left": table_left,
+        "divider": divider,
+        "table_right": table_right,
+        "numbered_rows": numbered_rows,
+        "bullets": len(bullet_centers),
+        "bullet_centers": bullet_centers,
+        "structure_confidence": 1.0 if numbered_rows else 0.5,
+    }
+
+
+def structured_text_boxes(
+    image: Any,
+    layout: dict[str, Any],
+) -> list[tuple[list[int], bool]]:
+    """Build OCR line boxes directly from table pixels.
+
+    EasyOCR's generic scene-text detector is both slow and distracted by the
+    printed grid. The scan has strong row geometry, so projection-based line
+    segmentation is faster and preserves wrapped answer lines reliably.
+    """
+
+    import cv2
+    import numpy as np
+
+    gray = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2GRAY)
+    binary = cv2.threshold(
+        gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+    )[1]
+    divider = int(layout.get("divider") or 0)
+    table_right = int(layout.get("table_right") or image.width)
+    boundaries = [int(value) for value in layout.get("boundaries") or []]
+    bullets = [int(value) for value in layout.get("bullet_centers") or []]
+    result: list[tuple[list[int], bool]] = []
+
+    for top, bottom in zip(boundaries, boundaries[1:]):
+        y_start, y_stop = top + 8, bottom - 8
+        x_start, x_stop = divider + 8, table_right - 8
+        if y_stop <= y_start or x_stop <= x_start:
+            continue
+        roi = binary[y_start:y_stop, x_start:x_stop]
+        projection = np.count_nonzero(roi, axis=1)
+        ink_rows = np.flatnonzero(projection >= 8)
+        bands: list[list[int]] = []
+        for raw_y in ink_rows:
+            y = int(raw_y) + y_start
+            if not bands or y - bands[-1][-1] > 10:
+                bands.append([y])
+            else:
+                bands[-1].append(y)
+
+        for band in bands:
+            band_top, band_bottom = band[0], band[-1]
+            if band_bottom - band_top < 12:
+                continue
+            line_roi = binary[
+                max(top + 2, band_top - 4):min(bottom - 2, band_bottom + 5),
+                x_start:x_stop,
+            ]
+            ink_columns = np.flatnonzero(np.count_nonzero(line_roi, axis=0) >= 2)
+            if not ink_columns.size:
+                continue
+            left = x_start + int(ink_columns[0])
+            right = x_start + int(ink_columns[-1]) + 1
+            center_y = (band_top + band_bottom) / 2
+            is_choice = any(
+                abs(center_y - bullet_y) <= max(20, band_bottom - band_top)
+                for bullet_y in bullets
+            )
+            if is_choice:
+                # Do not ask the recognizer to interpret the bullet itself.
+                left = max(left, divider + 105)
+            result.append(
+                (
+                    [
+                        max(divider + 2, left - 5),
+                        min(table_right - 2, right + 6),
+                        max(top + 2, band_top - 5),
+                        min(bottom - 2, band_bottom + 6),
+                    ],
+                    is_choice,
+                )
+            )
+    return result
+
+
+def run_ocr(
+    image_path: Path,
+    reader: Any,
+    starting_question_number: int | None = None,
+) -> list[dict[str, Any]]:
     from PIL import Image
+    import numpy as np
 
     with Image.open(image_path) as source:
         image = source.convert("RGB")
-        result: list[dict[str, Any]] = []
-        for box, raw_text, confidence in reader.readtext(
-            str(image_path),
+        if starting_question_number is None:
+            _markers, _next, probe_layout = annotate_page_structure(
+                image, [], 1
+            )
+            boundaries = list(probe_layout.get("boundaries") or [])
+            table_left = int(probe_layout.get("table_left") or 0)
+            divider = int(probe_layout.get("divider") or 0)
+            if len(boundaries) >= 2 and divider > table_left:
+                x_start = max(0, table_left - 20)
+                x_stop = min(image.width, divider + 20)
+                number_crop = np.asarray(image)[:, x_start:x_stop]
+                detected = reader.readtext(
+                    number_crop,
+                    detail=1,
+                    paragraph=False,
+                    allowlist="0123456789",
+                    canvas_size=4096,
+                    mag_ratio=1.5,
+                    text_threshold=0.3,
+                    low_text=0.2,
+                    link_threshold=0.3,
+                )
+                first_detected: tuple[int, int] | None = None
+                for number_box, number_text, _confidence in detected:
+                    cleaned_number = re.sub(r"\D", "", str(number_text))
+                    if not cleaned_number:
+                        continue
+                    value = int(cleaned_number)
+                    center_y = sum(float(point[1]) for point in number_box) / max(
+                        1, len(number_box)
+                    )
+                    for row_index, (top, bottom) in enumerate(
+                        zip(boundaries, boundaries[1:])
+                    ):
+                        if top <= center_y <= bottom and 1 <= value <= 200:
+                            if first_detected is None or row_index < first_detected[0]:
+                                first_detected = (row_index, value)
+                            break
+                if first_detected is not None:
+                    first_row, first_value = first_detected
+                    # A page can start with a continuation row. Count only
+                    # numbered cells before the first OCR-readable number.
+                    import cv2
+
+                    gray = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2GRAY)
+                    binary = cv2.threshold(
+                        gray,
+                        0,
+                        255,
+                        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+                    )[1]
+                    prior_numbered = 0
+                    for top, bottom in list(
+                        zip(boundaries, boundaries[1:])
+                    )[:first_row]:
+                        cell = binary[
+                            top + 3:min(
+                                bottom - 2,
+                                top + max(48, image.height // 28),
+                            ),
+                            table_left + 5:max(table_left + 6, divider - 5),
+                        ]
+                        prior_numbered += int(
+                            bool(cell.size and cv2.countNonZero(cell) >= 18)
+                        )
+                    starting_question_number = first_value - prior_numbered
+
+        _probe_markers, _probe_next, layout = annotate_page_structure(
+            image, [], starting_question_number or 1
+        )
+        structured_boxes = structured_text_boxes(image, layout)
+        horizontal_list = [box for box, _is_choice in structured_boxes]
+        recognized = reader.recognize(
+            np.asarray(image.convert("L")),
+            horizontal_list=horizontal_list,
+            free_list=[],
             detail=1,
             paragraph=False,
-        ):
+            reformat=False,
+        )
+        result: list[dict[str, Any]] = []
+        for index, (box, raw_text, confidence) in enumerate(recognized):
             text = _clean_text(raw_text)
             if not text:
                 continue
+            structural_choice = (
+                structured_boxes[index][1]
+                if index < len(structured_boxes)
+                else False
+            )
             result.append(
                 {
                     "text": text,
                     "confidence": float(confidence),
                     "box": [[float(x), float(y)] for x, y in box],
                     "ink_per_character": _ink_per_character(image, box, text),
-                    "is_choice": bool(BULLET_RE.match(text)),
+                    "is_choice": structural_choice or bool(BULLET_RE.match(text)),
                 }
             )
+        if starting_question_number is not None:
+            result, _next_question, layout = annotate_page_structure(
+                image,
+                result,
+                starting_question_number,
+            )
+            layout["detected_starting_question_number"] = (
+                starting_question_number
+            )
+            for line in result:
+                line.setdefault("page_layout", layout)
     return result
 
 
@@ -681,7 +1049,11 @@ def main(argv: list[str] | None = None) -> int:
         args.ocr_cache,
         [item.strip() for item in args.languages.split(",") if item.strip()],
     )
-    verified, reviews, report = classify_candidates(candidates, references)
+    verified, reviews, report = classify_candidates(
+        candidates,
+        references,
+        expected_counts=EXPECTED_QUESTION_COUNTS,
+    )
     report["pdf"] = str(args.pdf.resolve())
     report["physical_pages_processed"] = 126
     report["candidate_rows"] = len(candidates)
