@@ -74,6 +74,14 @@ class Storage:
                     percent DOUBLE PRECISION
                 );
             """)
+            await con.execute(
+                "ALTER TABLE tests ADD COLUMN IF NOT EXISTS "
+                "test_type TEXT NOT NULL DEFAULT 'standard';"
+            )
+            await con.execute(
+                "ALTER TABLE tests ADD COLUMN IF NOT EXISTS "
+                "meta JSONB NOT NULL DEFAULT '{}'::jsonb;"
+            )
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS questions (
                     id INT PRIMARY KEY,
@@ -149,6 +157,29 @@ class Storage:
                 );
             """)
             await con.execute("CREATE INDEX IF NOT EXISTS idx_test_exam_questions_source ON test_exam_questions(source);")
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS attestation_questions (
+                    id BIGSERIAL PRIMARY KEY,
+                    section TEXT NOT NULL,
+                    section_title TEXT NOT NULL,
+                    qnum INT NOT NULL,
+                    question TEXT NOT NULL,
+                    choices JSONB NOT NULL,
+                    correct JSONB NOT NULL,
+                    source_page INT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    verification_method TEXT NOT NULL,
+                    match_evidence JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    verified_by TEXT,
+                    verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE(section, qnum)
+                );
+            """)
+            await con.execute("""
+                CREATE INDEX IF NOT EXISTS idx_attestation_questions_section
+                ON attestation_questions(section, qnum);
+            """)
             await self._maybe_migrate_question_revisions_changed_by(con)
 
     async def _fetchrow(self, sql: str, *params):
@@ -348,19 +379,53 @@ class Storage:
     async def remove_mistake(self, user_id: int, qid: int):
         await self._exec("DELETE FROM errors WHERE user_id=$1 AND qid=$2", user_id, qid)
 
-    async def save_test(self, user_id: int, started_at: datetime, finished_at: datetime, total: int, correct: int):
+    async def save_test(
+        self,
+        user_id: int,
+        started_at: datetime,
+        finished_at: datetime,
+        total: int,
+        correct: int,
+        test_type: str = "standard",
+        meta: Optional[dict] = None,
+    ):
         percent = (correct / total * 100.0) if total else 0.0
         await self._exec("""
-            INSERT INTO tests (user_id, started_at, finished_at, total, correct, percent)
-            VALUES ($1,$2,$3,$4,$5,$6)
-        """, user_id, started_at, finished_at, total, correct, percent)
+            INSERT INTO tests
+                (user_id, started_at, finished_at, total, correct, percent,
+                 test_type, meta)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
+        """, user_id, started_at, finished_at, total, correct, percent,
+            str(test_type or "standard"),
+            json.dumps(meta or {}, ensure_ascii=False))
 
     async def stats(self, user_id: int) -> dict:
-        rows = await self._fetch("SELECT * FROM tests WHERE user_id=$1 ORDER BY id DESC LIMIT 50", user_id)
+        rows = await self._fetch(
+            "SELECT * FROM tests WHERE user_id=$1 AND test_type='standard' "
+            "ORDER BY id DESC LIMIT 50",
+            user_id,
+        )
+        return self._stats_result(rows)
+
+    async def attestation_stats(self, user_id: int) -> dict:
+        rows = await self._fetch(
+            "SELECT * FROM tests WHERE user_id=$1 AND test_type='attestation' "
+            "ORDER BY id DESC LIMIT 50",
+            user_id,
+        )
+        return self._stats_result(rows)
+
+    @staticmethod
+    def _stats_result(rows) -> dict:
         if not rows:
             return {"count": 0, "avg": 0.0, "last": None}
         perc = [float(r["percent"]) for r in rows]
         last = dict(rows[0])
+        if isinstance(last.get("meta"), str):
+            try:
+                last["meta"] = json.loads(last["meta"])
+            except (TypeError, ValueError):
+                last["meta"] = {}
         return {"count": len(rows), "avg": sum(perc) / len(perc), "last": last}
 
     async def list_users(self, offset: int, limit: int) -> list[dict]:
@@ -380,6 +445,121 @@ class Storage:
             FROM questions ORDER BY id
         """)
         return [dict(r) for r in rows]
+
+    async def _upsert_attestation_row(
+        self,
+        con,
+        item: dict,
+        *,
+        force: bool = False,
+    ) -> bool:
+        from attestation import SECTION_KEYS
+
+        section = str(item.get("section") or "")
+        qnum = int(item.get("qnum") or 0)
+        existing = await con.fetchrow(
+            "SELECT verification_method FROM attestation_questions "
+            "WHERE section=$1 AND qnum=$2",
+            section,
+            qnum,
+        )
+        if (
+            existing
+            and str(existing.get("verification_method") or "") == "admin"
+            and not force
+        ):
+            return False
+
+        await con.execute(
+            """
+            INSERT INTO attestation_questions
+                (section, section_title, qnum, question, choices, correct,
+                 source_page, source_hash, verification_method, match_evidence,
+                 verified_by, verified_at, updated_at)
+            VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10::jsonb,$11,now(),now())
+            ON CONFLICT (section, qnum) DO UPDATE SET
+                section_title=EXCLUDED.section_title,
+                question=EXCLUDED.question,
+                choices=EXCLUDED.choices,
+                correct=EXCLUDED.correct,
+                source_page=EXCLUDED.source_page,
+                source_hash=EXCLUDED.source_hash,
+                verification_method=EXCLUDED.verification_method,
+                match_evidence=EXCLUDED.match_evidence,
+                verified_by=EXCLUDED.verified_by,
+                verified_at=now(),
+                updated_at=now()
+            """,
+            section,
+            str(item.get("section_title") or SECTION_KEYS.get(section) or section),
+            qnum,
+            str(item.get("question") or "").strip(),
+            json.dumps(list(item.get("choices") or []), ensure_ascii=False),
+            json.dumps(
+                [int(value) for value in item.get("correct") or []],
+                ensure_ascii=False,
+            ),
+            int(item.get("source_page") or 0),
+            str(item.get("source_hash") or ""),
+            str(item.get("verification_method") or "pdf_visual"),
+            json.dumps(list(item.get("match_evidence") or []), ensure_ascii=False),
+            item.get("verified_by"),
+        )
+        return True
+
+    async def import_attestation_questions(
+        self,
+        items: list[dict],
+        *,
+        force: bool = False,
+    ) -> int:
+        assert self.pool
+        imported = 0
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                for item in items:
+                    if await self._upsert_attestation_row(con, item, force=force):
+                        imported += 1
+        return imported
+
+    async def fetch_attestation_questions(self) -> list[dict]:
+        rows = await self._fetch("""
+            SELECT id, section, section_title, qnum, question, choices, correct,
+                   source_page, source_hash, verification_method, match_evidence
+            FROM attestation_questions
+            ORDER BY section, qnum, id
+        """)
+
+        def decode(value: Any, fallback):
+            if not isinstance(value, str):
+                return value if value is not None else fallback
+            try:
+                return json.loads(value)
+            except (TypeError, ValueError):
+                return fallback
+
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["choices"] = list(decode(item.get("choices"), []))
+            item["correct"] = [
+                int(value) for value in decode(item.get("correct"), [])
+            ]
+            item["match_evidence"] = list(
+                decode(item.get("match_evidence"), [])
+            )
+            result.append(item)
+        return result
+
+    async def attestation_counts(self) -> dict[str, int]:
+        rows = await self._fetch("""
+            SELECT section, COUNT(*) AS count
+            FROM attestation_questions
+            GROUP BY section
+        """)
+        counts = {str(row["section"]): int(row["count"]) for row in rows}
+        counts["all"] = sum(counts.values())
+        return counts
 
     async def fetch_question(self, qid: int) -> Optional[dict]:
         row = await self._fetchrow(
