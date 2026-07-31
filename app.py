@@ -437,6 +437,31 @@ class MiniAppService:
     async def set_state(self, user_id: int, state: dict[str, Any]) -> None:
         await self.store.set_state(user_id, state)
 
+    def resolve_question(self, state: dict[str, Any], qid: int):
+        bank = str((state.get("meta") or {}).get("bank") or "questions")
+        if bank == "attestation":
+            return self.runtime.attestation_qb.by_id.get(int(qid))
+        return self.qb.by_id.get(int(qid))
+
+    def ensure_session_access(
+        self,
+        auth: AuthContext,
+        state: dict[str, Any],
+    ) -> None:
+        meta = dict(state.get("meta") or {})
+        if meta.get("bank") == "attestation":
+            if (
+                meta.get("access") == "full"
+                and not has_attestation_full_access(auth)
+            ):
+                require_http(
+                    403,
+                    "attestation_full_required",
+                    "Повний доступ до атестації завершився.",
+                )
+            return
+        self.ensure_access(auth)
+
     def ensure_access(self, auth: AuthContext) -> None:
         """Full access: навчання, тести (trial included)."""
         tier = access_tier(auth.user)
@@ -662,13 +687,26 @@ class MiniAppService:
         mode = str(state.get("mode") or "")
         if not mode:
             return None
+        if mode in {
+            "learn",
+            "test",
+            "mistakes",
+            "attestation",
+            "test_result",
+            "test_review",
+            "attestation_result",
+            "attestation_review",
+        }:
+            self.ensure_session_access(auth, state)
         if mode == "pretest":
             return self.build_pretest_view(state, auth.is_admin)
-        if mode in {"learn", "test", "mistakes"}:
+        if mode in {"learn", "test", "mistakes", "attestation"}:
             return await self.build_session_view(auth, state)
         if mode == "test_result":
             return self.build_test_result_view(state)
-        if mode == "test_review":
+        if mode == "attestation_result":
+            return self.build_attestation_result_view(state)
+        if mode in {"test_review", "attestation_review"}:
             return await self.build_test_review_view(auth.user_id, state)
         return None
 
@@ -735,14 +773,15 @@ class MiniAppService:
     async def build_session_view(self, auth: AuthContext, state: dict[str, Any] | None = None) -> dict[str, Any]:
         state = state or await self.get_state(auth.user_id)
         mode = str(state.get("mode") or "")
-        if mode not in {"learn", "test", "mistakes"}:
+        if mode not in {"learn", "test", "mistakes", "attestation"}:
             return {"mode": "idle", "screen": "empty"}
+        self.ensure_session_access(auth, state)
 
         feedback = state.get("feedback")
         if feedback:
             qid = int(feedback.get("qid"))
             chosen = int(feedback.get("chosen"))
-            q = self.qb.by_id.get(qid)
+            q = self.resolve_question(state, qid)
             if q:
                 return {
                     "mode": mode,
@@ -770,12 +809,14 @@ class MiniAppService:
 
             if mode == "test":
                 return await self.finish_test(auth.user_id, state)
+            if mode == "attestation":
+                return await self.finish_attestation(auth.user_id, state)
             if mode == "mistakes":
                 return await self.finish_mistakes(auth.user_id, state)
             return await self.finish_learning(auth.user_id, state)
 
         while pending:
-            q = self.qb.by_id.get(int(pending[0]))
+            q = self.resolve_question(state, int(pending[0]))
             if q and (q.choices or []):
                 break
             pending = pending[1:]
@@ -786,7 +827,9 @@ class MiniAppService:
             return await self.build_session_view(auth, state)
 
         qid = int(pending[0])
-        q = self.qb.by_id[qid]
+        q = self.resolve_question(state, qid)
+        if q is None:
+            require_http(404, "question_missing", "Питання недоступне.")
 
         state["pending"] = pending
         state["current_qid"] = qid
@@ -890,6 +933,49 @@ class MiniAppService:
         await self.set_state(user_id, result_state)
         return self.build_test_result_view(result_state)
 
+    async def finish_attestation(
+        self,
+        user_id: int,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        correct = int(state.get("correct_count", 0) or 0)
+        total = int(state.get("total", 0) or 0)
+        percent = (correct / total * 100.0) if total else 0.0
+        started_at = iso_to_dt(state.get("started_at")) or now()
+        finished_at = now()
+        meta = dict(state.get("meta") or {})
+        await self.store.save_test(
+            user_id,
+            started_at,
+            finished_at,
+            total,
+            correct,
+            test_type="attestation",
+            meta=meta,
+        )
+
+        answers = dict(state.get("answers") or {})
+        chosen = dict(state.get("chosen") or {})
+        result_state = {
+            "mode": "attestation_result",
+            "summary": {
+                "title": "Перший етап атестації завершено",
+                "correct": correct,
+                "total": total,
+                "percent": percent,
+                "finished_at": dt_to_iso(finished_at),
+                "meta": meta,
+            },
+            "wrong_qids": [
+                int(qid) for qid, is_correct in answers.items() if not is_correct
+            ],
+            "chosen": chosen,
+            "review_index": 0,
+            "meta": meta,
+        }
+        await self.set_state(user_id, result_state)
+        return self.build_attestation_result_view(result_state)
+
     def build_test_result_view(self, state: dict[str, Any]) -> dict[str, Any]:
         summary = dict(state.get("summary", {}) or {})
         return {
@@ -899,6 +985,18 @@ class MiniAppService:
             "wrong_count": len(state.get("wrong_qids", []) or []),
         }
 
+    def build_attestation_result_view(
+        self,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "mode": "attestation_result",
+            "screen": "result",
+            "summary": dict(state.get("summary") or {}),
+            "wrong_count": len(state.get("wrong_qids") or []),
+            "meta": dict(state.get("meta") or {}),
+        }
+
     async def build_test_review_view(self, user_id: int, state: dict[str, Any]) -> dict[str, Any]:
         wrong_qids = [int(x) for x in (state.get("wrong_qids", []) or [])]
         chosen_map = dict(state.get("chosen", {}) or {})
@@ -906,12 +1004,16 @@ class MiniAppService:
         while wrong_qids:
             index = clamp(int(state.get("review_index", 0) or 0), 0, len(wrong_qids) - 1)
             qid = wrong_qids[index]
-            q = self.qb.by_id.get(qid)
+            q = self.resolve_question(state, qid)
             if q:
                 chosen = chosen_map.get(str(qid))
                 chosen_idx = int(chosen) if chosen is not None else None
                 return {
-                    "mode": "test_review",
+                    "mode": (
+                        "attestation_review"
+                        if (state.get("meta") or {}).get("bank") == "attestation"
+                        else "test_review"
+                    ),
                     "screen": "review",
                     "index": index,
                     "total": len(wrong_qids),
@@ -932,7 +1034,15 @@ class MiniAppService:
             state["review_index"] = min(index, max(0, len(wrong_qids) - 1))
             await self.set_state(user_id, state)
 
-        return {"mode": "test_review", "screen": "empty", "message": "У цьому тесті немає помилок."}
+        return {
+            "mode": (
+                "attestation_review"
+                if (state.get("meta") or {}).get("bank") == "attestation"
+                else "test_review"
+            ),
+            "screen": "empty",
+            "message": "У цьому тесті немає помилок.",
+        }
 
     async def start_learning_flow(self, auth: AuthContext, payload: StartLearningRequest) -> dict[str, Any]:
         self.ensure_access(auth)
@@ -1109,14 +1219,14 @@ class MiniAppService:
         return await self.build_session_view(auth)
 
     async def answer(self, auth: AuthContext, payload: AnswerRequest) -> dict[str, Any]:
-        self.ensure_access(auth)
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         mode = str(state.get("mode") or "")
         qid = state.get("current_qid")
-        if mode not in {"learn", "test", "mistakes"} or not qid:
+        if mode not in {"learn", "test", "mistakes", "attestation"} or not qid:
             require_http(409, "inactive_session", "Немає активної сесії.")
 
-        q = self.qb.by_id.get(int(qid))
+        q = self.resolve_question(state, int(qid))
         if not q or not (q.choices or []):
             require_http(404, "question_missing", "Питання недоступне.")
 
@@ -1140,7 +1250,7 @@ class MiniAppService:
             await self.set_state(auth.user_id, state)
             return await self.build_session_view(auth, state)
 
-        if mode == "test":
+        if mode in {"test", "attestation"}:
             answers = dict(state.get("answers", {}) or {})
             chosen = dict(state.get("chosen", {}) or {})
             answers[str(qid)] = bool(is_correct)
@@ -1149,6 +1259,8 @@ class MiniAppService:
             state["chosen"] = chosen
             if is_correct:
                 state["correct_count"] = int(state.get("correct_count", 0) or 0) + 1
+            if mode == "attestation":
+                state["feedback"] = {"qid": int(qid), "chosen": choice}
             await self.set_state(auth.user_id, state)
             return await self.build_session_view(auth, state)
 
@@ -1180,10 +1292,14 @@ class MiniAppService:
         return await self.build_session_view(auth, state)
 
     async def feedback_next(self, auth: AuthContext) -> dict[str, Any]:
-        self.ensure_access(auth)
         state = await self.get_state(auth.user_id)
-        if state.get("mode") != "learn":
-            require_http(409, "not_learning", "Поточна сесія не є навчанням.")
+        self.ensure_session_access(auth, state)
+        if state.get("mode") not in {"learn", "attestation"}:
+            require_http(
+                409,
+                "feedback_not_available",
+                "У поточній сесії немає переходу після відповіді.",
+            )
         state["feedback"] = None
         await self.set_state(auth.user_id, state)
         return await self.build_session_view(auth, state)
@@ -1194,32 +1310,51 @@ class MiniAppService:
 
     async def open_test_review(self, auth: AuthContext) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         wrong_qids = list(state.get("wrong_qids", []) or [])
         if not wrong_qids:
             require_http(409, "no_review", "У цьому тесті немає помилок.")
-        state["mode"] = "test_review"
+        state["mode"] = (
+            "attestation_review"
+            if (state.get("meta") or {}).get("bank") == "attestation"
+            else "test_review"
+        )
         state["review_index"] = 0
         await self.set_state(auth.user_id, state)
         return await self.build_test_review_view(auth.user_id, state)
 
     async def set_review_index(self, auth: AuthContext, payload: ReviewIndexRequest) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
-        if str(state.get("mode") or "") not in {"test_review", "test_result"}:
+        self.ensure_session_access(auth, state)
+        if str(state.get("mode") or "") not in {
+            "test_review",
+            "test_result",
+            "attestation_review",
+            "attestation_result",
+        }:
             require_http(409, "no_review", "Немає активного перегляду помилок.")
         wrong_qids = list(state.get("wrong_qids", []) or [])
         if not wrong_qids:
             require_http(409, "no_review", "У цьому тесті немає помилок.")
-        state["mode"] = "test_review"
+        state["mode"] = (
+            "attestation_review"
+            if (state.get("meta") or {}).get("bank") == "attestation"
+            else "test_review"
+        )
         state["review_index"] = clamp(int(payload.index), 0, len(wrong_qids) - 1)
         await self.set_state(auth.user_id, state)
         return await self.build_test_review_view(auth.user_id, state)
 
     async def back_to_test_result(self, auth: AuthContext) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         if not state.get("summary"):
             require_http(409, "no_test_result", "Немає результату тесту.")
-        state["mode"] = "test_result"
+        is_attestation = (state.get("meta") or {}).get("bank") == "attestation"
+        state["mode"] = "attestation_result" if is_attestation else "test_result"
         await self.set_state(auth.user_id, state)
+        if is_attestation:
+            return self.build_attestation_result_view(state)
         return self.build_test_result_view(state)
 
     async def search_ok_questions(self, auth: AuthContext, query: str, limit: int = 25, offset: int = 0) -> dict[str, Any]:

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app import AuthContext, MiniAppService, StartAttestationRequest
+from app import AnswerRequest, AuthContext, MiniAppService, StartAttestationRequest
 from attestation import AttestationBank, AttestationQuestion, SECTION_KEYS
 from utils import now
 
@@ -142,3 +142,52 @@ async def test_full_and_admin_may_request_full_modes(fake_runtime):
     assert len(
         service.select_attestation(auth(admin=True), "constitution", "part", 1)
     ) == 50
+
+
+@pytest.mark.asyncio
+async def test_attestation_answer_always_returns_feedback(fake_runtime):
+    service = MiniAppService(fake_runtime)
+    await service.start_attestation(
+        auth(),
+        StartAttestationRequest(section="constitution", mode="demo"),
+    )
+
+    view = await service.answer(auth(), AnswerRequest(choice=0))
+
+    assert view["mode"] == "attestation"
+    assert view["screen"] == "feedback"
+    assert any(
+        option["status"] == "correct" for option in view["question"]["options"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_attestation_finish_uses_separate_stats(fake_runtime):
+    service = MiniAppService(fake_runtime)
+    fake_runtime.store.save_test.reset_mock()
+    state = completed_attestation_state(section="all", mode="demo")
+
+    result = await service.finish_attestation(7, state)
+
+    assert result["mode"] == "attestation_result"
+    fake_runtime.store.save_test.assert_awaited_once()
+    assert (
+        fake_runtime.store.save_test.await_args.kwargs["test_type"]
+        == "attestation"
+    )
+
+
+@pytest.mark.asyncio
+async def test_saved_full_session_is_rejected_after_access_expires(fake_runtime):
+    service = MiniAppService(fake_runtime)
+    fake_runtime.store.state = {
+        "mode": "attestation",
+        "pending": [1],
+        "current_qid": 1,
+        "meta": {"bank": "attestation", "access": "full"},
+    }
+
+    with pytest.raises(Exception) as exc:
+        await service.answer(auth(), AnswerRequest(choice=0))
+
+    assert exc.value.status_code == 403
