@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from case_importer import extract_case_from_upload_bytes
 from customs_code import repository as customs_code_repository
 
-from attestation import AttestationBank, SECTION_KEYS
+from attestation import AttestationBank, AttestationQuestion, SECTION_KEYS
 from questions import QuestionBank
 from storage import Storage
 from access import access_status, access_tier, create_stars_invoice_link
@@ -76,6 +76,14 @@ def resolve_questions_path() -> Path:
     if not path.is_absolute():
         path = BASE_DIR / path
     return path
+
+
+def load_json_file(path: Path) -> list[dict[str, Any]]:
+    with open(path, "r", encoding="utf-8") as stream:
+        payload = json.load(stream)
+    if not isinstance(payload, list):
+        raise ValueError(f"Expected a JSON list: {path}")
+    return [dict(item) for item in payload if isinstance(item, dict)]
 
 
 def resolve_webapp_url() -> str:
@@ -524,6 +532,12 @@ class MiniAppService:
         mode: str,
         part: int = 1,
     ):
+        if not self.runtime.attestation_qb.by_id:
+            require_http(
+                503,
+                "attestation_bank_empty",
+                "Банк питань першого етапу атестації ще не завантажено.",
+            )
         full_access = has_attestation_full_access(auth)
         if not full_access and mode != "demo":
             require_http(
@@ -654,6 +668,7 @@ class MiniAppService:
         return {
             "law_groups": sort_law_groups(law_groups),
             "ok_modules": ok_modules,
+            "attestation": self.serialize_attestation_catalog(auth),
             "counts": {
                 "questions": len(self.qb.by_id),
                 "law": len(self.qb.law),
@@ -1838,15 +1853,30 @@ async def lifespan(app: FastAPI):
             exam_items = json.load(_f)
         await store.import_test_exam_questions(exam_items)
 
+    verified_attestation_path = BASE_DIR / "attestation_questions.json"
+    attestation_reviews_path = BASE_DIR / "attestation_review_candidates.json"
+    if verified_attestation_path.exists():
+        await store.import_attestation_questions(
+            load_json_file(verified_attestation_path)
+        )
+    if attestation_reviews_path.exists():
+        await store.import_attestation_reviews(
+            load_json_file(attestation_reviews_path)
+        )
+
     qb = QuestionBank(str(questions_path))
     await qb.load_from_db(store)
     if not qb.by_id:
         raise RuntimeError("No questions loaded from DB.")
+    attestation_qb = AttestationBank(
+        AttestationQuestion(**row)
+        for row in await store.fetch_attestation_questions()
+    )
 
     runtime = RuntimeContext(
         store=store,
         qb=qb,
-        attestation_qb=AttestationBank(),
+        attestation_qb=attestation_qb,
         admin_ids=admin_ids,
         bot_token=bot_token,
         webapp_url=resolve_webapp_url(),
@@ -1954,6 +1984,15 @@ async def api_session_leave(auth: AuthContext = Depends(get_auth_context), runti
 @app.post("/api/test/start")
 async def api_test_start(payload: StartTestRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).start_test(auth, payload)
+
+
+@app.post("/api/attestation/start")
+async def api_attestation_start(
+    payload: StartAttestationRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).start_attestation(auth, payload)
 
 
 @app.post("/api/test/review/open")

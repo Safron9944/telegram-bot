@@ -191,3 +191,24 @@ async def test_saved_full_session_is_rejected_after_access_expires(fake_runtime)
         await service.answer(auth(), AnswerRequest(choice=0))
 
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_contains_attestation_catalog(fake_runtime):
+    result = await MiniAppService(fake_runtime).bootstrap(auth())
+
+    assert result["catalog"]["attestation"]["access"] == "demo"
+
+
+@pytest.mark.asyncio
+async def test_empty_attestation_bank_has_explicit_error(fake_runtime):
+    fake_runtime.attestation_qb = AttestationBank()
+    service = MiniAppService(fake_runtime)
+
+    with pytest.raises(Exception) as exc:
+        await service.start_attestation(
+            auth(),
+            StartAttestationRequest(section="constitution", mode="demo"),
+        )
+
+    assert exc.value.detail["code"] == "attestation_bank_empty"
