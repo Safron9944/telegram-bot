@@ -540,10 +540,10 @@ class CMAC:
 
         self.Rb = self.__Rb_dictionary[blocksize*8]
 
-        mask1 = int(('\xff'*blocksize).encode('hex'),16)
-        mask2 = int(('\x80' + '\x00'*(blocksize-1) ).encode('hex'),16)
+        mask1 = int.from_bytes(('\xff'*blocksize).encode('latin1'), 'big')
+        mask2 = int.from_bytes(('\x80' + '\x00'*(blocksize-1)).encode('latin1'), 'big')
 
-        L = int(self.codebook.encrypt('\x00'*blocksize).encode('hex'),16)
+        L = int.from_bytes(self.codebook.encrypt('\x00'*blocksize).encode('latin1'), 'big')
 
         if L & mask2:
             Lu = ((L << 1) & mask1) ^ self.Rb
