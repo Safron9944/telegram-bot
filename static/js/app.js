@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260617-question-search-04";
+import { state } from "./core/state.js?v=20260731-attestation-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-04";
 import { initializeTheme } from "./core/theme.js?v=20260617-question-search-04";
@@ -37,7 +37,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260617-question-search-04";
+} from "./screens/user.js?v=20260731-attestation-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -57,7 +57,11 @@ import {
   renderAdminUsers,
   runQuestionSearch,
 } from "./screens/admin.js?v=20260617-question-search-04";
-import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-04";
+import { renderCurrentView } from "./screens/session.js?v=20260731-attestation-01";
+import {
+  renderAttestation,
+  renderAttestationParts,
+} from "./screens/attestation.js?v=20260731-attestation-01";
 
 window.__APP_READY__ = false;
 
@@ -170,6 +174,9 @@ async function goBack() {
     if (previous !== "law-parts") {
       state.selectedLawGroup = null;
     }
+    if (previous !== "attestation-parts") {
+      state.selectedAttestationSection = null;
+    }
     if (previous !== "customs-code-section") {
       state.customsSectionDetail = null;
     }
@@ -227,6 +234,8 @@ function render() {
 
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
+    case "attestation":       renderAttestation(ctx); break;
+    case "attestation-parts": renderAttestationParts(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
     case "customs":           renderCustoms(ctx); break;

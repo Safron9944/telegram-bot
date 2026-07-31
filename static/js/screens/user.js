@@ -72,6 +72,13 @@ export function renderHome(ctx) {
             screen: "customs",
           }),
           ctx.cell({
+            title: "Перший етап атестації",
+            subtitle: "4 розділи · демо або повний банк",
+            icon: "✓",
+            tint: "purple",
+            screen: "attestation",
+          }),
+          ctx.cell({
             title: "Кейси",
             subtitle: "Питання та правильні відповіді",
             icon: "🗂",
