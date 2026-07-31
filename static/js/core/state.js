@@ -9,6 +9,9 @@ export const state = {
   adminQuestionsPage: 0,
   selectedAdminUserId: null,
   selectedQuestionId: null,
+  adminAttestationSummary: null,
+  adminAttestationReviews: null,
+  selectedAttestationReview: null,
   searchResults: null,
   questionSearchQuery: "",
   learningTab: "law", // "law" | "ok" | "mistakes"

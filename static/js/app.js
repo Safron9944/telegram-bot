@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260731-attestation-01";
+import { state } from "./core/state.js?v=20260731-attestation-02";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-04";
 import { initializeTheme } from "./core/theme.js?v=20260617-question-search-04";
@@ -56,12 +56,16 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260617-question-search-04";
+} from "./screens/admin.js?v=20260731-attestation-02";
 import { renderCurrentView } from "./screens/session.js?v=20260731-attestation-01";
 import {
   renderAttestation,
   renderAttestationParts,
 } from "./screens/attestation.js?v=20260731-attestation-01";
+import {
+  loadAdminAttestationReviews,
+  renderAdminAttestationReviews,
+} from "./screens/admin-attestation.js?v=20260731-attestation-02";
 
 window.__APP_READY__ = false;
 
@@ -103,6 +107,7 @@ function createContext() {
     loadAdminCases: () => loadAdminCases(createContext()),
     loadAdminSettings: () => loadAdminSettings(createContext()),
     loadAdminTestQuestions: (offset = state.testQOffset || 0) => loadAdminTestQuestions(createContext(), offset),
+    loadAdminAttestationReviews: (offset = 0) => loadAdminAttestationReviews(createContext(), offset),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
     loadCases: () => loadCases(createContext()),
@@ -201,6 +206,7 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
+  if (screen === "admin-attestation-reviews") void loadAdminAttestationReviews(createContext(), 0);
   if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
@@ -260,6 +266,7 @@ function render() {
     case "admin-cases":            renderAdminCases(ctx); break;
     case "admin-settings":      renderAdminSettings(ctx); break;
     case "admin-test-questions": renderAdminTestQuestions(ctx); break;
+    case "admin-attestation-reviews": renderAdminAttestationReviews(ctx); break;
     default:
       state.currentScreen = "home";
       renderHome(ctx);
