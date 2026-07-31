@@ -1,0 +1,14 @@
+[
+  {"text":"1","confidence":0.99,"box":[[120,180],[150,180],[150,215],[120,215]],"ink_per_character":30.0,"is_choice":false},
+  {"text":"Якою є Україна за державним устроєм?","confidence":0.99,"box":[[205,180],[920,180],[920,220],[205,220]],"ink_per_character":22.0,"is_choice":false},
+  {"text":"• федеративною державою","confidence":0.98,"box":[[220,240],[680,240],[680,280],[220,280]],"ink_per_character":20.1,"is_choice":true},
+  {"text":"• конфедеративною державою","confidence":0.98,"box":[[220,290],[750,290],[750,330],[220,330]],"ink_per_character":20.3,"is_choice":true},
+  {"text":"• унітарною державою","confidence":0.99,"box":[[220,340],[650,340],[650,382],[220,382]],"ink_per_character":28.8,"is_choice":true},
+  {"text":"• республікою","confidence":0.98,"box":[[220,390],[500,390],[500,430],[220,430]],"ink_per_character":20.0,"is_choice":true},
+  {"text":"2","confidence":0.99,"box":[[120,470],[150,470],[150,505],[120,505]],"ink_per_character":30.0,"is_choice":false},
+  {"text":"Якою є Україна за формою державного правління?","confidence":0.99,"box":[[205,470],[980,470],[980,510],[205,510]],"ink_per_character":22.0,"is_choice":false},
+  {"text":"• республікою","confidence":0.99,"box":[[220,530],[500,530],[500,570],[220,570]],"ink_per_character":29.5,"is_choice":true},
+  {"text":"• конституційною монархією","confidence":0.97,"box":[[220,580],[760,580],[760,620],[220,620]],"ink_per_character":20.1,"is_choice":true},
+  {"text":"• абсолютною монархією","confidence":0.97,"box":[[220,630],[700,630],[700,670],[220,670]],"ink_per_character":20.0,"is_choice":true},
+  {"text":"• унітарною державою","confidence":0.97,"box":[[220,680],[650,680],[650,720],[220,720]],"ink_per_character":20.2,"is_choice":true}
+]
