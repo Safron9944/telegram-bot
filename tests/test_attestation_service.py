@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app import AnswerRequest, AuthContext, MiniAppService, StartAttestationRequest
+from app import (
+    AnswerRequest,
+    AttestationReviewPatch,
+    AuthContext,
+    MiniAppService,
+    StartAttestationRequest,
+)
 from attestation import AttestationBank, AttestationQuestion, SECTION_KEYS
 from utils import now
 
@@ -212,3 +218,76 @@ async def test_empty_attestation_bank_has_explicit_error(fake_runtime):
         )
 
     assert exc.value.detail["code"] == "attestation_bank_empty"
+
+
+@pytest.mark.asyncio
+async def test_admin_approval_reloads_runtime_bank(fake_runtime):
+    fake_runtime.store.approve_attestation_review = AsyncMock(
+        return_value={"status": "approved"}
+    )
+    fake_runtime.store.attestation_review_summary = AsyncMock(
+        return_value={"verified": 481, "needs_review": 2}
+    )
+    existing = list(fake_runtime.attestation_qb.by_id.values())
+    new_question = question(section="constitution", number=121, qid=9999)
+    fake_runtime.store.fetch_attestation_questions = AsyncMock(
+        return_value=[item.__dict__ for item in [*existing, new_question]]
+    )
+    service = MiniAppService(fake_runtime)
+    before = len(fake_runtime.attestation_qb.by_id)
+
+    result = await service.admin_approve_attestation_review(
+        auth(admin=True),
+        9,
+        AttestationReviewPatch(
+            question="Повне питання?",
+            choices=["А", "Б"],
+            correct=[2],
+        ),
+    )
+
+    assert len(fake_runtime.attestation_qb.by_id) == before + 1
+    assert result["review"]["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_use_attestation_review_methods(fake_runtime):
+    service = MiniAppService(fake_runtime)
+
+    calls = [
+        lambda: service.admin_attestation_reviews(auth(), "needs_review", 0, 20),
+        lambda: service.admin_attestation_review(auth(), 1),
+        lambda: service.admin_attestation_summary(auth()),
+        lambda: service.admin_reject_attestation_review(auth(), 1),
+        lambda: service.admin_approve_attestation_review(
+            auth(),
+            1,
+            AttestationReviewPatch(
+                question="Питання?", choices=["А", "Б"], correct=[1]
+            ),
+        ),
+    ]
+    for call in calls:
+        with pytest.raises(Exception) as exc:
+            await call()
+        assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_invalid_admin_approval_returns_field_safe_400(fake_runtime):
+    fake_runtime.store.approve_attestation_review = AsyncMock(
+        side_effect=ValueError("порожній варіант відповіді")
+    )
+    service = MiniAppService(fake_runtime)
+
+    with pytest.raises(Exception) as exc:
+        await service.admin_approve_attestation_review(
+            auth(admin=True),
+            9,
+            AttestationReviewPatch(
+                question="Питання?", choices=["А", ""], correct=[1]
+            ),
+        )
+
+    assert exc.value.status_code == 400
+    assert exc.value.detail["code"] == "invalid_attestation_review"

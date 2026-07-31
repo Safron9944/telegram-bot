@@ -331,6 +331,12 @@ class QuestionPatchRequest(BaseModel):
     correct: list[int] | None = None
 
 
+class AttestationReviewPatch(BaseModel):
+    question: str
+    choices: list[str]
+    correct: list[int]
+
+
 def verify_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> dict[str, Any]:
     parsed_pairs = urllib.parse.parse_qsl(init_data, keep_blank_values=True)
     if not parsed_pairs:
@@ -1762,6 +1768,109 @@ class MiniAppService:
 
         return {"question": serialize_question(self.qb.by_id[int(qid)], reveal_answers=True)}
 
+    @staticmethod
+    def _ensure_admin(auth: AuthContext) -> None:
+        if not auth.is_admin:
+            require_http(
+                403,
+                "forbidden",
+                "Потрібні права адміністратора.",
+            )
+
+    async def admin_attestation_reviews(
+        self,
+        auth: AuthContext,
+        status: str = "needs_review",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        self._ensure_admin(auth)
+        try:
+            return await self.store.list_attestation_reviews(
+                status,
+                max(0, int(offset)),
+                clamp(int(limit), 1, 100),
+            )
+        except ValueError as error:
+            require_http(400, "invalid_review_status", str(error))
+
+    async def admin_attestation_review(
+        self,
+        auth: AuthContext,
+        review_id: int,
+    ) -> dict[str, Any]:
+        self._ensure_admin(auth)
+        item = await self.store.get_attestation_review(int(review_id))
+        if not item:
+            require_http(
+                404,
+                "attestation_review_not_found",
+                "Проблемне питання не знайдено.",
+            )
+        return {"review": item}
+
+    async def admin_attestation_summary(
+        self,
+        auth: AuthContext,
+    ) -> dict[str, Any]:
+        self._ensure_admin(auth)
+        return await self.store.attestation_review_summary()
+
+    @staticmethod
+    def _raise_review_error(error: ValueError) -> None:
+        message = str(error)
+        if "не знайдено" in message:
+            require_http(404, "attestation_review_not_found", message)
+        if "вже опрацьоване" in message:
+            require_http(409, "attestation_review_resolved", message)
+        require_http(400, "invalid_attestation_review", message)
+
+    async def admin_approve_attestation_review(
+        self,
+        auth: AuthContext,
+        review_id: int,
+        payload: AttestationReviewPatch,
+    ) -> dict[str, Any]:
+        self._ensure_admin(auth)
+        try:
+            review = await self.store.approve_attestation_review(
+                int(review_id),
+                payload.model_dump(),
+                auth.user_id,
+            )
+        except ValueError as error:
+            self._raise_review_error(error)
+            raise AssertionError("unreachable")
+
+        self.runtime.attestation_qb = AttestationBank(
+            AttestationQuestion(**row)
+            for row in await self.store.fetch_attestation_questions()
+        )
+        return {
+            "review": review,
+            "summary": await self.store.attestation_review_summary(),
+            "catalog": self.serialize_attestation_catalog(auth),
+        }
+
+    async def admin_reject_attestation_review(
+        self,
+        auth: AuthContext,
+        review_id: int,
+    ) -> dict[str, Any]:
+        self._ensure_admin(auth)
+        try:
+            review = await self.store.reject_attestation_review(
+                int(review_id),
+                auth.user_id,
+            )
+        except ValueError as error:
+            self._raise_review_error(error)
+            raise AssertionError("unreachable")
+        return {
+            "review": review,
+            "summary": await self.store.attestation_review_summary(),
+        }
+
 
 def build_bot_router(runtime: RuntimeContext) -> Router:
     router = Router()
@@ -2179,6 +2288,59 @@ async def api_admin_question_detail(qid: int, auth: AuthContext = Depends(get_au
 @app.patch("/api/admin/questions/{qid}")
 async def api_admin_question_update(qid: int, payload: QuestionPatchRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_update_question(auth, qid, payload)
+
+
+@app.get("/api/admin/attestation/reviews")
+async def api_admin_attestation_reviews(
+    status: str = "needs_review",
+    offset: int = 0,
+    limit: int = 20,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).admin_attestation_reviews(
+        auth, status, offset, limit
+    )
+
+
+@app.get("/api/admin/attestation/reviews/{review_id}")
+async def api_admin_attestation_review(
+    review_id: int,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).admin_attestation_review(auth, review_id)
+
+
+@app.post("/api/admin/attestation/reviews/{review_id}/approve")
+async def api_admin_attestation_review_approve(
+    review_id: int,
+    payload: AttestationReviewPatch,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).admin_approve_attestation_review(
+        auth, review_id, payload
+    )
+
+
+@app.post("/api/admin/attestation/reviews/{review_id}/reject")
+async def api_admin_attestation_review_reject(
+    review_id: int,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).admin_reject_attestation_review(
+        auth, review_id
+    )
+
+
+@app.get("/api/admin/attestation/summary")
+async def api_admin_attestation_summary(
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).admin_attestation_summary(auth)
 
 
 @app.get("/api/admin/global-search")
