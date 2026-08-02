@@ -182,8 +182,6 @@ export async function loadAdminUserDetail(ctx, userId) {
     closeAdminModal();
 
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ") || "—";
-    const isInfinite = payload.access.state === "sub_infinite";
-
     const close = () => {
       closeAdminModal();
       ctx.state.selectedAdminUserId = null;
@@ -218,49 +216,39 @@ export async function loadAdminUserDetail(ctx, userId) {
           </div>
         </div>
       </div>
+      <div class="group__label">Керування доступом</div>
       <div id="modal-actions" style="display: flex; flex-direction: column; gap: 8px;"></div>
     `;
 
     modal.querySelector(".modal__close").addEventListener("click", close);
 
     const actions = modal.querySelector("#modal-actions");
+    const updateAccess = async (access, message) => {
+      try {
+        await ctx.api(`/api/admin/users/${userId}/access`, {
+          method: "POST",
+          body: { access },
+        });
+        ctx.impact("medium");
+        close();
+        ctx.setMessage("success", message);
+        await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    };
+
     actions.append(
+      ctx.actionButton("Дати тріал на 3 дні", () => updateAccess("trial", "Тріал активовано на 3 дні."), "block-ghost"),
+      ctx.actionButton("Дати доступ 100 ⭐ — кейси й атестація", () => updateAccess("cases", "Доступ до кейсів і атестації активовано."), "block-ghost"),
+      ctx.actionButton("Дати повний доступ", () => updateAccess("full", "Повний доступ активовано."), "block"),
       ctx.actionButton(
-        isInfinite ? "Скасувати безстроковий доступ" : "Дати безстроковий доступ",
+        "Забрати весь доступ",
         async () => {
-          try {
-            await ctx.api(`/api/admin/users/${userId}/subscription`, {
-              method: "POST",
-              body: { infinite: !isInfinite },
-            });
-            ctx.impact("medium");
-            close();
-            ctx.setMessage("success", "Доступ оновлено.");
-            await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
+          if (!window.confirm("Забрати у користувача тріал і всі види доступу?")) return;
+          await updateAccess("none", "Доступ скасовано.");
         },
-        "block",
-      ),
-    );
-    actions.append(
-      ctx.actionButton(
-        "Забрати доступ",
-        async () => {
-          try {
-            await ctx.api(`/api/admin/users/${userId}/subscription`, {
-              method: "POST",
-              body: { infinite: false },
-            });
-            close();
-            ctx.setMessage("success", "Доступ оновлено.");
-            await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
-        },
-        "block-ghost",
+        "block-danger",
       ),
     );
 
