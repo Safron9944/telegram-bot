@@ -292,6 +292,7 @@ class StartTestRequest(BaseModel):
 
 
 class StartAttestationStage1Request(BaseModel):
+    section: str
     count: Literal[20, 50, 100] = 50
 
 
@@ -462,6 +463,11 @@ class MiniAppService:
         first_name = (user.get("first_name") or auth.telegram_user.get("first_name") or "").strip()
         last_name = (user.get("last_name") or auth.telegram_user.get("last_name") or "").strip()
         display_name = " ".join(x for x in [first_name, last_name] if x).strip() or f"ID {auth.user_id}"
+        attestation_sections: dict[str, int] = {}
+        for qid in sorted(self.qb.attestation_stage_1):
+            title = (self.qb.by_id[qid].topic or "Інші питання").strip()
+            attestation_sections[title] = attestation_sections.get(title, 0) + 1
+
         return {
             "id": auth.user_id,
             "first_name": first_name,
@@ -529,7 +535,11 @@ class MiniAppService:
             "attestation_stage_1": {
                 "title": "Атестація посадових осіб — 1 етап",
                 "count": len(self.qb.attestation_stage_1),
-                "topics": len({self.qb.by_id[qid].topic for qid in self.qb.attestation_stage_1}),
+                "topics": len(attestation_sections),
+                "sections": [
+                    {"key": title, "title": title, "count": count}
+                    for title, count in attestation_sections.items()
+                ],
             },
             "counts": {
                 "questions": len(self.qb.by_id),
@@ -970,15 +980,19 @@ class MiniAppService:
     ) -> dict[str, Any]:
         self.ensure_attestation_access(auth)
 
-        pool = list(self.qb.attestation_stage_1)
-        if not pool:
+        all_qids = list(self.qb.attestation_stage_1)
+        if not all_qids:
             require_http(503, "attestation_stage_1_empty", "Питання для першого етапу атестації не завантажені.")
 
+        section = (payload.section or "").strip()
+        if not section:
+            require_http(400, "attestation_section_required", "Оберіть розділ атестації.")
+        pool = [qid for qid in all_qids if (self.qb.by_id[qid].topic or "").strip() == section]
+        if not pool:
+            require_http(404, "attestation_section_not_found", "Обраний розділ атестації не знайдено.")
+
         qids = self.qb.pick_random(pool, min(int(payload.count), len(pool)))
-        blocks: dict[str, list[int]] = {}
-        for qid in qids:
-            topic = (self.qb.by_id[qid].topic or "Інші питання").strip()
-            blocks.setdefault(topic, []).append(qid)
+        blocks = {section: list(qids)}
 
         import random
 
@@ -987,7 +1001,7 @@ class MiniAppService:
             auth.user_id,
             {
                 "mode": "test",
-                "header": f"Атестація • 1 етап • {len(qids)} питань",
+                "header": f"Атестація • {section} • {len(qids)} питань",
                 "result_title": "Перший етап атестації завершено",
                 "pending": qids,
                 "skipped": [],
