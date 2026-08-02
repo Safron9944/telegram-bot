@@ -192,22 +192,25 @@ export async function loadAdminUserDetail(ctx, userId) {
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal modal--admin-access";
     modal.innerHTML = `
       <div class="modal__header">
-        <span class="modal__title">${ctx.escapeHtml(name)}</span>
+        <span class="modal__heading">
+          <span class="modal__title">${ctx.escapeHtml(name)}</span>
+          <span class="modal__subtitle">Налаштування доступу користувача</span>
+        </span>
         <button class="modal__close" type="button" aria-label="Закрити">✕</button>
       </div>
-      <div class="group" style="margin-bottom: 12px;">
+      <div class="group admin-access-summary">
         <div class="group__list">
-          <div class="cell" style="cursor: default;">
+          <div class="cell admin-access-summary__row">
             <span class="cell__icon cell__icon--blue">i</span>
             <span class="cell__body">
               <span class="cell__title">ID ${payload.user_id}</span>
               <span class="cell__subtitle">${ctx.escapeHtml(payload.access.label)}</span>
             </span>
           </div>
-          <div class="cell" style="cursor: default;">
+          <div class="cell admin-access-summary__row">
             <span class="cell__icon cell__icon--gray">📅</span>
             <span class="cell__body">
               <span class="cell__title">Створено</span>
@@ -216,8 +219,13 @@ export async function loadAdminUserDetail(ctx, userId) {
           </div>
         </div>
       </div>
-      <div class="group__label">Керування доступом</div>
-      <div id="modal-actions" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      <section class="admin-access-controls">
+        <div class="admin-access-controls__header">
+          <span class="admin-access-controls__title">Керування доступом</span>
+          <span class="admin-access-controls__hint">Оберіть потрібний рівень доступу</span>
+        </div>
+        <div id="modal-actions" class="admin-access-actions"></div>
+      </section>
     `;
 
     modal.querySelector(".modal__close").addEventListener("click", close);
