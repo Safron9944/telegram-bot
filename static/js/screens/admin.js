@@ -238,19 +238,37 @@ export async function loadAdminUserDetail(ctx, userId) {
       }
     };
 
-    actions.append(
-      ctx.actionButton("Дати тріал на 3 дні", () => updateAccess("trial", "Тріал активовано на 3 дні."), "block-ghost"),
-      ctx.actionButton("Дати доступ 100 ⭐ — кейси й атестація", () => updateAccess("cases", "Доступ до кейсів і атестації активовано."), "block-ghost"),
-      ctx.actionButton("Дати повний доступ", () => updateAccess("full", "Повний доступ активовано."), "block"),
-      ctx.actionButton(
-        "Забрати весь доступ",
-        async () => {
-          if (!window.confirm("Забрати у користувача тріал і всі види доступу?")) return;
-          await updateAccess("none", "Доступ скасовано.");
-        },
-        "block-danger",
-      ),
+    const trialButton = ctx.actionButton(
+      "⏳ Дати тріал на 3 дні",
+      () => updateAccess("trial", "Тріал активовано на 3 дні."),
+      "block",
     );
+    trialButton.classList.add("btn--admin-trial");
+
+    const casesButton = ctx.actionButton(
+      "⭐ Дати доступ за 100 ⭐ — кейси й атестація",
+      () => updateAccess("cases", "Доступ до кейсів і атестації активовано."),
+      "block",
+    );
+    casesButton.classList.add("btn--admin-cases");
+
+    const fullButton = ctx.actionButton(
+      "✓ Дати повний доступ",
+      () => updateAccess("full", "Повний доступ активовано."),
+      "block",
+    );
+
+    const removeButton = ctx.actionButton(
+      "✕ Забрати весь доступ",
+      async () => {
+        if (!window.confirm("Забрати у користувача тріал і всі види доступу?")) return;
+        await updateAccess("none", "Доступ скасовано.");
+      },
+      "block",
+    );
+    removeButton.classList.add("btn--admin-remove");
+
+    actions.append(trialButton, casesButton, fullButton, removeButton);
 
     overlay.append(modal);
     document.body.append(overlay);

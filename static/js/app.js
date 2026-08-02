@@ -58,7 +58,7 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260802-admin-access-01";
+} from "./screens/admin.js?v=20260802-admin-buttons-01";
 import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-04";
 
 window.__APP_READY__ = false;
