@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -31,6 +32,41 @@ class AttestationStage1BankTests(unittest.TestCase):
             self.assertEqual(1, len(question.correct), qid)
             self.assertIn(question.correct[0], range(1, 5), qid)
             self.assertEqual(question.correct_texts[0], question.choices[question.correct[0] - 1], qid)
+
+    def test_question_text_does_not_contain_ocr_garbage(self):
+        repeated_letter = re.compile(r"([А-Яа-яІіЇїЄєҐґ])\1\1")
+        zero_prefix = re.compile(r"^\s*[0OО]\s+[А-Яа-яІіЇїЄєҐґ]")
+        ukrainian_word = re.compile(r"[А-Яа-яІіЇїЄєҐґ]{8,}")
+        vowels = set("аеєиіїоуюяАЕЄИІЇОУЮЯ")
+
+        for qid in self.bank.attestation_stage_1:
+            question = self.bank.by_id[qid]
+            for text in [question.question, *question.choices]:
+                self.assertNotIn("|", text, qid)
+                self.assertIsNone(repeated_letter.search(text), qid)
+                self.assertIsNone(zero_prefix.search(text), qid)
+                low_vowel_words = [
+                    word for word in ukrainian_word.findall(text)
+                    if sum(char in vowels for char in word) <= 1
+                ]
+                self.assertEqual([], low_vowel_words, f"{qid}: {low_vowel_words}")
+
+    def test_verified_answer_mappings_are_not_shifted_by_ocr(self):
+        source = json.loads((ROOT / "attestation_stage_1.json").read_text(encoding="utf-8"))["questions"]
+
+        def find(topic, number):
+            return next(item for item in source if item["topic"] == topic and item["qnum"] == number)
+
+        constitution_167 = find("Конституція України", 167)
+        self.assertEqual("Президент України", constitution_167["choices"][3])
+        self.assertEqual([4], constitution_167["correct"])
+
+        customs_167 = find("Митний кодекс України", 167)
+        self.assertIn("150 євро", customs_167["choices"][2])
+        self.assertEqual([3], customs_167["correct"])
+
+        corruption_198 = find("Закон України «Про запобігання корупції»", 198)
+        self.assertEqual("у разі звернення фізичної особи щодо отримання відомостей про себе", corruption_198["choices"][2])
 
     def test_source_topics_are_complete(self):
         source = json.loads((ROOT / "attestation_stage_1.json").read_text(encoding="utf-8"))["questions"]
