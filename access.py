@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
-from aiogram import Bot
-from aiogram.types import LabeledPrice
+if TYPE_CHECKING:
+    from aiogram import Bot
 
 from utils import now
 
@@ -19,7 +19,7 @@ def access_tier(user: Dict[str, Any]) -> str:
     t_end: Optional[datetime] = user.get("trial_end")
     n = now()
     if inf:
-        return "full"
+        return tier if tier in ("cases", "full") else "full"
     if tier in ("cases", "full") and s_end and n <= s_end:
         return tier
     if t_end and n <= t_end:
@@ -49,6 +49,8 @@ def has_attestation_access(user: Dict[str, Any]) -> bool:
 
 async def create_stars_invoice_link(bot: "Bot", tier: str, amount: int) -> str:
     """Create a Telegram Stars invoice link for the given tier."""
+    from aiogram.types import LabeledPrice
+
     if tier == "cases":
         title = "Кейси та атестація"
         description = "Безлімітний доступ до кейсів і першого етапу атестації"

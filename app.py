@@ -308,8 +308,8 @@ class ReviewIndexRequest(BaseModel):
     index: int
 
 
-class SubscriptionUpdateRequest(BaseModel):
-    infinite: bool
+class AdminAccessUpdateRequest(BaseModel):
+    access: Literal["trial", "cases", "full", "none"]
 
 
 class QuestionPatchRequest(BaseModel):
@@ -1404,17 +1404,11 @@ class MiniAppService:
         items = await self.store.list_users(offset, limit + 1)
         has_next = len(items) > limit
         page_items = items[:limit]
-        counts = {"active": 0, "trial": 0, "expired": 0}
+        counts = await self.store.users_access_counts()
         serialized = []
 
         for user in page_items:
             access = access_payload(user)
-            if access["state"] in {"sub_active", "sub_infinite"}:
-                counts["active"] += 1
-            elif access["state"] == "trial":
-                counts["trial"] += 1
-            else:
-                counts["expired"] += 1
             serialized.append(
                 {
                     "user_id": int(user.get("user_id")),
@@ -1454,10 +1448,10 @@ class MiniAppService:
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
         }
 
-    async def admin_set_subscription(self, auth: AuthContext, target_id: int, infinite: bool) -> dict[str, Any]:
+    async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        await self.store.set_subscription(target_id, None, infinite=infinite)
+        await self.store.set_admin_access(target_id, access, trial_days=3)
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_questions_page(self, auth: AuthContext, page: int, page_size: int = 10) -> dict[str, Any]:
@@ -1943,9 +1937,9 @@ async def api_admin_user_detail(user_id: int, auth: AuthContext = Depends(get_au
     return await MiniAppService(runtime).admin_user_detail(auth, user_id)
 
 
-@app.post("/api/admin/users/{user_id}/subscription")
-async def api_admin_user_subscription(user_id: int, payload: SubscriptionUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_set_subscription(auth, user_id, payload.infinite)
+@app.post("/api/admin/users/{user_id}/access")
+async def api_admin_user_access(user_id: int, payload: AdminAccessUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_set_access(auth, user_id, payload.access)
 
 
 @app.get("/api/admin/questions")
