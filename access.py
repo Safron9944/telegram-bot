@@ -42,14 +42,19 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
     return False, "expired"
 
 
+def has_attestation_access(user: Dict[str, Any]) -> bool:
+    """Stage 1 attestation is included in the 100-star and full tiers."""
+    return access_tier(user) in ("cases", "full")
+
+
 async def create_stars_invoice_link(bot: "Bot", tier: str, amount: int) -> str:
     """Create a Telegram Stars invoice link for the given tier."""
     if tier == "cases":
-        title = "Доступ до кейсів"
-        description = "30 днів доступу до розділу Кейси"
+        title = "Кейси та атестація"
+        description = "Безлімітний доступ до кейсів і першого етапу атестації"
     else:
         title = "Повний доступ"
-        description = "30 днів повного доступу (навчання, тести, кейси)"
+        description = "Безлімітний повний доступ: навчання, тести, кейси та атестація"
     link = await bot.create_invoice_link(
         title=title,
         description=description,

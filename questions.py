@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+ATTESTATION_STAGE_1_SECTION = "Атестація посадових осіб — 1 етап"
+
 
 @dataclass
 class Q:
@@ -33,6 +35,7 @@ class QuestionBank:
         self.law: List[int] = []
         self.law_groups: Dict[str, List[int]] = {}
         self.ok_modules: Dict[str, Dict[int, List[int]]] = {}
+        self.attestation_stage_1: List[int] = []
         self._law_group_titles: Dict[str, str] = {}
 
     def load(self):
@@ -43,6 +46,7 @@ class QuestionBank:
         self.law.clear()
         self.law_groups.clear()
         self.ok_modules.clear()
+        self.attestation_stage_1.clear()
         self._law_group_titles.clear()
 
         for item in self._iter_raw_questions(raw):
@@ -71,6 +75,7 @@ class QuestionBank:
         self.law.clear()
         self.law_groups.clear()
         self.ok_modules.clear()
+        self.attestation_stage_1.clear()
         self._law_group_titles.clear()
 
         def _norm_json(v: Any):
@@ -95,9 +100,38 @@ class QuestionBank:
 
         self._build_indexes()
 
+    def load_attestation_stage_1(self, path: str) -> None:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+
+        for item in self._iter_raw_questions(raw):
+            norm = self._normalize_item(item)
+            if not norm:
+                continue
+            q = Q(
+                id=norm["id"], section=norm.get("section", ""), topic=norm.get("topic", ""),
+                ok=norm.get("ok"), level=norm.get("level"), qnum=norm.get("qnum"),
+                question=norm.get("question", ""), choices=norm.get("choices", []),
+                correct=norm.get("correct", []), correct_texts=norm.get("correct_texts", []),
+            )
+            if q.id in self.by_id:
+                raise ValueError(f"Duplicate attestation question id: {q.id}")
+            self.by_id[q.id] = q
+
+        self._build_indexes()
+
     def _build_indexes(self):
+        self.law.clear()
+        self.law_groups.clear()
+        self.ok_modules.clear()
+        self.attestation_stage_1.clear()
+        self._law_group_titles.clear()
+
         for qid, q in self.by_id.items():
             if not q.is_valid_mcq:
+                continue
+            if (q.section or "").strip() == ATTESTATION_STAGE_1_SECTION:
+                self.attestation_stage_1.append(qid)
                 continue
             sec = (q.section or "").lower()
             is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
@@ -119,6 +153,7 @@ class QuestionBank:
         for k in self.law_groups:
             self.law_groups[k].sort(key=_ord_key)
         self.law.sort(key=_ord_key)
+        self.attestation_stage_1.sort(key=lambda qid: (self.by_id[qid].topic, *_ord_key(qid)))
         for ok in self.ok_modules:
             for lvl in self.ok_modules[ok]:
                 self.ok_modules[ok][lvl].sort(key=_ord_key)

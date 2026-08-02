@@ -22,6 +22,7 @@ import {
   loadUserTestExamQuestions,
   renderCaseDetail,
   renderCases,
+  renderAttestationStage1,
   renderCustoms,
   renderCustomsArticle,
   renderCustomsCode,
@@ -37,7 +38,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260617-question-search-04";
+} from "./screens/user.js?v=20260802-attestation-stage1-02";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -227,6 +228,7 @@ function render() {
 
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
+    case "attestation-stage-1": renderAttestationStage1(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
     case "customs":           renderCustoms(ctx); break;

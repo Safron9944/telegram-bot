@@ -72,6 +72,13 @@ export function renderHome(ctx) {
             screen: "customs",
           }),
           ctx.cell({
+            title: "Атестація посадових осіб — 1 етап",
+            subtitle: `${catalog.attestation_stage_1?.count || 800} перевірених питань`,
+            icon: "📝",
+            tint: "purple",
+            screen: "attestation-stage-1",
+          }),
+          ctx.cell({
             title: "Кейси",
             subtitle: "Питання та правильні відповіді",
             icon: "🗂",
@@ -867,6 +874,80 @@ export function renderOkLevels(ctx) {
   });
 }
 
+/* ===================== ATTESTATION: STAGE 1 ===================== */
+export function renderAttestationStage1(ctx) {
+  const catalog = ctx.state.bootstrap.catalog.attestation_stage_1 || {};
+  let selectedCount = 50;
+
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Атестація посадових осіб</h1>
+      <p class="page-subtitle">1 етап · випадковий тест із перевіреного переліку питань.</p>
+
+      <div class="stat-strip">
+        ${ctx.statPill("Питань", String(catalog.count || 800))}
+        ${ctx.statPill("Розділів", String(catalog.topics || 4))}
+        ${ctx.statPill("Прохідний", "60%")}
+      </div>
+
+      ${ctx.group({
+        header: "Кількість питань",
+        footer: "Склад тесту та порядок питань змінюються для кожної спроби.",
+        children: `
+          <div class="cell" style="cursor: default;">
+            <span class="cell__icon cell__icon--purple">#</span>
+            <span class="cell__body">
+              <span class="cell__title">Оберіть обсяг тесту</span>
+              <span class="cell__subtitle">20, 50 або 100 випадкових питань</span>
+            </span>
+            <span class="row-actions" id="attestation-counts"></span>
+          </div>
+        `,
+      })}
+
+      <div class="sticky-cta" id="attestation-cta"></div>
+    </section>
+  `;
+
+  const counts = ctx.refs.mainPanel.querySelector("#attestation-counts");
+  [20, 50, 100].forEach((count) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `pill${count === selectedCount ? " is-selected" : ""}`;
+    button.textContent = String(count);
+    button.addEventListener("click", () => {
+      selectedCount = count;
+      counts.querySelectorAll(".pill").forEach((item) => item.classList.remove("is-selected"));
+      button.classList.add("is-selected");
+      ctx.impact("light");
+    });
+    counts.append(button);
+  });
+
+  ctx.refs.mainPanel.querySelector("#attestation-cta").append(
+    ctx.actionButton(
+      "Почати тест",
+      async () => {
+        try {
+          ctx.state.currentView = await ctx.api("/api/attestation/stage-1/start", {
+            method: "POST",
+            body: { count: selectedCount },
+          });
+          ctx.render();
+        } catch (error) {
+          if (error.code === "attestation_access_required" || error.code === "access_expired") {
+            renderPaywall(ctx, error.code);
+            return;
+          }
+          ctx.setMessage("error", error.message);
+        }
+      },
+      "block",
+    ),
+  );
+}
+
 /* ===================== TESTING ===================== */
 export function renderTesting(ctx) {
   const { catalog } = ctx.state.bootstrap;
@@ -1090,7 +1171,12 @@ export function renderPaywall(ctx, errorCode) {
 
   const prices = ctx.state.bootstrap?.payment_prices || { cases: 100, full: 250 };
   const fullOnly = errorCode === "full_access_required" || errorCode === "ok_questions_access_required";
-  const title = fullOnly ? "Потрібна повна підписка" : "Потрібна підписка";
+  const attestationOnly = errorCode === "attestation_access_required";
+  const title = fullOnly
+    ? "Потрібна повна підписка"
+    : attestationOnly
+      ? "Доступ до атестації"
+      : "Потрібна підписка";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
@@ -1099,9 +1185,9 @@ export function renderPaywall(ctx, errorCode) {
 
       ${!fullOnly ? `
       <div class="group">
-        <div class="group__label">Тільки кейси — ${prices.cases} ⭐</div>
+        <div class="group__label">Кейси та атестація — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до всіх кейсів і правильних відповідей.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до всіх кейсів та 800 питань першого етапу атестації.</p>
           <div id="pay-cases-wrap"></div>
         </div>
       </div>
@@ -1110,7 +1196,7 @@ export function renderPaywall(ctx, errorCode) {
       <div class="group">
         <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести, кейси та тестові питання.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести, кейси, атестація та тестові питання.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
@@ -1119,7 +1205,7 @@ export function renderPaywall(ctx, errorCode) {
 
   if (!fullOnly) {
     ctx.refs.mainPanel.querySelector("#pay-cases-wrap")?.append(
-      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block"),
+      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси й атестація`, () => void ctx.openPayment("cases"), "block"),
     );
   }
   ctx.refs.mainPanel.querySelector("#pay-full-wrap")?.append(
