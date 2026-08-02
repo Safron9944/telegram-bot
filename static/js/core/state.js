@@ -4,6 +4,7 @@ export const state = {
   screenHistory: [],
   currentView: null,
   selectedLawGroup: null,
+  selectedAttestationSection: null,
   adminUsersOffset: 0,
   adminQuestionsPage: 0,
   selectedAdminUserId: null,

@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260617-question-search-04";
+import { state } from "./core/state.js?v=20260802-attestation-stage1-05";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-04";
 import { initializeTheme } from "./core/theme.js?v=20260617-question-search-04";
@@ -22,6 +22,7 @@ import {
   loadUserTestExamQuestions,
   renderCaseDetail,
   renderCases,
+  renderAttestationParts,
   renderAttestationStage1,
   renderCustoms,
   renderCustomsArticle,
@@ -38,7 +39,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260802-attestation-stage1-04";
+} from "./screens/user.js?v=20260802-attestation-stage1-05";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -171,6 +172,9 @@ async function goBack() {
     if (previous !== "law-parts") {
       state.selectedLawGroup = null;
     }
+    if (previous !== "attestation-parts") {
+      state.selectedAttestationSection = null;
+    }
     if (previous !== "customs-code-section") {
       state.customsSectionDetail = null;
     }
@@ -229,6 +233,7 @@ function render() {
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
     case "attestation-stage-1": renderAttestationStage1(ctx); break;
+    case "attestation-parts": renderAttestationParts(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
     case "customs":           renderCustoms(ctx); break;
