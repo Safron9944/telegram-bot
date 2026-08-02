@@ -878,15 +878,6 @@ export function renderOkLevels(ctx) {
 export function renderAttestationStage1(ctx) {
   const catalog = ctx.state.bootstrap.catalog.attestation_stage_1 || {};
   const sections = catalog.sections || [];
-  let selectedSection = null;
-  let selectedBlock = null;
-  const blocks = [
-    { key: "1-50", title: "Питання 1–50", subtitle: "Перша частина" },
-    { key: "51-100", title: "Питання 51–100", subtitle: "Друга частина" },
-    { key: "101-150", title: "Питання 101–150", subtitle: "Третя частина" },
-    { key: "151-200", title: "Питання 151–200", subtitle: "Четверта частина" },
-    { key: "random", title: "Випадкові 50", subtitle: "Нова випадкова добірка" },
-  ];
 
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
@@ -909,97 +900,91 @@ export function renderAttestationStage1(ctx) {
               <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
               <span class="cell__subtitle">${ctx.escapeHtml(item.count)} питань</span>
             </span>
-            <span class="cell__detail" aria-hidden="true"></span>
+            <span class="cell__chevron" aria-hidden="true"></span>
           </button>
         `).join(""),
       })}
-
-      <div id="attestation-parts" hidden>
-        ${ctx.group({
-          header: "Оберіть частину",
-          footer: "Після кожної відповіді показується правильний варіант і ваш вибір.",
-          children: blocks.map((item, index) => `
-            <button class="cell" type="button" data-attestation-block="${item.key}">
-              <span class="cell__icon cell__icon--${item.key === "random" ? "teal" : "blue"}">${item.key === "random" ? "🎲" : index + 1}</span>
-              <span class="cell__body">
-                <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-                <span class="cell__subtitle">${ctx.escapeHtml(item.subtitle)}</span>
-              </span>
-              <span class="cell__detail" aria-hidden="true"></span>
-            </button>
-          `).join(""),
-        })}
-      </div>
-
-      <div class="sticky-cta" id="attestation-cta"></div>
     </section>
   `;
 
-  const sectionButtons = Array.from(ctx.refs.mainPanel.querySelectorAll("[data-attestation-section]"));
-  sectionButtons.forEach((button) => {
+  ctx.refs.mainPanel.querySelectorAll("[data-attestation-section]").forEach((button) => {
     button.addEventListener("click", () => {
       const item = sections[Number(button.dataset.attestationSection)];
       if (!item) return;
-      selectedSection = item.key;
-      selectedBlock = null;
-      sectionButtons.forEach((node) => {
-        const selected = node === button;
-        node.classList.toggle("cell--accent", selected);
-        const detail = node.querySelector(".cell__detail");
-        if (detail) detail.textContent = selected ? "✓" : "";
-      });
-      partButtons.forEach((node) => {
-        node.classList.remove("cell--accent");
-        const detail = node.querySelector(".cell__detail");
-        if (detail) detail.textContent = "";
-      });
-      partsNode.hidden = false;
-      startButton.disabled = true;
       ctx.impact("light");
+      ctx.state.selectedAttestationSection = item;
+      ctx.navigate("attestation-parts");
     });
   });
+}
 
-  const partsNode = ctx.refs.mainPanel.querySelector("#attestation-parts");
-  const partButtons = Array.from(ctx.refs.mainPanel.querySelectorAll("[data-attestation-block]"));
-  partButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      selectedBlock = button.dataset.attestationBlock;
-      partButtons.forEach((node) => {
-        const selected = node === button;
-        node.classList.toggle("cell--accent", selected);
-        const detail = node.querySelector(".cell__detail");
-        if (detail) detail.textContent = selected ? "✓" : "";
-      });
-      startButton.disabled = false;
-      ctx.impact("light");
+async function startAttestationBlock(ctx, section, block) {
+  try {
+    ctx.state.currentView = await ctx.api("/api/attestation/stage-1/start", {
+      method: "POST",
+      body: { section, block },
     });
-  });
+    ctx.render();
+  } catch (error) {
+    if (error.code === "attestation_access_required" || error.code === "access_expired") {
+      renderPaywall(ctx, error.code);
+      return;
+    }
+    ctx.setMessage("error", error.message);
+  }
+}
 
-  const startButton = ctx.actionButton(
-    "Почати тест",
-    async () => {
-      if (!selectedSection || !selectedBlock) {
-        ctx.setMessage("error", "Спочатку оберіть розділ і частину.");
-        return;
-      }
-      try {
-        ctx.state.currentView = await ctx.api("/api/attestation/stage-1/start", {
-          method: "POST",
-          body: { section: selectedSection, block: selectedBlock },
-        });
-        ctx.render();
-      } catch (error) {
-        if (error.code === "attestation_access_required" || error.code === "access_expired") {
-          renderPaywall(ctx, error.code);
-          return;
-        }
-        ctx.setMessage("error", error.message);
-      }
-    },
-    "block",
+export function renderAttestationParts(ctx) {
+  const section = ctx.state.selectedAttestationSection;
+  if (!section) {
+    ctx.state.currentScreen = "attestation-stage-1";
+    renderAttestationStage1(ctx);
+    return;
+  }
+
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(section.count)} питань · 4 частини по 50</p>
+
+      <div id="attestation-random"></div>
+
+      <div class="group">
+        <div class="group__label">Частини</div>
+        <div class="group__list" id="attestation-parts-list"></div>
+        <div class="group__footer">Після кожної відповіді показується правильний варіант і ваш вибір.</div>
+      </div>
+    </section>
+  `;
+
+  ctx.refs.mainPanel.querySelector("#attestation-random").append(
+    ctx.actionButton(
+      "Випадкові 50 питань",
+      () => startAttestationBlock(ctx, section.key, "random"),
+      "block",
+    ),
   );
-  startButton.disabled = true;
-  ctx.refs.mainPanel.querySelector("#attestation-cta").append(startButton);
+
+  const list = ctx.refs.mainPanel.querySelector("#attestation-parts-list");
+  ["1-50", "51-100", "101-150", "151-200"].forEach((block, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--blue">${index + 1}</span>
+      <span class="cell__body">
+        <span class="cell__title">Частина ${index + 1}</span>
+        <span class="cell__subtitle">Питання ${block.replace("-", "–")}</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", () => {
+      ctx.impact("light");
+      void startAttestationBlock(ctx, section.key, block);
+    });
+    list.append(row);
+  });
 }
 
 /* ===================== TESTING ===================== */
