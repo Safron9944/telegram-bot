@@ -1080,10 +1080,9 @@ class MiniAppService:
         state["pending"] = pending
 
         if mode == "learn":
-            is_attestation = dict(state.get("meta", {}) or {}).get("kind") == "attestation_stage_1"
             if is_correct:
                 state["correct_count"] = int(state.get("correct_count", 0) or 0) + 1
-                state["feedback"] = {"qid": int(qid), "chosen": choice} if is_attestation else None
+                state["feedback"] = None
             else:
                 await self.store.bump_wrong(auth.user_id, int(qid))
                 state["feedback"] = {"qid": int(qid), "chosen": choice}
