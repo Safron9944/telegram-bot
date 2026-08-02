@@ -293,7 +293,7 @@ class StartTestRequest(BaseModel):
 
 class StartAttestationStage1Request(BaseModel):
     section: str
-    count: Literal[20, 50, 100] = 50
+    block: Literal["1-50", "51-100", "101-150", "151-200", "random"]
 
 
 class SelectIndexRequest(BaseModel):
@@ -451,6 +451,13 @@ class MiniAppService:
         if has_attestation_access(auth.user):
             return
         require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
+
+    def ensure_session_access(self, auth: AuthContext, state: dict[str, Any]) -> None:
+        meta = dict(state.get("meta", {}) or {})
+        if meta.get("kind") == "attestation_stage_1":
+            self.ensure_attestation_access(auth)
+            return
+        self.ensure_access(auth)
 
     def ensure_full_access(self, auth: AuthContext) -> None:
         """Тільки повний оплачений доступ — без тріалу та без cases."""
@@ -981,33 +988,23 @@ class MiniAppService:
         section = (payload.section or "").strip()
         if not section:
             require_http(400, "attestation_section_required", "Оберіть розділ атестації.")
-        pool = [qid for qid in all_qids if (self.qb.by_id[qid].topic or "").strip() == section]
+        pool = self.qb.attestation_stage_1_section_qids(section)
         if not pool:
             require_http(404, "attestation_section_not_found", "Обраний розділ атестації не знайдено.")
 
-        qids = self.qb.pick_random(pool, min(int(payload.count), len(pool)))
-        blocks = {section: list(qids)}
+        qids = self.qb.attestation_stage_1_block_qids(section, payload.block)
+        block_label = "Випадкові 50" if payload.block == "random" else payload.block
+        if len(qids) != 50:
+            require_http(503, "attestation_block_incomplete", "В обраній частині має бути 50 питань.")
 
-        import random
-
-        random.shuffle(qids)
-        await self.set_state(
+        await self.start_learning_session(
             auth.user_id,
+            qids,
+            f"{section} • {block_label}",
             {
-                "mode": "test",
-                "header": f"Атестація • {section} • {len(qids)} питань",
-                "result_title": "Перший етап атестації завершено",
-                "pending": qids,
-                "skipped": [],
-                "phase": "pending",
-                "feedback": None,
-                "current_qid": None,
-                "correct_count": 0,
-                "total": len(qids),
-                "started_at": dt_to_iso(now()),
-                "answers": {},
-                "chosen": {},
-                "test_blocks": blocks,
+                "kind": "attestation_stage_1",
+                "section": section,
+                "block": payload.block,
             },
         )
         return await self.build_session_view(auth)
@@ -1061,8 +1058,8 @@ class MiniAppService:
         return await self.build_session_view(auth)
 
     async def answer(self, auth: AuthContext, payload: AnswerRequest) -> dict[str, Any]:
-        self.ensure_access(auth)
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         mode = str(state.get("mode") or "")
         qid = state.get("current_qid")
         if mode not in {"learn", "test", "mistakes"} or not qid:
@@ -1083,9 +1080,10 @@ class MiniAppService:
         state["pending"] = pending
 
         if mode == "learn":
+            is_attestation = dict(state.get("meta", {}) or {}).get("kind") == "attestation_stage_1"
             if is_correct:
                 state["correct_count"] = int(state.get("correct_count", 0) or 0) + 1
-                state["feedback"] = None
+                state["feedback"] = {"qid": int(qid), "chosen": choice} if is_attestation else None
             else:
                 await self.store.bump_wrong(auth.user_id, int(qid))
                 state["feedback"] = {"qid": int(qid), "chosen": choice}
@@ -1111,8 +1109,8 @@ class MiniAppService:
         return await self.build_session_view(auth, state)
 
     async def skip(self, auth: AuthContext) -> dict[str, Any]:
-        self.ensure_access(auth)
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         if state.get("mode") != "learn":
             require_http(409, "skip_not_allowed", "Пропуск доступний лише в навчанні.")
         qid = state.get("current_qid")
@@ -1132,8 +1130,8 @@ class MiniAppService:
         return await self.build_session_view(auth, state)
 
     async def feedback_next(self, auth: AuthContext) -> dict[str, Any]:
-        self.ensure_access(auth)
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         if state.get("mode") != "learn":
             require_http(409, "not_learning", "Поточна сесія не є навчанням.")
         state["feedback"] = None

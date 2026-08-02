@@ -52,5 +52,23 @@ class AttestationStage1BankTests(unittest.TestCase):
             [item["title"] for item in sections],
         )
         self.assertEqual([200, 200, 200, 200], [item["count"] for item in sections])
+
+    def test_each_section_is_split_into_four_numbered_blocks(self):
+        for section in self.bank.attestation_stage_1_sections():
+            title = section["title"]
+            for block, expected_numbers in {
+                "1-50": range(1, 51),
+                "51-100": range(51, 101),
+                "101-150": range(101, 151),
+                "151-200": range(151, 201),
+            }.items():
+                qids = self.bank.attestation_stage_1_block_qids(title, block)
+                self.assertEqual(list(expected_numbers), [self.bank.by_id[qid].qnum for qid in qids])
+
+    def test_random_block_contains_50_questions_from_selected_section(self):
+        title = "Митний кодекс України"
+        qids = self.bank.attestation_stage_1_block_qids(title, "random")
+        self.assertEqual(50, len(qids))
+        self.assertTrue(all(self.bank.by_id[qid].topic == title for qid in qids))
 if __name__ == "__main__":
     unittest.main()

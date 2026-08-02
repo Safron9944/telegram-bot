@@ -183,6 +183,27 @@ class QuestionBank:
             for title, count in counts.items()
         ]
 
+    def attestation_stage_1_section_qids(self, section: str) -> List[int]:
+        qids = [
+            qid for qid in self.attestation_stage_1
+            if (self.by_id[qid].topic or "").strip() == section.strip()
+        ]
+        qids.sort(key=lambda qid: (self.by_id[qid].qnum or 10 ** 9, qid))
+        return qids
+
+    def attestation_stage_1_block_qids(self, section: str, block: str) -> List[int]:
+        pool = self.attestation_stage_1_section_qids(section)
+        if block == "random":
+            return self.pick_random(pool, 50)
+        ranges = {
+            "1-50": (0, 50),
+            "51-100": (50, 100),
+            "101-150": (100, 150),
+            "151-200": (150, 200),
+        }
+        start, end = ranges.get(block, (0, 0))
+        return pool[start:end]
+
     def _iter_raw_questions(self, raw: Any):
         if isinstance(raw, list):
             for it in raw:
@@ -321,7 +342,7 @@ class QuestionBank:
                 level = int(str(lvl_raw).strip())
         except Exception:
             level = None
-        qnum_raw = (item.get("question_number") or item.get("questionNumber")
+        qnum_raw = (item.get("qnum") or item.get("question_number") or item.get("questionNumber")
                     or item.get("number") or item.get("num") or item.get("no"))
         qnum: Optional[int] = None
         try:
