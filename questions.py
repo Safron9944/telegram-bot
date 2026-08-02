@@ -173,6 +173,16 @@ class QuestionBank:
             return list(qids)
         return random.sample(qids, n)
 
+    def attestation_stage_1_sections(self) -> List[Dict[str, Any]]:
+        counts: Dict[str, int] = {}
+        for qid in sorted(self.attestation_stage_1):
+            title = (self.by_id[qid].topic or "Інші питання").strip()
+            counts[title] = counts.get(title, 0) + 1
+        return [
+            {"key": title, "title": title, "count": count}
+            for title, count in counts.items()
+        ]
+
     def _iter_raw_questions(self, raw: Any):
         if isinstance(raw, list):
             for it in raw:
