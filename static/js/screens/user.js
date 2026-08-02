@@ -879,7 +879,14 @@ export function renderAttestationStage1(ctx) {
   const catalog = ctx.state.bootstrap.catalog.attestation_stage_1 || {};
   const sections = catalog.sections || [];
   let selectedSection = null;
-  let selectedCount = 50;
+  let selectedBlock = null;
+  const blocks = [
+    { key: "1-50", title: "Питання 1–50", subtitle: "Перша частина" },
+    { key: "51-100", title: "Питання 51–100", subtitle: "Друга частина" },
+    { key: "101-150", title: "Питання 101–150", subtitle: "Третя частина" },
+    { key: "151-200", title: "Питання 151–200", subtitle: "Четверта частина" },
+    { key: "random", title: "Випадкові 50", subtitle: "Нова випадкова добірка" },
+  ];
 
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
@@ -907,20 +914,22 @@ export function renderAttestationStage1(ctx) {
         `).join(""),
       })}
 
-      ${ctx.group({
-        header: "Кількість питань",
-        footer: "Тест формується лише з обраного розділу. Порядок питань змінюється для кожної спроби.",
-        children: `
-          <div class="cell" style="cursor: default;">
-            <span class="cell__icon cell__icon--purple">#</span>
-            <span class="cell__body">
-              <span class="cell__title">Оберіть обсяг тесту</span>
-              <span class="cell__subtitle">20, 50 або 100 випадкових питань</span>
-            </span>
-            <span class="row-actions" id="attestation-counts"></span>
-          </div>
-        `,
-      })}
+      <div id="attestation-parts" hidden>
+        ${ctx.group({
+          header: "Оберіть частину",
+          footer: "Після кожної відповіді показується правильний варіант і ваш вибір.",
+          children: blocks.map((item, index) => `
+            <button class="cell" type="button" data-attestation-block="${item.key}">
+              <span class="cell__icon cell__icon--${item.key === "random" ? "teal" : "blue"}">${item.key === "random" ? "🎲" : index + 1}</span>
+              <span class="cell__body">
+                <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
+                <span class="cell__subtitle">${ctx.escapeHtml(item.subtitle)}</span>
+              </span>
+              <span class="cell__detail" aria-hidden="true"></span>
+            </button>
+          `).join(""),
+        })}
+      </div>
 
       <div class="sticky-cta" id="attestation-cta"></div>
     </section>
@@ -932,7 +941,30 @@ export function renderAttestationStage1(ctx) {
       const item = sections[Number(button.dataset.attestationSection)];
       if (!item) return;
       selectedSection = item.key;
+      selectedBlock = null;
       sectionButtons.forEach((node) => {
+        const selected = node === button;
+        node.classList.toggle("cell--accent", selected);
+        const detail = node.querySelector(".cell__detail");
+        if (detail) detail.textContent = selected ? "✓" : "";
+      });
+      partButtons.forEach((node) => {
+        node.classList.remove("cell--accent");
+        const detail = node.querySelector(".cell__detail");
+        if (detail) detail.textContent = "";
+      });
+      partsNode.hidden = false;
+      startButton.disabled = true;
+      ctx.impact("light");
+    });
+  });
+
+  const partsNode = ctx.refs.mainPanel.querySelector("#attestation-parts");
+  const partButtons = Array.from(ctx.refs.mainPanel.querySelectorAll("[data-attestation-block]"));
+  partButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedBlock = button.dataset.attestationBlock;
+      partButtons.forEach((node) => {
         const selected = node === button;
         node.classList.toggle("cell--accent", selected);
         const detail = node.querySelector(".cell__detail");
@@ -943,32 +975,17 @@ export function renderAttestationStage1(ctx) {
     });
   });
 
-  const counts = ctx.refs.mainPanel.querySelector("#attestation-counts");
-  [20, 50, 100].forEach((count) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `pill${count === selectedCount ? " is-selected" : ""}`;
-    button.textContent = String(count);
-    button.addEventListener("click", () => {
-      selectedCount = count;
-      counts.querySelectorAll(".pill").forEach((item) => item.classList.remove("is-selected"));
-      button.classList.add("is-selected");
-      ctx.impact("light");
-    });
-    counts.append(button);
-  });
-
   const startButton = ctx.actionButton(
     "Почати тест",
     async () => {
-      if (!selectedSection) {
-        ctx.setMessage("error", "Спочатку оберіть розділ.");
+      if (!selectedSection || !selectedBlock) {
+        ctx.setMessage("error", "Спочатку оберіть розділ і частину.");
         return;
       }
       try {
         ctx.state.currentView = await ctx.api("/api/attestation/stage-1/start", {
           method: "POST",
-          body: { section: selectedSection, count: selectedCount },
+          body: { section: selectedSection, block: selectedBlock },
         });
         ctx.render();
       } catch (error) {
