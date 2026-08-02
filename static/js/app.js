@@ -38,7 +38,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260802-attestation-stage1-01";
+} from "./screens/user.js?v=20260802-attestation-stage1-02";
 import {
   loadAdminCases,
   loadAdminQuestions,

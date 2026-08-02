@@ -28,7 +28,7 @@ from customs_code import repository as customs_code_repository
 
 from questions import QuestionBank
 from storage import Storage
-from access import access_status, access_tier, create_stars_invoice_link
+from access import access_status, access_tier, create_stars_invoice_link, has_attestation_access
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -137,7 +137,7 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     elif state == "sub_full":
         label = f"Повний доступ до {sub_end}" if sub_end else "Повний доступ активний"
     elif state == "sub_cases":
-        label = f"Кейси до {sub_end}" if sub_end else "Доступ до кейсів активний"
+        label = f"Кейси й атестація до {sub_end}" if sub_end else "Доступ до кейсів і атестації активний"
     elif state == "not_registered":
         label = "Користувача ще не зареєстровано"
     else:
@@ -444,6 +444,12 @@ class MiniAppService:
         if tier in ("cases", "full"):
             return
         require_http(403, "cases_access_required", "Кейси доступні тільки за підпискою (100 ⭐ або 250 ⭐).")
+
+    def ensure_attestation_access(self, auth: AuthContext) -> None:
+        """Attestation access: 100-star tier or full paid access, without trial."""
+        if has_attestation_access(auth.user):
+            return
+        require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
 
     def ensure_full_access(self, auth: AuthContext) -> None:
         """Тільки повний оплачений доступ — без тріалу та без cases."""
@@ -962,7 +968,7 @@ class MiniAppService:
         auth: AuthContext,
         payload: StartAttestationStage1Request,
     ) -> dict[str, Any]:
-        self.ensure_access(auth)
+        self.ensure_attestation_access(auth)
 
         pool = list(self.qb.attestation_stage_1)
         if not pool:
@@ -1593,7 +1599,7 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
             return
         user_id = message.from_user.id
         await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
-        label = "кейсів" if tier == "cases" else "повного доступу"
+        label = "кейсів та атестації" if tier == "cases" else "повного доступу"
         await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 
     return router

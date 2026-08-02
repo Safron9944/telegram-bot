@@ -936,7 +936,7 @@ export function renderAttestationStage1(ctx) {
           });
           ctx.render();
         } catch (error) {
-          if (error.code === "access_expired") {
+          if (error.code === "attestation_access_required" || error.code === "access_expired") {
             renderPaywall(ctx, error.code);
             return;
           }
@@ -1171,7 +1171,12 @@ export function renderPaywall(ctx, errorCode) {
 
   const prices = ctx.state.bootstrap?.payment_prices || { cases: 100, full: 250 };
   const fullOnly = errorCode === "full_access_required" || errorCode === "ok_questions_access_required";
-  const title = fullOnly ? "Потрібна повна підписка" : "Потрібна підписка";
+  const attestationOnly = errorCode === "attestation_access_required";
+  const title = fullOnly
+    ? "Потрібна повна підписка"
+    : attestationOnly
+      ? "Доступ до атестації"
+      : "Потрібна підписка";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
@@ -1180,9 +1185,9 @@ export function renderPaywall(ctx, errorCode) {
 
       ${!fullOnly ? `
       <div class="group">
-        <div class="group__label">Тільки кейси — ${prices.cases} ⭐</div>
+        <div class="group__label">Кейси та атестація — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до всіх кейсів і правильних відповідей.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до всіх кейсів та 800 питань першого етапу атестації.</p>
           <div id="pay-cases-wrap"></div>
         </div>
       </div>
@@ -1191,7 +1196,7 @@ export function renderPaywall(ctx, errorCode) {
       <div class="group">
         <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести, кейси та тестові питання.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести, кейси, атестація та тестові питання.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
@@ -1200,7 +1205,7 @@ export function renderPaywall(ctx, errorCode) {
 
   if (!fullOnly) {
     ctx.refs.mainPanel.querySelector("#pay-cases-wrap")?.append(
-      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси`, () => void ctx.openPayment("cases"), "block"),
+      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси й атестація`, () => void ctx.openPayment("cases"), "block"),
     );
   }
   ctx.refs.mainPanel.querySelector("#pay-full-wrap")?.append(
