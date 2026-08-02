@@ -39,5 +39,18 @@ class AttestationStage1BankTests(unittest.TestCase):
             topic_counts[item["topic"]] = topic_counts.get(item["topic"], 0) + 1
         self.assertEqual(4, len(topic_counts))
         self.assertEqual({200}, set(topic_counts.values()))
+
+    def test_catalog_sections_are_available_in_source_order(self):
+        sections = self.bank.attestation_stage_1_sections()
+        self.assertEqual(
+            [
+                "Конституція України",
+                "Закон України «Про державну службу»",
+                "Митний кодекс України",
+                "Закон України «Про запобігання корупції»",
+            ],
+            [item["title"] for item in sections],
+        )
+        self.assertEqual([200, 200, 200, 200], [item["count"] for item in sections])
 if __name__ == "__main__":
     unittest.main()

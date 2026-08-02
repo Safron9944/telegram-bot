@@ -463,11 +463,6 @@ class MiniAppService:
         first_name = (user.get("first_name") or auth.telegram_user.get("first_name") or "").strip()
         last_name = (user.get("last_name") or auth.telegram_user.get("last_name") or "").strip()
         display_name = " ".join(x for x in [first_name, last_name] if x).strip() or f"ID {auth.user_id}"
-        attestation_sections: dict[str, int] = {}
-        for qid in sorted(self.qb.attestation_stage_1):
-            title = (self.qb.by_id[qid].topic or "Інші питання").strip()
-            attestation_sections[title] = attestation_sections.get(title, 0) + 1
-
         return {
             "id": auth.user_id,
             "first_name": first_name,
@@ -529,6 +524,8 @@ class MiniAppService:
                 }
             )
 
+        attestation_sections = self.qb.attestation_stage_1_sections()
+
         return {
             "law_groups": sort_law_groups(law_groups),
             "ok_modules": ok_modules,
@@ -536,10 +533,7 @@ class MiniAppService:
                 "title": "Атестація посадових осіб — 1 етап",
                 "count": len(self.qb.attestation_stage_1),
                 "topics": len(attestation_sections),
-                "sections": [
-                    {"key": title, "title": title, "count": count}
-                    for title, count in attestation_sections.items()
-                ],
+                "sections": attestation_sections,
             },
             "counts": {
                 "questions": len(self.qb.by_id),
