@@ -72,6 +72,13 @@ export function renderHome(ctx) {
             screen: "customs",
           }),
           ctx.cell({
+            title: "Атестація посадових осіб — 1 етап",
+            subtitle: `${catalog.attestation_stage_1?.count || 800} перевірених питань`,
+            icon: "📝",
+            tint: "purple",
+            screen: "attestation-stage-1",
+          }),
+          ctx.cell({
             title: "Кейси",
             subtitle: "Питання та правильні відповіді",
             icon: "🗂",
@@ -865,6 +872,80 @@ export function renderOkLevels(ctx) {
     });
     list.append(row);
   });
+}
+
+/* ===================== ATTESTATION: STAGE 1 ===================== */
+export function renderAttestationStage1(ctx) {
+  const catalog = ctx.state.bootstrap.catalog.attestation_stage_1 || {};
+  let selectedCount = 50;
+
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Атестація посадових осіб</h1>
+      <p class="page-subtitle">1 етап · випадковий тест із перевіреного переліку питань.</p>
+
+      <div class="stat-strip">
+        ${ctx.statPill("Питань", String(catalog.count || 800))}
+        ${ctx.statPill("Розділів", String(catalog.topics || 4))}
+        ${ctx.statPill("Прохідний", "60%")}
+      </div>
+
+      ${ctx.group({
+        header: "Кількість питань",
+        footer: "Склад тесту та порядок питань змінюються для кожної спроби.",
+        children: `
+          <div class="cell" style="cursor: default;">
+            <span class="cell__icon cell__icon--purple">#</span>
+            <span class="cell__body">
+              <span class="cell__title">Оберіть обсяг тесту</span>
+              <span class="cell__subtitle">20, 50 або 100 випадкових питань</span>
+            </span>
+            <span class="row-actions" id="attestation-counts"></span>
+          </div>
+        `,
+      })}
+
+      <div class="sticky-cta" id="attestation-cta"></div>
+    </section>
+  `;
+
+  const counts = ctx.refs.mainPanel.querySelector("#attestation-counts");
+  [20, 50, 100].forEach((count) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `pill${count === selectedCount ? " is-selected" : ""}`;
+    button.textContent = String(count);
+    button.addEventListener("click", () => {
+      selectedCount = count;
+      counts.querySelectorAll(".pill").forEach((item) => item.classList.remove("is-selected"));
+      button.classList.add("is-selected");
+      ctx.impact("light");
+    });
+    counts.append(button);
+  });
+
+  ctx.refs.mainPanel.querySelector("#attestation-cta").append(
+    ctx.actionButton(
+      "Почати тест",
+      async () => {
+        try {
+          ctx.state.currentView = await ctx.api("/api/attestation/stage-1/start", {
+            method: "POST",
+            body: { count: selectedCount },
+          });
+          ctx.render();
+        } catch (error) {
+          if (error.code === "access_expired") {
+            renderPaywall(ctx, error.code);
+            return;
+          }
+          ctx.setMessage("error", error.message);
+        }
+      },
+      "block",
+    ),
+  );
 }
 
 /* ===================== TESTING ===================== */

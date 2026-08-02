@@ -77,6 +77,14 @@ def resolve_questions_path() -> Path:
     return path
 
 
+def resolve_attestation_stage_1_path() -> Path:
+    raw = (os.getenv("ATTESTATION_STAGE_1_PATH") or "attestation_stage_1.json").strip()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path
+
+
 def resolve_webapp_url() -> str:
     explicit = (
         os.getenv("WEBAPP_URL")
@@ -281,6 +289,10 @@ class StartLearningRequest(BaseModel):
 class StartTestRequest(BaseModel):
     include_law: bool = True
     module_levels: dict[str, list[int]] = Field(default_factory=dict)
+
+
+class StartAttestationStage1Request(BaseModel):
+    count: Literal[20, 50, 100] = 50
 
 
 class SelectIndexRequest(BaseModel):
@@ -508,10 +520,16 @@ class MiniAppService:
         return {
             "law_groups": sort_law_groups(law_groups),
             "ok_modules": ok_modules,
+            "attestation_stage_1": {
+                "title": "Атестація посадових осіб — 1 етап",
+                "count": len(self.qb.attestation_stage_1),
+                "topics": len({self.qb.by_id[qid].topic for qid in self.qb.attestation_stage_1}),
+            },
             "counts": {
                 "questions": len(self.qb.by_id),
                 "law": len(self.qb.law),
                 "ok_modules": len(self.qb.ok_modules),
+                "attestation_stage_1": len(self.qb.attestation_stage_1),
             },
         }
 
@@ -754,7 +772,7 @@ class MiniAppService:
         result_state = {
             "mode": "test_result",
             "summary": {
-                "title": "Тестування завершено",
+                "title": state.get("result_title") or "Тестування завершено",
                 "correct": correct,
                 "total": total,
                 "percent": percent,
@@ -931,6 +949,47 @@ class MiniAppService:
                 "current_qid": None,
                 "correct_count": 0,
                 "total": len(all_qids),
+                "started_at": dt_to_iso(now()),
+                "answers": {},
+                "chosen": {},
+                "test_blocks": blocks,
+            },
+        )
+        return await self.build_session_view(auth)
+
+    async def start_attestation_stage_1(
+        self,
+        auth: AuthContext,
+        payload: StartAttestationStage1Request,
+    ) -> dict[str, Any]:
+        self.ensure_access(auth)
+
+        pool = list(self.qb.attestation_stage_1)
+        if not pool:
+            require_http(503, "attestation_stage_1_empty", "Питання для першого етапу атестації не завантажені.")
+
+        qids = self.qb.pick_random(pool, min(int(payload.count), len(pool)))
+        blocks: dict[str, list[int]] = {}
+        for qid in qids:
+            topic = (self.qb.by_id[qid].topic or "Інші питання").strip()
+            blocks.setdefault(topic, []).append(qid)
+
+        import random
+
+        random.shuffle(qids)
+        await self.set_state(
+            auth.user_id,
+            {
+                "mode": "test",
+                "header": f"Атестація • 1 етап • {len(qids)} питань",
+                "result_title": "Перший етап атестації завершено",
+                "pending": qids,
+                "skipped": [],
+                "phase": "pending",
+                "feedback": None,
+                "current_qid": None,
+                "correct_count": 0,
+                "total": len(qids),
                 "started_at": dt_to_iso(now()),
                 "answers": {},
                 "chosen": {},
@@ -1586,6 +1645,10 @@ async def lifespan(app: FastAPI):
     await qb.load_from_db(store)
     if not qb.by_id:
         raise RuntimeError("No questions loaded from DB.")
+    attestation_stage_1_path = resolve_attestation_stage_1_path()
+    if not attestation_stage_1_path.exists():
+        raise RuntimeError(f"Attestation question file not found: {attestation_stage_1_path}")
+    qb.load_attestation_stage_1(str(attestation_stage_1_path))
 
     runtime = RuntimeContext(
         store=store,
@@ -1697,6 +1760,15 @@ async def api_session_leave(auth: AuthContext = Depends(get_auth_context), runti
 @app.post("/api/test/start")
 async def api_test_start(payload: StartTestRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).start_test(auth, payload)
+
+
+@app.post("/api/attestation/stage-1/start")
+async def api_attestation_stage_1_start(
+    payload: StartAttestationStage1Request,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).start_attestation_stage_1(auth, payload)
 
 
 @app.post("/api/test/review/open")
