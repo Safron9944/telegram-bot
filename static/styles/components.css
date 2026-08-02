@@ -357,6 +357,21 @@
   color: var(--accent);
 }
 
+.btn--admin-trial {
+  background: var(--warning);
+  color: #ffffff;
+}
+
+.btn--admin-cases {
+  background: #7c3aed;
+  color: #ffffff;
+}
+
+.btn--admin-remove {
+  background: var(--destructive);
+  color: #ffffff;
+}
+
 .btn--block {
   width: 100%;
   min-height: 50px;
