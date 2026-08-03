@@ -362,7 +362,36 @@ class Storage:
     async def set_subscription(self, user_id: int, sub_end: datetime | None, infinite: bool, tier: str = "full"):
         await self._exec("""
             UPDATE users SET sub_end=$1, sub_infinite=$2, sub_tier=$3 WHERE user_id=$4
-        """, sub_end, 1 if infinite else 0, tier if not infinite else "full", user_id)
+        """, sub_end, 1 if infinite else 0, tier, user_id)
+
+    async def set_admin_access(self, user_id: int, access: str, *, trial_days: int = 3):
+        from datetime import timedelta
+
+        ts = now()
+        if access == "trial":
+            await self._exec("""
+                UPDATE users
+                SET trial_start=$1, trial_end=$2,
+                    sub_end=NULL, sub_infinite=0, sub_tier=NULL
+                WHERE user_id=$3
+            """, ts, ts + timedelta(days=int(trial_days)), user_id)
+            return
+        if access in ("cases", "full"):
+            await self._exec("""
+                UPDATE users
+                SET sub_end=NULL, sub_infinite=1, sub_tier=$1
+                WHERE user_id=$2
+            """, access, user_id)
+            return
+        if access == "none":
+            await self._exec("""
+                UPDATE users
+                SET trial_start=COALESCE(trial_start, $1), trial_end=$1,
+                    sub_end=NULL, sub_infinite=0, sub_tier=NULL
+                WHERE user_id=$2
+            """, ts, user_id)
+            return
+        raise ValueError(f"Unknown access type: {access}")
 
     async def get_ui(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM ui_state WHERE user_id=$1", user_id)
@@ -456,10 +485,33 @@ class Storage:
 
     async def list_users(self, offset: int, limit: int) -> list[dict]:
         rows = await self._fetch("""
-            SELECT user_id, first_name, last_name, trial_end, sub_end, sub_infinite, created_at
+            SELECT user_id, first_name, last_name, trial_start, trial_end,
+                   sub_end, sub_infinite, sub_tier, created_at
             FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
         """, limit, offset)
         return [dict(r) for r in rows]
+
+    async def users_access_counts(self) -> dict[str, int]:
+        row = await self._fetchrow("""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW())
+                ) AS active,
+                COUNT(*) FILTER (
+                    WHERE NOT (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                      AND trial_end IS NOT NULL AND trial_end >= NOW()
+                ) AS trial,
+                COUNT(*) FILTER (
+                    WHERE NOT (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                      AND (trial_end IS NULL OR trial_end < NOW())
+                ) AS expired
+            FROM users
+        """)
+        return {
+            "active": int(row["active"] or 0) if row else 0,
+            "trial": int(row["trial"] or 0) if row else 0,
+            "expired": int(row["expired"] or 0) if row else 0,
+        }
 
     async def questions_count(self) -> int:
         r = await self._fetchrow("SELECT COUNT(*) AS c FROM questions")

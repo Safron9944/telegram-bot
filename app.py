@@ -26,10 +26,9 @@ from pydantic import BaseModel, Field
 from case_importer import extract_case_from_upload_bytes
 from customs_code import repository as customs_code_repository
 
-from attestation import AttestationBank, AttestationQuestion, SECTION_KEYS
 from questions import QuestionBank
 from storage import Storage
-from access import access_status, access_tier, create_stars_invoice_link
+from access import access_status, access_tier, create_stars_invoice_link, has_attestation_access
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -78,12 +77,12 @@ def resolve_questions_path() -> Path:
     return path
 
 
-def load_json_file(path: Path) -> list[dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as stream:
-        payload = json.load(stream)
-    if not isinstance(payload, list):
-        raise ValueError(f"Expected a JSON list: {path}")
-    return [dict(item) for item in payload if isinstance(item, dict)]
+def resolve_attestation_stage_1_path() -> Path:
+    raw = (os.getenv("ATTESTATION_STAGE_1_PATH") or "attestation_stage_1.json").strip()
+    path = Path(raw)
+    if not path.is_absolute():
+        path = BASE_DIR / path
+    return path
 
 
 def resolve_webapp_url() -> str:
@@ -138,7 +137,7 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     elif state == "sub_full":
         label = f"Повний доступ до {sub_end}" if sub_end else "Повний доступ активний"
     elif state == "sub_cases":
-        label = f"Кейси до {sub_end}" if sub_end else "Доступ до кейсів активний"
+        label = f"Кейси й атестація до {sub_end}" if sub_end else "Доступ до кейсів і атестації активний"
     elif state == "not_registered":
         label = "Користувача ще не зареєстровано"
     else:
@@ -157,10 +156,6 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
 
 def require_http(status_code: int, code: str, message: str) -> None:
     raise HTTPException(status_code=status_code, detail={"code": code, "message": message})
-
-
-def has_attestation_full_access(auth: "AuthContext") -> bool:
-    return bool(auth.is_admin) or access_tier(auth.user) == "full"
 
 
 def clamp(value: int, minimum: int, maximum: int) -> int:
@@ -261,7 +256,6 @@ def pretest_limit(meta: dict[str, Any]) -> int:
 class RuntimeContext:
     store: Storage
     qb: QuestionBank
-    attestation_qb: AttestationBank
     admin_ids: set[int]
     bot_token: str
     webapp_url: str
@@ -297,16 +291,9 @@ class StartTestRequest(BaseModel):
     module_levels: dict[str, list[int]] = Field(default_factory=dict)
 
 
-class StartAttestationRequest(BaseModel):
-    section: Literal[
-        "constitution",
-        "civil_service",
-        "customs_code",
-        "anti_corruption",
-        "all",
-    ]
-    mode: Literal["part", "random", "demo"]
-    part: int = 1
+class StartAttestationStage1Request(BaseModel):
+    section: str
+    block: Literal["1-50", "51-100", "101-150", "151-200", "random"]
 
 
 class SelectIndexRequest(BaseModel):
@@ -321,20 +308,14 @@ class ReviewIndexRequest(BaseModel):
     index: int
 
 
-class SubscriptionUpdateRequest(BaseModel):
-    infinite: bool
+class AdminAccessUpdateRequest(BaseModel):
+    access: Literal["trial", "cases", "full", "none"]
 
 
 class QuestionPatchRequest(BaseModel):
     question: str | None = None
     choices: list[str] | None = None
     correct: list[int] | None = None
-
-
-class AttestationReviewPatch(BaseModel):
-    question: str
-    choices: list[str]
-    correct: list[int]
 
 
 def verify_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> dict[str, Any]:
@@ -451,31 +432,6 @@ class MiniAppService:
     async def set_state(self, user_id: int, state: dict[str, Any]) -> None:
         await self.store.set_state(user_id, state)
 
-    def resolve_question(self, state: dict[str, Any], qid: int):
-        bank = str((state.get("meta") or {}).get("bank") or "questions")
-        if bank == "attestation":
-            return self.runtime.attestation_qb.by_id.get(int(qid))
-        return self.qb.by_id.get(int(qid))
-
-    def ensure_session_access(
-        self,
-        auth: AuthContext,
-        state: dict[str, Any],
-    ) -> None:
-        meta = dict(state.get("meta") or {})
-        if meta.get("bank") == "attestation":
-            if (
-                meta.get("access") == "full"
-                and not has_attestation_full_access(auth)
-            ):
-                require_http(
-                    403,
-                    "attestation_full_required",
-                    "Повний доступ до атестації завершився.",
-                )
-            return
-        self.ensure_access(auth)
-
     def ensure_access(self, auth: AuthContext) -> None:
         """Full access: навчання, тести (trial included)."""
         tier = access_tier(auth.user)
@@ -490,120 +446,24 @@ class MiniAppService:
             return
         require_http(403, "cases_access_required", "Кейси доступні тільки за підпискою (100 ⭐ або 250 ⭐).")
 
+    def ensure_attestation_access(self, auth: AuthContext) -> None:
+        """Attestation access: 100-star tier or full paid access, without trial."""
+        if has_attestation_access(auth.user):
+            return
+        require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
+
+    def ensure_session_access(self, auth: AuthContext, state: dict[str, Any]) -> None:
+        meta = dict(state.get("meta", {}) or {})
+        if meta.get("kind") == "attestation_stage_1":
+            self.ensure_attestation_access(auth)
+            return
+        self.ensure_access(auth)
+
     def ensure_full_access(self, auth: AuthContext) -> None:
         """Тільки повний оплачений доступ — без тріалу та без cases."""
         if access_tier(auth.user) == "full":
             return
         require_http(403, "ok_questions_access_required", "Питання ОК доступні тільки з повним доступом (250 ⭐).")
-
-    def serialize_attestation_catalog(
-        self,
-        auth: AuthContext,
-    ) -> dict[str, Any]:
-        full_access = has_attestation_full_access(auth)
-        sections = []
-        for key, title in SECTION_KEYS.items():
-            count = len(self.runtime.attestation_qb.by_section.get(key, []) or [])
-            sections.append(
-                {
-                    "key": key,
-                    "title": title,
-                    "count": count,
-                    "parts": (count + 49) // 50,
-                    "demo_count": min(10, count),
-                    "locked": not full_access,
-                }
-            )
-        total = sum(item["count"] for item in sections)
-        sections.append(
-            {
-                "key": "all",
-                "title": "Усі питання",
-                "count": total,
-                "parts": (total + 49) // 50,
-                "demo_count": sum(item["demo_count"] for item in sections),
-                "locked": not full_access,
-            }
-        )
-        return {
-            "title": "Перший етап атестації",
-            "access": "full" if full_access else "demo",
-            "sections": sections,
-        }
-
-    def select_attestation(
-        self,
-        auth: AuthContext,
-        section: str,
-        mode: str,
-        part: int = 1,
-    ):
-        if not self.runtime.attestation_qb.by_id:
-            require_http(
-                503,
-                "attestation_bank_empty",
-                "Банк питань першого етапу атестації ще не завантажено.",
-            )
-        full_access = has_attestation_full_access(auth)
-        if not full_access and mode != "demo":
-            require_http(
-                403,
-                "attestation_full_required",
-                "Повний банк доступний лише за повною підпискою.",
-            )
-        if full_access and mode == "demo":
-            mode = "part"
-            part = 1
-        selected = self.runtime.attestation_qb.select(
-            section,
-            mode,
-            max(1, int(part or 1)),
-        )
-        if not selected:
-            require_http(
-                404,
-                "attestation_selection_empty",
-                "У вибраному наборі немає питань.",
-            )
-        return selected
-
-    async def start_attestation(
-        self,
-        auth: AuthContext,
-        payload: StartAttestationRequest,
-    ) -> dict[str, Any]:
-        selected = self.select_attestation(
-            auth,
-            payload.section,
-            payload.mode,
-            payload.part,
-        )
-        access = "full" if has_attestation_full_access(auth) else "demo"
-        await self.set_state(
-            auth.user_id,
-            {
-                "mode": "attestation",
-                "header": "Перший етап атестації",
-                "pending": [question.id for question in selected],
-                "skipped": [],
-                "phase": "pending",
-                "feedback": None,
-                "current_qid": None,
-                "correct_count": 0,
-                "total": len(selected),
-                "started_at": dt_to_iso(now()),
-                "answers": {},
-                "chosen": {},
-                "meta": {
-                    "bank": "attestation",
-                    "section": payload.section,
-                    "selection_mode": payload.mode,
-                    "part": max(1, int(payload.part or 1)),
-                    "access": access,
-                },
-            },
-        )
-        return await self.build_session_view(auth)
 
     def serialize_user(self, auth: AuthContext) -> dict[str, Any]:
         user = auth.user
@@ -671,14 +531,22 @@ class MiniAppService:
                 }
             )
 
+        attestation_sections = self.qb.attestation_stage_1_sections()
+
         return {
             "law_groups": sort_law_groups(law_groups),
             "ok_modules": ok_modules,
-            "attestation": self.serialize_attestation_catalog(auth),
+            "attestation_stage_1": {
+                "title": "Атестація посадових осіб — 1 етап",
+                "count": len(self.qb.attestation_stage_1),
+                "topics": len(attestation_sections),
+                "sections": attestation_sections,
+            },
             "counts": {
                 "questions": len(self.qb.by_id),
                 "law": len(self.qb.law),
                 "ok_modules": len(self.qb.ok_modules),
+                "attestation_stage_1": len(self.qb.attestation_stage_1),
             },
         }
 
@@ -708,26 +576,13 @@ class MiniAppService:
         mode = str(state.get("mode") or "")
         if not mode:
             return None
-        if mode in {
-            "learn",
-            "test",
-            "mistakes",
-            "attestation",
-            "test_result",
-            "test_review",
-            "attestation_result",
-            "attestation_review",
-        }:
-            self.ensure_session_access(auth, state)
         if mode == "pretest":
             return self.build_pretest_view(state, auth.is_admin)
-        if mode in {"learn", "test", "mistakes", "attestation"}:
+        if mode in {"learn", "test", "mistakes"}:
             return await self.build_session_view(auth, state)
         if mode == "test_result":
             return self.build_test_result_view(state)
-        if mode == "attestation_result":
-            return self.build_attestation_result_view(state)
-        if mode in {"test_review", "attestation_review"}:
+        if mode == "test_review":
             return await self.build_test_review_view(auth.user_id, state)
         return None
 
@@ -794,15 +649,14 @@ class MiniAppService:
     async def build_session_view(self, auth: AuthContext, state: dict[str, Any] | None = None) -> dict[str, Any]:
         state = state or await self.get_state(auth.user_id)
         mode = str(state.get("mode") or "")
-        if mode not in {"learn", "test", "mistakes", "attestation"}:
+        if mode not in {"learn", "test", "mistakes"}:
             return {"mode": "idle", "screen": "empty"}
-        self.ensure_session_access(auth, state)
 
         feedback = state.get("feedback")
         if feedback:
             qid = int(feedback.get("qid"))
             chosen = int(feedback.get("chosen"))
-            q = self.resolve_question(state, qid)
+            q = self.qb.by_id.get(qid)
             if q:
                 return {
                     "mode": mode,
@@ -830,14 +684,12 @@ class MiniAppService:
 
             if mode == "test":
                 return await self.finish_test(auth.user_id, state)
-            if mode == "attestation":
-                return await self.finish_attestation(auth.user_id, state)
             if mode == "mistakes":
                 return await self.finish_mistakes(auth.user_id, state)
             return await self.finish_learning(auth.user_id, state)
 
         while pending:
-            q = self.resolve_question(state, int(pending[0]))
+            q = self.qb.by_id.get(int(pending[0]))
             if q and (q.choices or []):
                 break
             pending = pending[1:]
@@ -848,9 +700,7 @@ class MiniAppService:
             return await self.build_session_view(auth, state)
 
         qid = int(pending[0])
-        q = self.resolve_question(state, qid)
-        if q is None:
-            require_http(404, "question_missing", "Питання недоступне.")
+        q = self.qb.by_id[qid]
 
         state["pending"] = pending
         state["current_qid"] = qid
@@ -939,7 +789,7 @@ class MiniAppService:
         result_state = {
             "mode": "test_result",
             "summary": {
-                "title": "Тестування завершено",
+                "title": state.get("result_title") or "Тестування завершено",
                 "correct": correct,
                 "total": total,
                 "percent": percent,
@@ -954,49 +804,6 @@ class MiniAppService:
         await self.set_state(user_id, result_state)
         return self.build_test_result_view(result_state)
 
-    async def finish_attestation(
-        self,
-        user_id: int,
-        state: dict[str, Any],
-    ) -> dict[str, Any]:
-        correct = int(state.get("correct_count", 0) or 0)
-        total = int(state.get("total", 0) or 0)
-        percent = (correct / total * 100.0) if total else 0.0
-        started_at = iso_to_dt(state.get("started_at")) or now()
-        finished_at = now()
-        meta = dict(state.get("meta") or {})
-        await self.store.save_test(
-            user_id,
-            started_at,
-            finished_at,
-            total,
-            correct,
-            test_type="attestation",
-            meta=meta,
-        )
-
-        answers = dict(state.get("answers") or {})
-        chosen = dict(state.get("chosen") or {})
-        result_state = {
-            "mode": "attestation_result",
-            "summary": {
-                "title": "Перший етап атестації завершено",
-                "correct": correct,
-                "total": total,
-                "percent": percent,
-                "finished_at": dt_to_iso(finished_at),
-                "meta": meta,
-            },
-            "wrong_qids": [
-                int(qid) for qid, is_correct in answers.items() if not is_correct
-            ],
-            "chosen": chosen,
-            "review_index": 0,
-            "meta": meta,
-        }
-        await self.set_state(user_id, result_state)
-        return self.build_attestation_result_view(result_state)
-
     def build_test_result_view(self, state: dict[str, Any]) -> dict[str, Any]:
         summary = dict(state.get("summary", {}) or {})
         return {
@@ -1006,18 +813,6 @@ class MiniAppService:
             "wrong_count": len(state.get("wrong_qids", []) or []),
         }
 
-    def build_attestation_result_view(
-        self,
-        state: dict[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "mode": "attestation_result",
-            "screen": "result",
-            "summary": dict(state.get("summary") or {}),
-            "wrong_count": len(state.get("wrong_qids") or []),
-            "meta": dict(state.get("meta") or {}),
-        }
-
     async def build_test_review_view(self, user_id: int, state: dict[str, Any]) -> dict[str, Any]:
         wrong_qids = [int(x) for x in (state.get("wrong_qids", []) or [])]
         chosen_map = dict(state.get("chosen", {}) or {})
@@ -1025,16 +820,12 @@ class MiniAppService:
         while wrong_qids:
             index = clamp(int(state.get("review_index", 0) or 0), 0, len(wrong_qids) - 1)
             qid = wrong_qids[index]
-            q = self.resolve_question(state, qid)
+            q = self.qb.by_id.get(qid)
             if q:
                 chosen = chosen_map.get(str(qid))
                 chosen_idx = int(chosen) if chosen is not None else None
                 return {
-                    "mode": (
-                        "attestation_review"
-                        if (state.get("meta") or {}).get("bank") == "attestation"
-                        else "test_review"
-                    ),
+                    "mode": "test_review",
                     "screen": "review",
                     "index": index,
                     "total": len(wrong_qids),
@@ -1055,15 +846,7 @@ class MiniAppService:
             state["review_index"] = min(index, max(0, len(wrong_qids) - 1))
             await self.set_state(user_id, state)
 
-        return {
-            "mode": (
-                "attestation_review"
-                if (state.get("meta") or {}).get("bank") == "attestation"
-                else "test_review"
-            ),
-            "screen": "empty",
-            "message": "У цьому тесті немає помилок.",
-        }
+        return {"mode": "test_review", "screen": "empty", "message": "У цьому тесті немає помилок."}
 
     async def start_learning_flow(self, auth: AuthContext, payload: StartLearningRequest) -> dict[str, Any]:
         self.ensure_access(auth)
@@ -1191,6 +974,41 @@ class MiniAppService:
         )
         return await self.build_session_view(auth)
 
+    async def start_attestation_stage_1(
+        self,
+        auth: AuthContext,
+        payload: StartAttestationStage1Request,
+    ) -> dict[str, Any]:
+        self.ensure_attestation_access(auth)
+
+        all_qids = list(self.qb.attestation_stage_1)
+        if not all_qids:
+            require_http(503, "attestation_stage_1_empty", "Питання для першого етапу атестації не завантажені.")
+
+        section = (payload.section or "").strip()
+        if not section:
+            require_http(400, "attestation_section_required", "Оберіть розділ атестації.")
+        pool = self.qb.attestation_stage_1_section_qids(section)
+        if not pool:
+            require_http(404, "attestation_section_not_found", "Обраний розділ атестації не знайдено.")
+
+        qids = self.qb.attestation_stage_1_block_qids(section, payload.block)
+        block_label = "Випадкові 50" if payload.block == "random" else payload.block
+        if len(qids) != 50:
+            require_http(503, "attestation_block_incomplete", "В обраній частині має бути 50 питань.")
+
+        await self.start_learning_session(
+            auth.user_id,
+            qids,
+            f"{section} • {block_label}",
+            {
+                "kind": "attestation_stage_1",
+                "section": section,
+                "block": payload.block,
+            },
+        )
+        return await self.build_session_view(auth)
+
     async def start_mistakes(self, auth: AuthContext) -> dict[str, Any]:
         self.ensure_access(auth)
         qids = await self.store.list_mistakes(auth.user_id)
@@ -1244,10 +1062,10 @@ class MiniAppService:
         self.ensure_session_access(auth, state)
         mode = str(state.get("mode") or "")
         qid = state.get("current_qid")
-        if mode not in {"learn", "test", "mistakes", "attestation"} or not qid:
+        if mode not in {"learn", "test", "mistakes"} or not qid:
             require_http(409, "inactive_session", "Немає активної сесії.")
 
-        q = self.resolve_question(state, int(qid))
+        q = self.qb.by_id.get(int(qid))
         if not q or not (q.choices or []):
             require_http(404, "question_missing", "Питання недоступне.")
 
@@ -1271,7 +1089,7 @@ class MiniAppService:
             await self.set_state(auth.user_id, state)
             return await self.build_session_view(auth, state)
 
-        if mode in {"test", "attestation"}:
+        if mode == "test":
             answers = dict(state.get("answers", {}) or {})
             chosen = dict(state.get("chosen", {}) or {})
             answers[str(qid)] = bool(is_correct)
@@ -1280,8 +1098,6 @@ class MiniAppService:
             state["chosen"] = chosen
             if is_correct:
                 state["correct_count"] = int(state.get("correct_count", 0) or 0) + 1
-            if mode == "attestation":
-                state["feedback"] = {"qid": int(qid), "chosen": choice}
             await self.set_state(auth.user_id, state)
             return await self.build_session_view(auth, state)
 
@@ -1292,8 +1108,8 @@ class MiniAppService:
         return await self.build_session_view(auth, state)
 
     async def skip(self, auth: AuthContext) -> dict[str, Any]:
-        self.ensure_access(auth)
         state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
         if state.get("mode") != "learn":
             require_http(409, "skip_not_allowed", "Пропуск доступний лише в навчанні.")
         qid = state.get("current_qid")
@@ -1315,12 +1131,8 @@ class MiniAppService:
     async def feedback_next(self, auth: AuthContext) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
         self.ensure_session_access(auth, state)
-        if state.get("mode") not in {"learn", "attestation"}:
-            require_http(
-                409,
-                "feedback_not_available",
-                "У поточній сесії немає переходу після відповіді.",
-            )
+        if state.get("mode") != "learn":
+            require_http(409, "not_learning", "Поточна сесія не є навчанням.")
         state["feedback"] = None
         await self.set_state(auth.user_id, state)
         return await self.build_session_view(auth, state)
@@ -1331,51 +1143,32 @@ class MiniAppService:
 
     async def open_test_review(self, auth: AuthContext) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
-        self.ensure_session_access(auth, state)
         wrong_qids = list(state.get("wrong_qids", []) or [])
         if not wrong_qids:
             require_http(409, "no_review", "У цьому тесті немає помилок.")
-        state["mode"] = (
-            "attestation_review"
-            if (state.get("meta") or {}).get("bank") == "attestation"
-            else "test_review"
-        )
+        state["mode"] = "test_review"
         state["review_index"] = 0
         await self.set_state(auth.user_id, state)
         return await self.build_test_review_view(auth.user_id, state)
 
     async def set_review_index(self, auth: AuthContext, payload: ReviewIndexRequest) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
-        self.ensure_session_access(auth, state)
-        if str(state.get("mode") or "") not in {
-            "test_review",
-            "test_result",
-            "attestation_review",
-            "attestation_result",
-        }:
+        if str(state.get("mode") or "") not in {"test_review", "test_result"}:
             require_http(409, "no_review", "Немає активного перегляду помилок.")
         wrong_qids = list(state.get("wrong_qids", []) or [])
         if not wrong_qids:
             require_http(409, "no_review", "У цьому тесті немає помилок.")
-        state["mode"] = (
-            "attestation_review"
-            if (state.get("meta") or {}).get("bank") == "attestation"
-            else "test_review"
-        )
+        state["mode"] = "test_review"
         state["review_index"] = clamp(int(payload.index), 0, len(wrong_qids) - 1)
         await self.set_state(auth.user_id, state)
         return await self.build_test_review_view(auth.user_id, state)
 
     async def back_to_test_result(self, auth: AuthContext) -> dict[str, Any]:
         state = await self.get_state(auth.user_id)
-        self.ensure_session_access(auth, state)
         if not state.get("summary"):
             require_http(409, "no_test_result", "Немає результату тесту.")
-        is_attestation = (state.get("meta") or {}).get("bank") == "attestation"
-        state["mode"] = "attestation_result" if is_attestation else "test_result"
+        state["mode"] = "test_result"
         await self.set_state(auth.user_id, state)
-        if is_attestation:
-            return self.build_attestation_result_view(state)
         return self.build_test_result_view(state)
 
     async def search_ok_questions(self, auth: AuthContext, query: str, limit: int = 25, offset: int = 0) -> dict[str, Any]:
@@ -1611,17 +1404,11 @@ class MiniAppService:
         items = await self.store.list_users(offset, limit + 1)
         has_next = len(items) > limit
         page_items = items[:limit]
-        counts = {"active": 0, "trial": 0, "expired": 0}
+        counts = await self.store.users_access_counts()
         serialized = []
 
         for user in page_items:
             access = access_payload(user)
-            if access["state"] in {"sub_active", "sub_infinite"}:
-                counts["active"] += 1
-            elif access["state"] == "trial":
-                counts["trial"] += 1
-            else:
-                counts["expired"] += 1
             serialized.append(
                 {
                     "user_id": int(user.get("user_id")),
@@ -1661,10 +1448,10 @@ class MiniAppService:
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
         }
 
-    async def admin_set_subscription(self, auth: AuthContext, target_id: int, infinite: bool) -> dict[str, Any]:
+    async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        await self.store.set_subscription(target_id, None, infinite=infinite)
+        await self.store.set_admin_access(target_id, access, trial_days=3)
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_questions_page(self, auth: AuthContext, page: int, page_size: int = 10) -> dict[str, Any]:
@@ -1768,109 +1555,6 @@ class MiniAppService:
 
         return {"question": serialize_question(self.qb.by_id[int(qid)], reveal_answers=True)}
 
-    @staticmethod
-    def _ensure_admin(auth: AuthContext) -> None:
-        if not auth.is_admin:
-            require_http(
-                403,
-                "forbidden",
-                "Потрібні права адміністратора.",
-            )
-
-    async def admin_attestation_reviews(
-        self,
-        auth: AuthContext,
-        status: str = "needs_review",
-        offset: int = 0,
-        limit: int = 20,
-    ) -> dict[str, Any]:
-        self._ensure_admin(auth)
-        try:
-            return await self.store.list_attestation_reviews(
-                status,
-                max(0, int(offset)),
-                clamp(int(limit), 1, 100),
-            )
-        except ValueError as error:
-            require_http(400, "invalid_review_status", str(error))
-
-    async def admin_attestation_review(
-        self,
-        auth: AuthContext,
-        review_id: int,
-    ) -> dict[str, Any]:
-        self._ensure_admin(auth)
-        item = await self.store.get_attestation_review(int(review_id))
-        if not item:
-            require_http(
-                404,
-                "attestation_review_not_found",
-                "Проблемне питання не знайдено.",
-            )
-        return {"review": item}
-
-    async def admin_attestation_summary(
-        self,
-        auth: AuthContext,
-    ) -> dict[str, Any]:
-        self._ensure_admin(auth)
-        return await self.store.attestation_review_summary()
-
-    @staticmethod
-    def _raise_review_error(error: ValueError) -> None:
-        message = str(error)
-        if "не знайдено" in message:
-            require_http(404, "attestation_review_not_found", message)
-        if "вже опрацьоване" in message:
-            require_http(409, "attestation_review_resolved", message)
-        require_http(400, "invalid_attestation_review", message)
-
-    async def admin_approve_attestation_review(
-        self,
-        auth: AuthContext,
-        review_id: int,
-        payload: AttestationReviewPatch,
-    ) -> dict[str, Any]:
-        self._ensure_admin(auth)
-        try:
-            review = await self.store.approve_attestation_review(
-                int(review_id),
-                payload.model_dump(),
-                auth.user_id,
-            )
-        except ValueError as error:
-            self._raise_review_error(error)
-            raise AssertionError("unreachable")
-
-        self.runtime.attestation_qb = AttestationBank(
-            AttestationQuestion(**row)
-            for row in await self.store.fetch_attestation_questions()
-        )
-        return {
-            "review": review,
-            "summary": await self.store.attestation_review_summary(),
-            "catalog": self.serialize_attestation_catalog(auth),
-        }
-
-    async def admin_reject_attestation_review(
-        self,
-        auth: AuthContext,
-        review_id: int,
-    ) -> dict[str, Any]:
-        self._ensure_admin(auth)
-        try:
-            review = await self.store.reject_attestation_review(
-                int(review_id),
-                auth.user_id,
-            )
-        except ValueError as error:
-            self._raise_review_error(error)
-            raise AssertionError("unreachable")
-        return {
-            "review": review,
-            "summary": await self.store.attestation_review_summary(),
-        }
-
 
 def build_bot_router(runtime: RuntimeContext) -> Router:
     router = Router()
@@ -1914,7 +1598,7 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
             return
         user_id = message.from_user.id
         await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
-        label = "кейсів" if tier == "cases" else "повного доступу"
+        label = "кейсів та атестації" if tier == "cases" else "повного доступу"
         await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 
     return router
@@ -1962,30 +1646,18 @@ async def lifespan(app: FastAPI):
             exam_items = json.load(_f)
         await store.import_test_exam_questions(exam_items)
 
-    verified_attestation_path = BASE_DIR / "attestation_questions.json"
-    attestation_reviews_path = BASE_DIR / "attestation_review_candidates.json"
-    if verified_attestation_path.exists():
-        await store.import_attestation_questions(
-            load_json_file(verified_attestation_path)
-        )
-    if attestation_reviews_path.exists():
-        await store.import_attestation_reviews(
-            load_json_file(attestation_reviews_path)
-        )
-
     qb = QuestionBank(str(questions_path))
     await qb.load_from_db(store)
     if not qb.by_id:
         raise RuntimeError("No questions loaded from DB.")
-    attestation_qb = AttestationBank(
-        AttestationQuestion(**row)
-        for row in await store.fetch_attestation_questions()
-    )
+    attestation_stage_1_path = resolve_attestation_stage_1_path()
+    if not attestation_stage_1_path.exists():
+        raise RuntimeError(f"Attestation question file not found: {attestation_stage_1_path}")
+    qb.load_attestation_stage_1(str(attestation_stage_1_path))
 
     runtime = RuntimeContext(
         store=store,
         qb=qb,
-        attestation_qb=attestation_qb,
         admin_ids=admin_ids,
         bot_token=bot_token,
         webapp_url=resolve_webapp_url(),
@@ -2095,13 +1767,13 @@ async def api_test_start(payload: StartTestRequest, auth: AuthContext = Depends(
     return await MiniAppService(runtime).start_test(auth, payload)
 
 
-@app.post("/api/attestation/start")
-async def api_attestation_start(
-    payload: StartAttestationRequest,
+@app.post("/api/attestation/stage-1/start")
+async def api_attestation_stage_1_start(
+    payload: StartAttestationStage1Request,
     auth: AuthContext = Depends(get_auth_context),
     runtime: RuntimeContext = Depends(get_runtime),
 ):
-    return await MiniAppService(runtime).start_attestation(auth, payload)
+    return await MiniAppService(runtime).start_attestation_stage_1(auth, payload)
 
 
 @app.post("/api/test/review/open")
@@ -2265,9 +1937,9 @@ async def api_admin_user_detail(user_id: int, auth: AuthContext = Depends(get_au
     return await MiniAppService(runtime).admin_user_detail(auth, user_id)
 
 
-@app.post("/api/admin/users/{user_id}/subscription")
-async def api_admin_user_subscription(user_id: int, payload: SubscriptionUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_set_subscription(auth, user_id, payload.infinite)
+@app.post("/api/admin/users/{user_id}/access")
+async def api_admin_user_access(user_id: int, payload: AdminAccessUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_set_access(auth, user_id, payload.access)
 
 
 @app.get("/api/admin/questions")
@@ -2288,59 +1960,6 @@ async def api_admin_question_detail(qid: int, auth: AuthContext = Depends(get_au
 @app.patch("/api/admin/questions/{qid}")
 async def api_admin_question_update(qid: int, payload: QuestionPatchRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_update_question(auth, qid, payload)
-
-
-@app.get("/api/admin/attestation/reviews")
-async def api_admin_attestation_reviews(
-    status: str = "needs_review",
-    offset: int = 0,
-    limit: int = 20,
-    auth: AuthContext = Depends(get_auth_context),
-    runtime: RuntimeContext = Depends(get_runtime),
-):
-    return await MiniAppService(runtime).admin_attestation_reviews(
-        auth, status, offset, limit
-    )
-
-
-@app.get("/api/admin/attestation/reviews/{review_id}")
-async def api_admin_attestation_review(
-    review_id: int,
-    auth: AuthContext = Depends(get_auth_context),
-    runtime: RuntimeContext = Depends(get_runtime),
-):
-    return await MiniAppService(runtime).admin_attestation_review(auth, review_id)
-
-
-@app.post("/api/admin/attestation/reviews/{review_id}/approve")
-async def api_admin_attestation_review_approve(
-    review_id: int,
-    payload: AttestationReviewPatch,
-    auth: AuthContext = Depends(get_auth_context),
-    runtime: RuntimeContext = Depends(get_runtime),
-):
-    return await MiniAppService(runtime).admin_approve_attestation_review(
-        auth, review_id, payload
-    )
-
-
-@app.post("/api/admin/attestation/reviews/{review_id}/reject")
-async def api_admin_attestation_review_reject(
-    review_id: int,
-    auth: AuthContext = Depends(get_auth_context),
-    runtime: RuntimeContext = Depends(get_runtime),
-):
-    return await MiniAppService(runtime).admin_reject_attestation_review(
-        auth, review_id
-    )
-
-
-@app.get("/api/admin/attestation/summary")
-async def api_admin_attestation_summary(
-    auth: AuthContext = Depends(get_auth_context),
-    runtime: RuntimeContext = Depends(get_runtime),
-):
-    return await MiniAppService(runtime).admin_attestation_summary(auth)
 
 
 @app.get("/api/admin/global-search")

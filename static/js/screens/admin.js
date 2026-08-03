@@ -191,8 +191,6 @@ export async function loadAdminUserDetail(ctx, userId) {
     closeAdminModal();
 
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ") || "—";
-    const isInfinite = payload.access.state === "sub_infinite";
-
     const close = () => {
       closeAdminModal();
       ctx.state.selectedAdminUserId = null;
@@ -203,22 +201,25 @@ export async function loadAdminUserDetail(ctx, userId) {
     overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
 
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal modal--admin-access";
     modal.innerHTML = `
       <div class="modal__header">
-        <span class="modal__title">${ctx.escapeHtml(name)}</span>
+        <span class="modal__heading">
+          <span class="modal__title">${ctx.escapeHtml(name)}</span>
+          <span class="modal__subtitle">Налаштування доступу користувача</span>
+        </span>
         <button class="modal__close" type="button" aria-label="Закрити">✕</button>
       </div>
-      <div class="group" style="margin-bottom: 12px;">
+      <div class="group admin-access-summary">
         <div class="group__list">
-          <div class="cell" style="cursor: default;">
+          <div class="cell admin-access-summary__row">
             <span class="cell__icon cell__icon--blue">i</span>
             <span class="cell__body">
               <span class="cell__title">ID ${payload.user_id}</span>
               <span class="cell__subtitle">${ctx.escapeHtml(payload.access.label)}</span>
             </span>
           </div>
-          <div class="cell" style="cursor: default;">
+          <div class="cell admin-access-summary__row">
             <span class="cell__icon cell__icon--gray">📅</span>
             <span class="cell__body">
               <span class="cell__title">Створено</span>
@@ -227,51 +228,64 @@ export async function loadAdminUserDetail(ctx, userId) {
           </div>
         </div>
       </div>
-      <div id="modal-actions" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      <section class="admin-access-controls">
+        <div class="admin-access-controls__header">
+          <span class="admin-access-controls__title">Керування доступом</span>
+          <span class="admin-access-controls__hint">Оберіть потрібний рівень доступу</span>
+        </div>
+        <div id="modal-actions" class="admin-access-actions"></div>
+      </section>
     `;
 
     modal.querySelector(".modal__close").addEventListener("click", close);
 
     const actions = modal.querySelector("#modal-actions");
-    actions.append(
-      ctx.actionButton(
-        isInfinite ? "Скасувати безстроковий доступ" : "Дати безстроковий доступ",
-        async () => {
-          try {
-            await ctx.api(`/api/admin/users/${userId}/subscription`, {
-              method: "POST",
-              body: { infinite: !isInfinite },
-            });
-            ctx.impact("medium");
-            close();
-            ctx.setMessage("success", "Доступ оновлено.");
-            await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
-        },
-        "block",
-      ),
+    const updateAccess = async (access, message) => {
+      try {
+        await ctx.api(`/api/admin/users/${userId}/access`, {
+          method: "POST",
+          body: { access },
+        });
+        ctx.impact("medium");
+        close();
+        ctx.setMessage("success", message);
+        await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    };
+
+    const trialButton = ctx.actionButton(
+      "⏳ Дати тріал на 3 дні",
+      () => updateAccess("trial", "Тріал активовано на 3 дні."),
+      "block",
     );
-    actions.append(
-      ctx.actionButton(
-        "Забрати доступ",
-        async () => {
-          try {
-            await ctx.api(`/api/admin/users/${userId}/subscription`, {
-              method: "POST",
-              body: { infinite: false },
-            });
-            close();
-            ctx.setMessage("success", "Доступ оновлено.");
-            await loadAdminUsers(ctx, ctx.state.adminUsersOffset);
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
-        },
-        "block-ghost",
-      ),
+    trialButton.classList.add("btn--admin-trial");
+
+    const casesButton = ctx.actionButton(
+      "⭐ Дати доступ за 100 ⭐ — кейси й атестація",
+      () => updateAccess("cases", "Доступ до кейсів і атестації активовано."),
+      "block",
     );
+    casesButton.classList.add("btn--admin-cases");
+
+    const fullButton = ctx.actionButton(
+      "✓ Дати повний доступ",
+      () => updateAccess("full", "Повний доступ активовано."),
+      "block",
+    );
+
+    const removeButton = ctx.actionButton(
+      "✕ Забрати весь доступ",
+      async () => {
+        if (!window.confirm("Забрати у користувача тріал і всі види доступу?")) return;
+        await updateAccess("none", "Доступ скасовано.");
+      },
+      "block",
+    );
+    removeButton.classList.add("btn--admin-remove");
+
+    actions.append(trialButton, casesButton, fullButton, removeButton);
 
     overlay.append(modal);
     document.body.append(overlay);

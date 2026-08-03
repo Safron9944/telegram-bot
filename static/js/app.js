@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260731-attestation-02";
+import { state } from "./core/state.js?v=20260802-attestation-stage1-05";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-04";
 import { initializeTheme } from "./core/theme.js?v=20260617-question-search-04";
@@ -22,6 +22,8 @@ import {
   loadUserTestExamQuestions,
   renderCaseDetail,
   renderCases,
+  renderAttestationParts,
+  renderAttestationStage1,
   renderCustoms,
   renderCustomsArticle,
   renderCustomsCode,
@@ -37,7 +39,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260731-attestation-01";
+} from "./screens/user.js?v=20260802-attestation-stage1-05";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -56,16 +58,8 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260731-attestation-02";
-import { renderCurrentView } from "./screens/session.js?v=20260731-attestation-01";
-import {
-  renderAttestation,
-  renderAttestationParts,
-} from "./screens/attestation.js?v=20260731-attestation-01";
-import {
-  loadAdminAttestationReviews,
-  renderAdminAttestationReviews,
-} from "./screens/admin-attestation.js?v=20260731-attestation-02";
+} from "./screens/admin.js?v=20260802-admin-sheet-01";
+import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-04";
 
 window.__APP_READY__ = false;
 
@@ -107,7 +101,6 @@ function createContext() {
     loadAdminCases: () => loadAdminCases(createContext()),
     loadAdminSettings: () => loadAdminSettings(createContext()),
     loadAdminTestQuestions: (offset = state.testQOffset || 0) => loadAdminTestQuestions(createContext(), offset),
-    loadAdminAttestationReviews: (offset = 0) => loadAdminAttestationReviews(createContext(), offset),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
     loadCases: () => loadCases(createContext()),
@@ -206,7 +199,6 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
-  if (screen === "admin-attestation-reviews") void loadAdminAttestationReviews(createContext(), 0);
   if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
   if (screen === "cases") void loadCases(createContext());
   if (screen === "case-detail") void loadCaseDetail(createContext(), state.caseOffset);
@@ -240,7 +232,7 @@ function render() {
 
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
-    case "attestation":       renderAttestation(ctx); break;
+    case "attestation-stage-1": renderAttestationStage1(ctx); break;
     case "attestation-parts": renderAttestationParts(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
@@ -266,7 +258,6 @@ function render() {
     case "admin-cases":            renderAdminCases(ctx); break;
     case "admin-settings":      renderAdminSettings(ctx); break;
     case "admin-test-questions": renderAdminTestQuestions(ctx); break;
-    case "admin-attestation-reviews": renderAdminAttestationReviews(ctx); break;
     default:
       state.currentScreen = "home";
       renderHome(ctx);
