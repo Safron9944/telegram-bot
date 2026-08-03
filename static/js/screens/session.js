@@ -319,7 +319,7 @@ function renderResultView(ctx, view) {
   }
 
   const actions = ctx.refs.mainPanel.querySelector("#result-actions");
-  if (["test_result", "attestation_result"].includes(view.mode) && view.wrong_count > 0) {
+  if (view.mode === "test_result" && view.wrong_count > 0) {
     actions.append(
       ctx.actionButton(
         "Показати помилки",
@@ -346,7 +346,7 @@ function renderResultView(ctx, view) {
         ctx.goHome();
         await ctx.loadBootstrap();
       },
-      ["test_result", "attestation_result"].includes(view.mode) && view.wrong_count > 0 ? "block-ghost" : "block",
+      view.mode === "test_result" && view.wrong_count > 0 ? "block-ghost" : "block",
     ),
   );
 }

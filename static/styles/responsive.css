@@ -44,21 +44,6 @@
   }
 }
 
-@media (max-width: 639px) {
-  .attestation-review__compare {
-    grid-template-columns: 1fr;
-  }
-
-  .attestation-review__source,
-  .attestation-review__match {
-    padding: 12px;
-  }
-
-  .attestation-review .sticky-cta .btn {
-    width: 100%;
-  }
-}
-
 /* Hover affordance on pointer devices */
 @media (hover: hover) {
   .cell:hover {

@@ -155,6 +155,7 @@ def __PKCS7_unpad (padded):
         return padded[:-length]
     else:
         return padded
+        print 'error: padding pattern not recognized'
 
 def ANSI_X923 (padData, direction, length=None):
         """Pad a string using ANSI_X923
@@ -198,6 +199,7 @@ def __ANSI_X923_unpad (padded):
     if padded.count('\x00',-length,-1) == length - 1:
         return padded[:-length]
     else:
+        print 'error: padding pattern not recognized %s' % padded.count('\x00',-length,-1)
         return padded
 
 def ISO_10126 (padData, direction, length=None):

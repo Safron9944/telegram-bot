@@ -24,15 +24,6 @@ export function renderAdminHub(ctx) {
             screen: "admin-questions",
           }),
           ctx.cell({
-            title: "Проблемні питання",
-            subtitle: ctx.state.adminAttestationSummary
-              ? `${ctx.state.adminAttestationSummary.needs_review || 0} потребують перевірки`
-              : "Перевірка OCR, відповідей і збігів",
-            icon: "!",
-            tint: "orange",
-            screen: "admin-attestation-reviews",
-          }),
-          ctx.cell({
             title: "Кейси",
             subtitle: "Імпорт Keys.db",
             icon: "🗂",
