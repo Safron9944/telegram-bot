@@ -1,4 +1,4 @@
-"""Persist stage-1 attestation questions in PostgreSQL.
+'''Persist stage-1 attestation questions in PostgreSQL.
 
 The application historically loaded ``attestation_stage_1.json`` only into
 memory. The existing admin editor saves through the ``questions`` table, so
@@ -7,7 +7,7 @@ JSON file as an insert-only seed and makes the database the source of truth.
 
 Python imports ``sitecustomize`` automatically during normal interpreter
 startup, before Uvicorn imports ``app``.
-"""
+'''
 
 from __future__ import annotations
 
@@ -130,3 +130,6 @@ def _load_attestation_stage_1_without_duplicates(bank: QuestionBank, path: str) 
 
 Storage.fetch_questions = _fetch_questions_with_attestation_seed
 QuestionBank.load_attestation_stage_1 = _load_attestation_stage_1_without_duplicates
+
+# Register dedicated admin endpoints before Uvicorn imports the FastAPI app.
+import admin_attestation_extension  # noqa: E402,F401
