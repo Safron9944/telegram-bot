@@ -1,0 +1,70 @@
+name: Finish verified attestation replacement
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finish-attestation-stage1-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  replace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Replace and validate bank
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="attestation_stage_1_verified_2026_08_03"
+          if [[ ! -d "$source_dir" ]]; then
+            echo "Verified payload already consumed."
+            exit 0
+          fi
+          cat "$source_dir"/part-*.txt | tr -d '\r\n' | base64 --decode | xz --decompress > /tmp/attestation_stage_1.json
+          echo "30df6152fd8004fedb34d2de15ecfe1c105e09231b73a3b1b699c4a2d2a2a4f1  /tmp/attestation_stage_1.json" | sha256sum --check --strict
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/attestation_stage_1.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          questions = data.get('questions')
+          assert data.get('section') == 'Атестація посадових осіб — 1 етап'
+          assert data.get('count') == 800
+          assert isinstance(questions, list) and len(questions) == 800
+          ids = [int(q['id']) for q in questions]
+          assert len(ids) == len(set(ids))
+          for q in questions:
+              choices = q.get('choices')
+              correct = q.get('correct')
+              assert isinstance(choices, list) and len(choices) >= 2
+              assert isinstance(correct, list) and correct
+              assert all(isinstance(i, int) and 1 <= i <= len(choices) for i in correct)
+              assert q.get('correct_texts') == [choices[i - 1] for i in correct]
+          PY
+          mv /tmp/attestation_stage_1.json attestation_stage_1.json
+          mv sitecustomize_verified.py sitecustomize.py
+          rm -rf "$source_dir"
+          rm -f attestation_ocr_fixes.py
+          python -m py_compile sitecustomize.py
+      - name: Commit replacement
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet --exit-code && [[ -z "$(git status --porcelain)" ]]; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Replace stage-1 attestation bank with verified JSON"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
