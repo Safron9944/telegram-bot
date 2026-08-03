@@ -1,12 +1,13 @@
-'''Persist stage-1 attestation questions in PostgreSQL.
+'''Persist and correct stage-1 attestation questions in PostgreSQL.
 
 The application historically loaded ``attestation_stage_1.json`` only into
 memory. The existing admin editor saves through the ``questions`` table, so
 those questions could be opened but not updated. This bootstrap keeps the
 JSON file as an insert-only seed and makes the database the source of truth.
+It also applies the reviewed high-confidence OCR corrections to both fresh
+JSON seeds and existing database rows.
 
-Python imports ``sitecustomize`` automatically during normal interpreter
-startup, before Uvicorn imports ``app``.
+``launcher.py`` imports this module before Uvicorn imports ``app``.
 '''
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from attestation_ocr_fixes import apply_fixes_to_questions, apply_fixes_to_store
 from questions import ATTESTATION_STAGE_1_SECTION, QuestionBank
 from storage import Storage
 
@@ -35,12 +37,14 @@ def _attestation_path() -> Path:
 def _seed_items(path: Path) -> list[Any]:
     bank = QuestionBank(str(path))
     bank.load()
-    return [
+    items = [
         question
         for question in bank.by_id.values()
         if question.is_valid_mcq
         and (question.section or "").strip() == ATTESTATION_STAGE_1_SECTION
     ]
+    apply_fixes_to_questions(items)
+    return items
 
 
 async def _seed_attestation_stage_1(store: Storage) -> None:
@@ -115,6 +119,7 @@ async def _seed_attestation_stage_1(store: Storage) -> None:
 
 async def _fetch_questions_with_attestation_seed(store: Storage) -> list[dict[str, Any]]:
     await _seed_attestation_stage_1(store)
+    await apply_fixes_to_store(store)
     return await _ORIGINAL_FETCH_QUESTIONS(store)
 
 
@@ -126,6 +131,11 @@ def _load_attestation_stage_1_without_duplicates(bank: QuestionBank, path: str) 
     if already_loaded:
         return
     _ORIGINAL_LOAD_ATTESTATION_STAGE_1(bank, path)
+    apply_fixes_to_questions(
+        question
+        for question in bank.by_id.values()
+        if (question.section or "").strip() == ATTESTATION_STAGE_1_SECTION
+    )
 
 
 Storage.fetch_questions = _fetch_questions_with_attestation_seed
