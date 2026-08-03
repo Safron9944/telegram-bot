@@ -167,6 +167,38 @@ function makeCell({ icon, tint = "purple", title, subtitle, onClick }) {
   return button;
 }
 
+async function downloadCurrentQuestionsJson() {
+  try {
+    const payload = await api("/api/admin/attestation-stage-1/export");
+
+    if (payload.count !== 800) {
+      const confirmed = window.confirm(
+        `У базі знайдено ${payload.count} питань замість 800. Все одно завантажити файл?`,
+      );
+      if (!confirmed) return;
+    }
+
+    const jsonText = JSON.stringify(payload, null, 2);
+    const blob = new Blob([jsonText], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+
+    link.href = url;
+    link.download = `attestation_stage_1_current_${date}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+
+    setMessage("success", `Експортовано ${payload.count} актуальних питань.`);
+  } catch (error) {
+    setMessage("error", error.message || "Не вдалося створити JSON-файл.");
+  }
+}
+
 async function renderSections() {
   if (!modalContent) return;
   currentView = "sections";
@@ -180,6 +212,21 @@ async function renderSections() {
     if (!modalContent || currentView !== "sections") return;
 
     modalContent.innerHTML = "";
+
+    const exportRow = document.createElement("div");
+    exportRow.className = "row";
+    exportRow.style.marginBottom = "14px";
+
+    const exportButton = document.createElement("button");
+    exportButton.type = "button";
+    exportButton.className = "btn btn--primary";
+    exportButton.style.width = "100%";
+    exportButton.textContent = "⬇ Експорт поточних питань у JSON";
+    exportButton.addEventListener("click", downloadCurrentQuestionsJson);
+
+    exportRow.append(exportButton);
+    modalContent.append(exportRow);
+
     const group = document.createElement("div");
     group.className = "group";
     const list = document.createElement("div");
