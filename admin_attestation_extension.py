@@ -10,13 +10,28 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
 from typing import Any
 
 from fastapi import Depends, FastAPI
 
+from questions import ATTESTATION_STAGE_1_SECTION
+
 
 _ORIGINAL_FASTAPI_INIT = FastAPI.__init__
 _PATCHED = False
+
+
+def _normalize_json_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return []
+        return list(parsed) if isinstance(parsed, list) else []
+    return []
 
 
 def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
@@ -88,6 +103,66 @@ def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
             "limit": limit,
             "has_prev": offset > 0,
             "has_next": offset + limit < len(qids),
+        }
+
+    @app.get("/api/admin/attestation-stage-1/export")
+    async def api_admin_attestation_stage_1_export(
+        auth=Depends(get_auth_context),
+        runtime=Depends(get_runtime),
+    ):
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+
+        rows = await runtime.store.fetch_questions()
+        questions = []
+
+        for row in rows:
+            section = (row.get("section") or "").strip()
+            if section != ATTESTATION_STAGE_1_SECTION:
+                continue
+
+            choices = [str(item) for item in _normalize_json_list(row.get("choices"))]
+            correct = [int(item) for item in _normalize_json_list(row.get("correct"))]
+            correct_texts = [
+                str(item)
+                for item in _normalize_json_list(row.get("correct_texts"))
+            ]
+            if not correct_texts:
+                correct_texts = [
+                    choices[index - 1]
+                    for index in correct
+                    if 1 <= index <= len(choices)
+                ]
+
+            questions.append(
+                {
+                    "id": int(row["id"]),
+                    "section": section,
+                    "topic": row.get("topic") or "",
+                    "qnum": (
+                        int(row["qnum"])
+                        if row.get("qnum") is not None
+                        else None
+                    ),
+                    "question": row.get("question") or "",
+                    "choices": choices,
+                    "correct": correct,
+                    "correct_texts": correct_texts,
+                }
+            )
+
+        questions.sort(
+            key=lambda item: (
+                item["topic"],
+                item["qnum"] if item["qnum"] is not None else 10**9,
+                item["id"],
+            )
+        )
+
+        return {
+            "section": ATTESTATION_STAGE_1_SECTION,
+            "count": len(questions),
+            "questions": questions,
         }
 
     app.state._admin_attestation_routes_installed = True
