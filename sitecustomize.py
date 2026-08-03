@@ -1,6 +1,6 @@
 """Synchronize the verified stage-1 attestation bank with PostgreSQL.
 
-The JSON file is the versioned source for deployment. A content hash stored in
+The JSON file is the versioned source for deployment.  A content hash stored in
 ``settings`` makes synchronization run only once per JSON revision, so later
 edits made through the admin panel are not overwritten on every restart.
 
