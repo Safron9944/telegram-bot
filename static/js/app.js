@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260809-unified-ui-02";
+} from "./screens/user.js?v=20260809-title-only-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -91,36 +91,6 @@ const PROTOTYPE_SCREENS = new Set([
   "admin-settings",
   "admin-test-questions",
 ]);
-
-const SCREEN_EYEBROWS = {
-  home: "Навчальний сервіс",
-  customs: "Митні компетенції",
-  learning: "Митні компетенції",
-  "law-parts": "Навчання",
-  "ok-levels": "Навчання",
-  "attestation-stage-1": "Атестація",
-  "attestation-parts": "Атестація",
-  testing: "Митні компетенції",
-  stats: "Митні компетенції",
-  cases: "Матеріали",
-  "case-detail": "Матеріали",
-  "customs-code": "Матеріали",
-  "customs-code-section": "Митний кодекс",
-  "customs-code-article": "Митний кодекс",
-  "ok-questions": "Матеріали",
-  "test-exam-questions": "Матеріали",
-  "question-search": "Матеріали",
-  help: "Підтримка",
-  admin: "Адміністрування",
-  "admin-global-search": "Адміністрування",
-  "admin-users": "Адміністрування",
-  "admin-questions": "Банк питань",
-  "admin-question-detail": "Банк питань",
-  "admin-question-view": "Банк питань",
-  "admin-cases": "Адміністрування",
-  "admin-settings": "Адміністрування",
-  "admin-test-questions": "Адміністрування",
-};
 
 window.__APP_READY__ = false;
 
@@ -285,7 +255,7 @@ function decoratePrototypeScreen() {
   const caseHeader = content.querySelector(":scope > .case-header");
   if (caseHeader) {
     const appLabel = caseHeader.querySelector(".case-header__app");
-    if (appLabel) appLabel.textContent = "Матеріали";
+    appLabel?.remove();
     caseHeader.classList.add("page-hero", "page-hero--case");
     return;
   }
@@ -297,11 +267,8 @@ function decoratePrototypeScreen() {
 
   const hero = document.createElement("header");
   hero.className = "page-hero";
-  const eyebrow = document.createElement("div");
-  eyebrow.className = "page-hero__eyebrow";
-  eyebrow.textContent = SCREEN_EYEBROWS[state.currentScreen] || "Test_Customs";
-  hero.append(eyebrow, title);
-  if (subtitle) hero.append(subtitle);
+  subtitle?.remove();
+  hero.append(title);
   content.prepend(hero);
 }
 

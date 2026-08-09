@@ -1222,9 +1222,7 @@ export function renderPaywall(ctx, errorCode) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <header class="page-hero">
-        <div class="page-hero__eyebrow">Доступ до сервісу</div>
         <h1 class="page-title">${title}</h1>
-        <p class="page-subtitle">Отримайте доступ через Telegram Stars.</p>
       </header>
 
       ${!fullOnly ? `
