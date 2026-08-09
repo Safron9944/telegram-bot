@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260809-menu-titles-01";
+} from "./screens/user.js?v=20260809-screen-motion-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -94,6 +94,9 @@ const PROTOTYPE_SCREENS = new Set([
 
 window.__APP_READY__ = false;
 
+const SCREEN_TRANSITIONS = new Set(["initial", "forward", "back", "replace"]);
+let pendingScreenTransition = "initial";
+
 initializeTelegram(() => {
   void goBack();
 });
@@ -118,6 +121,8 @@ function createContext() {
     statPill,
     setChrome,
     setMessage,
+    queueTransition,
+    applyTransition,
     navigate,
     goHome,
     goBack,
@@ -144,6 +149,15 @@ function createContext() {
   };
 }
 
+function queueTransition(type = "replace") {
+  pendingScreenTransition = SCREEN_TRANSITIONS.has(type) ? type : "replace";
+}
+
+function applyTransition() {
+  refs.mainPanel.dataset.transition = pendingScreenTransition;
+  pendingScreenTransition = "replace";
+}
+
 function navigate(screen, options = {}) {
   if (!screen) return;
 
@@ -155,11 +169,16 @@ function navigate(screen, options = {}) {
   if (options.reset) {
     state.screenHistory = [];
     state.currentScreen = screen;
+    queueTransition(screen === "home" ? "back" : "forward");
   } else if (options.replace) {
     state.currentScreen = screen;
+    queueTransition("replace");
   } else if (screen !== state.currentScreen) {
     state.screenHistory.push(state.currentScreen);
     state.currentScreen = screen;
+    queueTransition("forward");
+  } else {
+    queueTransition("replace");
   }
 
   impact("light");
@@ -170,6 +189,7 @@ function navigate(screen, options = {}) {
 function goHome() {
   state.screenHistory = [];
   state.currentScreen = "home";
+  queueTransition("back");
   render();
 }
 
@@ -178,6 +198,7 @@ async function goBack() {
     if (state.currentView.screen === "review") {
       try {
         state.currentView = await api("/api/test/review/back", { method: "POST" });
+        queueTransition("back");
         render();
       } catch (error) {
         setMessage("error", error.message);
@@ -190,6 +211,7 @@ async function goBack() {
         await api("/api/session/leave", { method: "POST" });
       } catch (_) {}
       state.currentView = null;
+      queueTransition("back");
       await loadBootstrap();
       return;
     }
@@ -213,6 +235,7 @@ async function goBack() {
     if (previous !== "customs-code-article") {
       state.customsArticle = null;
     }
+    queueTransition("back");
     render();
     ensureScreenData();
     return;
@@ -220,6 +243,7 @@ async function goBack() {
 
   if (state.currentScreen !== "home") {
     state.currentScreen = "home";
+    queueTransition("back");
     render();
   }
 }
@@ -273,6 +297,8 @@ function decoratePrototypeScreen() {
 }
 
 function render() {
+  applyTransition();
+
   if (!state.bootstrap) {
     setChrome({ showBack: false });
     syncClosingConfirmation(state.currentView);
@@ -329,15 +355,6 @@ function render() {
       renderHome(ctx);
   }
 
-  const content = refs.mainPanel.querySelector(".screen-content");
-  if (content) {
-    content.style.animation = "none";
-    requestAnimationFrame(() => {
-      content.style.animation = "";
-    });
-
-  }
-
   decoratePrototypeScreen();
   syncClosingConfirmation(state.currentView);
 }
@@ -349,6 +366,7 @@ async function leaveCurrentView() {
     setMessage("error", error.message);
   }
   state.currentView = null;
+  queueTransition("back");
   await loadBootstrap();
 }
 
@@ -356,9 +374,11 @@ async function startLearning(payload) {
   try {
     state.currentView = await api("/api/learning/start", { method: "POST", body: payload });
     impact("medium");
+    queueTransition("forward");
     render();
   } catch (error) {
     if (error.code === "access_expired" || error.code === "cases_access_required") {
+      queueTransition("forward");
       renderPaywall(createContext(), error.code);
       return;
     }
@@ -370,6 +390,7 @@ async function startMistakesSession() {
   try {
     state.currentView = await api("/api/mistakes/start", { method: "POST" });
     impact("medium");
+    queueTransition("forward");
     render();
   } catch (error) {
     setMessage("error", error.message);

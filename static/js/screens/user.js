@@ -919,9 +919,11 @@ async function startAttestationBlock(ctx, section, block) {
       method: "POST",
       body: { section, block },
     });
+    ctx.queueTransition("forward");
     ctx.render();
   } catch (error) {
     if (error.code === "attestation_access_required" || error.code === "access_expired") {
+      ctx.queueTransition("forward");
       renderPaywall(ctx, error.code);
       return;
     }
@@ -1084,6 +1086,7 @@ export function renderTesting(ctx) {
             },
           });
           ctx.impact("medium");
+          ctx.queueTransition("forward");
           ctx.render();
         } catch (error) {
           ctx.setMessage("error", error.message);
@@ -1202,6 +1205,7 @@ export function renderHelp(ctx) {
 
 /* ===================== PAYWALL ===================== */
 export function renderPaywall(ctx, errorCode) {
+  ctx.applyTransition();
   ctx.setChrome({ showBack: true });
   document.body.classList.add("ui-prototype");
   ctx.refs.mainPanel.dataset.screen = "paywall";

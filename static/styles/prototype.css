@@ -47,15 +47,58 @@ body.ui-prototype {
 
 .ui-prototype .screen-content {
   gap: 16px;
-  animation: prototype-screen-in 180ms ease both;
 }
 
 .ui-prototype .screen[data-screen^="session-"] {
   padding-top: 20px;
 }
 
-@keyframes prototype-screen-in {
+.ui-prototype .screen[data-transition="initial"] .screen-content,
+.ui-prototype .screen[data-transition="replace"] .screen-content {
+  animation: prototype-screen-replace 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-prototype .screen[data-transition="forward"] .screen-content {
+  animation: prototype-screen-forward 230ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-prototype .screen[data-transition="back"] .screen-content {
+  animation: prototype-screen-back 210ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-prototype .screen:is([data-transition="initial"], [data-transition="forward"]) .screen-content > * {
+  animation: prototype-content-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ui-prototype .screen:is([data-transition="initial"], [data-transition="forward"]) .screen-content > :nth-child(2) {
+  animation-delay: 35ms;
+}
+
+.ui-prototype .screen:is([data-transition="initial"], [data-transition="forward"]) .screen-content > :nth-child(3) {
+  animation-delay: 55ms;
+}
+
+.ui-prototype .screen:is([data-transition="initial"], [data-transition="forward"]) .screen-content > :nth-child(n + 4) {
+  animation-delay: 75ms;
+}
+
+@keyframes prototype-screen-replace {
   from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes prototype-screen-forward {
+  from { opacity: 0; transform: translateX(18px) scale(0.995); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes prototype-screen-back {
+  from { opacity: 0; transform: translateX(-16px) scale(0.995); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes prototype-content-in {
+  from { opacity: 0; transform: translateY(7px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -762,5 +805,19 @@ body.ui-prototype {
   .ui-prototype .cell:hover,
   .ui-prototype .choice:hover {
     background: #f8fafc;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-prototype .screen[data-transition] .screen-content,
+  .ui-prototype .screen[data-transition] .screen-content > * {
+    animation: none !important;
+  }
+
+  .ui-prototype *,
+  .ui-prototype *::before,
+  .ui-prototype *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
