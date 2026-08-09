@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260809-title-only-01";
+import "/static/js/app.js?v=20260809-menu-titles-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
