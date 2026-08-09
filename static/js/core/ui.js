@@ -31,6 +31,25 @@ export function statPill(label, value) {
   `;
 }
 
+const CELL_ICONS = {
+  support: '<path d="M7 10.5h10M7 14h6"/><path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-7.5A8 8 0 1 1 21 12Z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06-2.83 2.83-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21h-4v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06-2.83-2.83.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3v-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06 2.83-2.83.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3h4v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06 2.83 2.83-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21v4h-.09A1.65 1.65 0 0 0 19.4 15Z"/>',
+  home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v11h14V10M9 21v-7h6v7"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/>',
+  folder: '<path d="M3 5h6l2 2h10v12H3Z"/>',
+  document: '<path d="M6 2h9l5 5v15H6Z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+};
+
+export function lineIcon(name) {
+  const paths = CELL_ICONS[name];
+  if (!paths) return "";
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+}
+
 /**
  * iOS Settings-style cell.
  * @param {Object} opts
@@ -38,6 +57,7 @@ export function statPill(label, value) {
  * @param {string} [opts.subtitle]
  * @param {string} [opts.detail]      right-aligned secondary text
  * @param {string} [opts.icon]        emoji or short text
+ * @param {string} [opts.iconName]    name of a built-in line icon
  * @param {string} [opts.tint]        blue|purple|pink|orange|green|red|teal|indigo|gray
  * @param {string} [opts.screen]      navigation target screen name
  * @param {string} [opts.link]        external link target
@@ -50,6 +70,7 @@ export function cell(opts = {}) {
     subtitle,
     detail,
     icon,
+    iconName,
     tint = "gray",
     screen,
     link,
@@ -58,6 +79,7 @@ export function cell(opts = {}) {
   } = opts;
 
   const showChevron = chevron ?? Boolean(screen || link);
+  const iconMarkup = iconName ? lineIcon(iconName) : escapeHtml(icon || "");
   const variantClass = variant === "default" ? "" : ` cell--${variant}`;
   const attr = screen
     ? `data-screen-target="${escapeHtml(screen)}"`
@@ -67,7 +89,7 @@ export function cell(opts = {}) {
 
   return `
     <button class="cell${variantClass}" type="button" ${attr}>
-      ${icon ? `<span class="cell__icon cell__icon--${escapeHtml(tint)}">${escapeHtml(icon)}</span>` : ""}
+      ${iconMarkup ? `<span class="cell__icon cell__icon--${escapeHtml(tint)}">${iconMarkup}</span>` : ""}
       <span class="cell__body">
         <span class="cell__title">${escapeHtml(title)}</span>
         ${subtitle ? `<span class="cell__subtitle">${escapeHtml(subtitle)}</span>` : ""}
@@ -195,4 +217,3 @@ export function bindInlineTargets(root, { navigate }) {
     });
   });
 }
-

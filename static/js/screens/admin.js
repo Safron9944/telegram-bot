@@ -12,42 +12,42 @@ export function renderAdminHub(ctx) {
           ctx.cell({
             title: "Користувачі",
             subtitle: "Доступ і статус",
-            icon: "👥",
+            iconName: "users",
             tint: "blue",
             screen: "admin-users",
           }),
           ctx.cell({
             title: "Банк питань",
             subtitle: "Пошук і редагування",
-            icon: "✎",
+            iconName: "edit",
             tint: "purple",
             screen: "admin-questions",
           }),
           ctx.cell({
             title: "Кейси",
             subtitle: "Імпорт Keys.db",
-            icon: "🗂",
+            iconName: "folder",
             tint: "green",
             screen: "admin-cases",
           }),
           ctx.cell({
             title: "Тестові питання",
             subtitle: "База питань тестування",
-            icon: "📝",
+            iconName: "document",
             tint: "orange",
             screen: "admin-test-questions",
           }),
           ctx.cell({
             title: "Налаштування",
             subtitle: "Ціни підписки",
-            icon: "⚙",
+            iconName: "settings",
             tint: "teal",
             screen: "admin-settings",
           }),
           ctx.cell({
             title: "Пошук питань",
             subtitle: "По всіх банках одразу",
-            icon: "🔍",
+            iconName: "search",
             tint: "gray",
             screen: "admin-global-search",
           }),
@@ -211,7 +211,7 @@ export async function loadAdminUserDetail(ctx, userId) {
             </span>
           </div>
           <div class="cell admin-access-summary__row">
-            <span class="cell__icon cell__icon--gray">📅</span>
+            <span class="cell__icon cell__icon--gray">${ctx.lineIcon("calendar")}</span>
             <span class="cell__body">
               <span class="cell__title">Створено</span>
               <span class="cell__subtitle">${ctx.escapeHtml(payload.created_at || "—")}</span>
@@ -1010,12 +1010,12 @@ function renderGlobalSearchResults(ctx, data, container) {
     return;
   }
 
-  const makeRow = (icon, tint, title, subtitle, onClick) => {
+  const makeRow = (iconName, tint, title, subtitle, onClick) => {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "cell";
     row.innerHTML = `
-      <span class="cell__icon cell__icon--${tint}">${icon}</span>
+      <span class="cell__icon cell__icon--${tint}">${ctx.lineIcon(iconName)}</span>
       <span class="cell__body">
         <span class="cell__title">${ctx.escapeHtml(title)}</span>
         <span class="cell__subtitle">${ctx.escapeHtml(subtitle)}</span>
@@ -1038,7 +1038,7 @@ function renderGlobalSearchResults(ctx, data, container) {
 
   if (data.ok.length) {
     addSection("ОК-модулі", data.ok, (item) =>
-      makeRow(`#${item.id}`, "purple", item.question, item.ok || item.topic || "Без модуля", () => {
+      makeRow("edit", "purple", item.question, item.ok || item.topic || "Без модуля", () => {
         ctx.state.adminQuestionViewItem = { type: "ok", id: item.id, source: item.ok || item.topic || "" };
         ctx.navigate("admin-question-view");
       })
@@ -1047,7 +1047,7 @@ function renderGlobalSearchResults(ctx, data, container) {
 
   if (data.cases.length) {
     addSection("Кейси", data.cases, (item) =>
-      makeRow("📋", "green", item.question, `Кейс ${item.case_number}`, () => {
+      makeRow("folder", "green", item.question, `Кейс ${item.case_number}`, () => {
         ctx.state.adminQuestionViewItem = { type: "case", ...item };
         ctx.navigate("admin-question-view");
       })
@@ -1056,7 +1056,7 @@ function renderGlobalSearchResults(ctx, data, container) {
 
   if (data.test.length) {
     addSection("Тестові питання", data.test, (item) =>
-      makeRow("📝", "orange", item.question, item.num || item.module || "", () => {
+      makeRow("document", "orange", item.question, item.num || item.module || "", () => {
         ctx.state.adminQuestionViewItem = { type: "test", ...item };
         ctx.navigate("admin-question-view");
       })

@@ -1,6 +1,6 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { api } from "./core/api.js?v=20260617-question-search-04";
-import { escapeHtml, setMessage } from "./core/ui.js?v=20260617-question-search-04";
+import { escapeHtml, setMessage } from "./core/ui.js?v=20260809-unified-ui-02";
 
 const ENTRY_ID = "admin-attestation-stage1-entry";
 const OVERLAY_ID = "admin-attestation-stage1-overlay";
