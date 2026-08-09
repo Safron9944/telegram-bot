@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from case_importer import extract_case_from_upload_bytes
+from choice_order import ensure_choice_order, ordered_choice_indices
 from customs_code import repository as customs_code_repository
 
 from questions import QuestionBank
@@ -162,18 +163,26 @@ def clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
-def serialize_question(q: Any, *, reveal_answers: bool = False) -> dict[str, Any]:
+def serialize_question(
+    q: Any,
+    *,
+    reveal_answers: bool = False,
+    choice_order: list[int] | None = None,
+) -> dict[str, Any]:
     correct = [int(x) for x in (q.correct or [])]
     correct_set = set(correct)
+    source_choices = list(q.choices or [])
+    order = ordered_choice_indices(len(source_choices), choice_order)
 
     choices = []
-    for index, text in enumerate(q.choices or [], start=1):
+    for display_index, source_index in enumerate(order, start=1):
         item: dict[str, Any] = {
-            "index": index,
-            "text": text,
+            "index": display_index,
+            "value": source_index,
+            "text": source_choices[source_index],
         }
         if reveal_answers:
-            item["is_correct"] = index in correct_set
+            item["is_correct"] = (source_index + 1) in correct_set
         choices.append(item)
 
     payload = {
@@ -232,16 +241,27 @@ def sort_law_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=key_fn)
 
 
-def build_option_review(q: Any, chosen_index: int | None) -> list[dict[str, Any]]:
+def build_option_review(
+    q: Any,
+    chosen_index: int | None,
+    choice_order: list[int] | None = None,
+) -> list[dict[str, Any]]:
     correct_set = set(int(x) for x in (q.correct or []))
+    source_choices = list(q.choices or [])
+    order = ordered_choice_indices(len(source_choices), choice_order)
     items = []
-    for idx, text in enumerate(q.choices or []):
+    for display_index, source_index in enumerate(order, start=1):
         status = "plain"
-        if (idx + 1) in correct_set:
+        if (source_index + 1) in correct_set:
             status = "correct"
-        elif chosen_index is not None and idx == chosen_index:
+        elif chosen_index is not None and source_index == chosen_index:
             status = "chosen"
-        items.append({"index": idx + 1, "text": text, "status": status})
+        items.append({
+            "index": display_index,
+            "value": source_index,
+            "text": source_choices[source_index],
+            "status": status,
+        })
     return items
 
 
@@ -642,6 +662,7 @@ class MiniAppService:
                 "total": len(qids or []),
                 "started_at": dt_to_iso(now()),
                 "answers": {},
+                "choice_orders": {},
                 "meta": meta or {},
             },
         )
@@ -658,6 +679,9 @@ class MiniAppService:
             chosen = int(feedback.get("chosen"))
             q = self.qb.by_id.get(qid)
             if q:
+                choice_order, order_created = ensure_choice_order(state, qid, len(q.choices or []))
+                if order_created:
+                    await self.set_state(auth.user_id, state)
                 return {
                     "mode": mode,
                     "screen": "feedback",
@@ -665,7 +689,7 @@ class MiniAppService:
                     "question": {
                         "id": qid,
                         "question": q.question,
-                        "options": build_option_review(q, chosen),
+                        "options": build_option_review(q, chosen, choice_order),
                     },
                     "actions": {"next": True, "can_edit": auth.is_admin},
                 }
@@ -701,6 +725,7 @@ class MiniAppService:
 
         qid = int(pending[0])
         q = self.qb.by_id[qid]
+        choice_order, _ = ensure_choice_order(state, qid, len(q.choices or []))
 
         state["pending"] = pending
         state["current_qid"] = qid
@@ -714,7 +739,7 @@ class MiniAppService:
             "screen": "question",
             "header": state.get("header", ""),
             "progress": {"current": current, "total": total, "phase": phase},
-            "question": serialize_question(q, reveal_answers=False),
+            "question": serialize_question(q, reveal_answers=False, choice_order=choice_order),
             "actions": {"allow_skip": mode == "learn", "can_edit": auth.is_admin},
         }
 
@@ -799,6 +824,7 @@ class MiniAppService:
             },
             "wrong_qids": wrong_qids,
             "chosen": chosen_map,
+            "choice_orders": dict(state.get("choice_orders", {}) or {}),
             "review_index": 0,
         }
         await self.set_state(user_id, result_state)
@@ -824,6 +850,9 @@ class MiniAppService:
             if q:
                 chosen = chosen_map.get(str(qid))
                 chosen_idx = int(chosen) if chosen is not None else None
+                choice_order, order_created = ensure_choice_order(state, qid, len(q.choices or []))
+                if order_created:
+                    await self.set_state(user_id, state)
                 return {
                     "mode": "test_review",
                     "screen": "review",
@@ -832,7 +861,7 @@ class MiniAppService:
                     "question": {
                         "id": qid,
                         "question": q.question,
-                        "options": build_option_review(q, chosen_idx),
+                        "options": build_option_review(q, chosen_idx, choice_order),
                         "selected_missing": chosen is None,
                     },
                     "actions": {
@@ -969,6 +998,7 @@ class MiniAppService:
                 "started_at": dt_to_iso(now()),
                 "answers": {},
                 "chosen": {},
+                "choice_orders": {},
                 "test_blocks": blocks,
             },
         )
@@ -1026,6 +1056,7 @@ class MiniAppService:
                 "feedback": None,
                 "current_qid": None,
                 "answers": {},
+                "choice_orders": {},
             },
         )
         return await self.build_session_view(auth)

@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260809-unified-ui-04";
+import "/static/js/app.js?v=20260809-choice-shuffle-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
