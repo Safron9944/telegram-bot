@@ -9,10 +9,11 @@ import {
   cell,
   escapeHtml,
   group,
+  lineIcon,
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260617-question-search-04";
+} from "./core/ui.js?v=20260809-unified-ui-02";
 import {
   loadCaseDetail,
   loadCases,
@@ -39,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260809-prototype-01";
+} from "./screens/user.js?v=20260809-unified-ui-02";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -58,7 +59,7 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260802-admin-sheet-01";
+} from "./screens/admin.js?v=20260809-unified-ui-02";
 import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-04";
 
 const PROTOTYPE_SCREENS = new Set([
@@ -79,6 +80,16 @@ const PROTOTYPE_SCREENS = new Set([
   "ok-questions",
   "test-exam-questions",
   "question-search",
+  "help",
+  "admin",
+  "admin-global-search",
+  "admin-users",
+  "admin-questions",
+  "admin-question-detail",
+  "admin-question-view",
+  "admin-cases",
+  "admin-settings",
+  "admin-test-questions",
 ]);
 
 const SCREEN_EYEBROWS = {
@@ -99,6 +110,16 @@ const SCREEN_EYEBROWS = {
   "ok-questions": "Матеріали",
   "test-exam-questions": "Матеріали",
   "question-search": "Матеріали",
+  help: "Підтримка",
+  admin: "Адміністрування",
+  "admin-global-search": "Адміністрування",
+  "admin-users": "Адміністрування",
+  "admin-questions": "Банк питань",
+  "admin-question-detail": "Банк питань",
+  "admin-question-view": "Банк питань",
+  "admin-cases": "Адміністрування",
+  "admin-settings": "Адміністрування",
+  "admin-test-questions": "Адміністрування",
 };
 
 window.__APP_READY__ = false;
@@ -123,6 +144,7 @@ function createContext() {
     cell,
     escapeHtml,
     group,
+    lineIcon,
     statPill,
     setChrome,
     setMessage,

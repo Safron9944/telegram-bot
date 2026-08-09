@@ -599,6 +599,101 @@ body.ui-prototype {
   box-shadow: 0 10px 28px rgba(16, 35, 63, 0.12);
 }
 
+/* Support, access and administration */
+.ui-prototype [data-screen="paywall"] .group__list {
+  padding: 18px !important;
+}
+
+.ui-prototype .admin-upload-box,
+.ui-prototype .admin-access-summary,
+.ui-prototype .admin-access-controls {
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(16, 35, 63, 0.04);
+}
+
+.ui-prototype .field__label,
+.ui-prototype .admin-access-controls__title {
+  color: var(--label);
+}
+
+.ui-prototype .admin-access-controls__hint {
+  color: var(--label-secondary);
+}
+
+.ui-prototype .modal-overlay {
+  align-items: flex-end;
+  padding: 12px 12px 0;
+  background: rgba(8, 20, 36, 0.58);
+  backdrop-filter: blur(6px);
+}
+
+.ui-prototype .modal {
+  overflow: hidden;
+  width: 100%;
+  max-width: 430px;
+  padding: 0 16px calc(18px + env(safe-area-inset-bottom));
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  background: var(--bg);
+  box-shadow: 0 -18px 60px rgba(8, 20, 36, 0.24);
+}
+
+.ui-prototype .modal__header {
+  position: relative;
+  overflow: hidden;
+  margin: 0 -16px 16px;
+  padding: 19px 16px 18px;
+  background: var(--navy);
+  color: #fff;
+}
+
+.ui-prototype .modal__header::after {
+  content: "";
+  position: absolute;
+  top: -72px;
+  right: -60px;
+  width: 170px;
+  height: 170px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  box-shadow: 0 0 0 24px rgba(255, 255, 255, 0.025);
+  pointer-events: none;
+}
+
+.ui-prototype .modal__title {
+  position: relative;
+  z-index: 1;
+  color: #fff;
+}
+
+.ui-prototype .modal__subtitle {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.ui-prototype .modal__close,
+.ui-prototype .modal__header .btn {
+  position: relative;
+  z-index: 1;
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  box-shadow: none;
+}
+
+.ui-prototype .modal__close:active,
+.ui-prototype .modal__header .btn:active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.ui-prototype #admin-attestation-stage1-overlay .modal {
+  max-width: 760px;
+}
+
 @media (max-width: 359px) {
   .ui-prototype .screen {
     padding-right: 12px;
@@ -643,6 +738,16 @@ body.ui-prototype {
 
   .ui-prototype .page-hero {
     border-radius: 29px 29px 0 0;
+  }
+
+  .ui-prototype .modal-overlay {
+    align-items: center;
+    padding: 24px;
+  }
+
+  .ui-prototype .modal {
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 24px;
   }
 }
 

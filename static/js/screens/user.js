@@ -1145,6 +1145,7 @@ export function renderHelp(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Ще</h1>
+      <p class="page-subtitle">Контакти підтримки та службові розділи.</p>
 
       ${ctx.group({
         header: "Контакти",
@@ -1152,7 +1153,7 @@ export function renderHelp(ctx) {
           ctx.cell({
             title: "Telegram-група",
             subtitle: links.group_url ? "Спільнота користувачів" : "Посилання не налаштовано",
-            icon: "💬",
+            iconName: "support",
             tint: "blue",
             link: links.group_url || "",
             chevron: Boolean(links.group_url),
@@ -1160,7 +1161,7 @@ export function renderHelp(ctx) {
           ctx.cell({
             title: "Адміністратор",
             subtitle: links.admin_url ? "Питання щодо доступу" : "Контакт не налаштовано",
-            icon: "👤",
+            iconName: "user",
             tint: "orange",
             link: links.admin_url || "",
             chevron: Boolean(links.admin_url),
@@ -1176,7 +1177,7 @@ export function renderHelp(ctx) {
                 ctx.cell({
                   title: "Адмін-панель",
                   subtitle: "Користувачі та банк питань",
-                  icon: "⚙",
+                  iconName: "settings",
                   tint: "indigo",
                   screen: "admin",
                 }),
@@ -1190,7 +1191,7 @@ export function renderHelp(ctx) {
         children: [
           ctx.cell({
             title: "На головну",
-            icon: "🏠",
+            iconName: "home",
             tint: "teal",
             screen: "home",
           }),
@@ -1206,6 +1207,8 @@ export function renderHelp(ctx) {
 /* ===================== PAYWALL ===================== */
 export function renderPaywall(ctx, errorCode) {
   ctx.setChrome({ showBack: true });
+  document.body.classList.add("ui-prototype");
+  ctx.refs.mainPanel.dataset.screen = "paywall";
 
   const prices = ctx.state.bootstrap?.payment_prices || { cases: 100, full: 250 };
   const fullOnly = errorCode === "full_access_required" || errorCode === "ok_questions_access_required";
@@ -1218,8 +1221,11 @@ export function renderPaywall(ctx, errorCode) {
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
-      <h1 class="page-title">${title}</h1>
-      <p class="page-subtitle">Отримайте доступ через Telegram Stars.</p>
+      <header class="page-hero">
+        <div class="page-hero__eyebrow">Доступ до сервісу</div>
+        <h1 class="page-title">${title}</h1>
+        <p class="page-subtitle">Отримайте доступ через Telegram Stars.</p>
+      </header>
 
       ${!fullOnly ? `
       <div class="group">
