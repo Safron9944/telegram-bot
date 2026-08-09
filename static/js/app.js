@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260809-title-only-01";
+} from "./screens/user.js?v=20260809-menu-titles-01";
 import {
   loadAdminCases,
   loadAdminQuestions,

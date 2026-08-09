@@ -37,13 +37,12 @@ function menuIcon(name) {
   return MENU_ICONS[name] || MENU_ICONS.document;
 }
 
-function prototypeMenuCell(ctx, { title, subtitle, icon, screen, detail = "" }) {
+function prototypeMenuCell(ctx, { title, icon, screen, detail = "" }) {
   return `
     <button class="cell menu-cell" type="button" data-screen-target="${ctx.escapeHtml(screen)}">
       <span class="cell__icon menu-cell__icon">${menuIcon(icon)}</span>
       <span class="cell__body">
         <span class="cell__title">${ctx.escapeHtml(title)}</span>
-        ${subtitle ? `<span class="cell__subtitle">${ctx.escapeHtml(subtitle)}</span>` : ""}
       </span>
       ${detail ? `<span class="cell__detail">${ctx.escapeHtml(detail)}</span>` : ""}
       <span class="cell__chevron" aria-hidden="true"></span>
@@ -51,14 +50,13 @@ function prototypeMenuCell(ctx, { title, subtitle, icon, screen, detail = "" }) 
   `;
 }
 
-function prototypeFeature(ctx, { title, subtitle, icon, screen, action }) {
+function prototypeFeature(ctx, { title, icon, screen, action }) {
   return `
     <button class="feature-card" type="button" data-screen-target="${ctx.escapeHtml(screen)}">
       <span class="feature-card__topline">
         <span class="feature-card__icon">${menuIcon(icon)}</span>
         <span class="feature-card__copy">
           <span class="feature-card__title">${ctx.escapeHtml(title)}</span>
-          <span class="feature-card__subtitle">${ctx.escapeHtml(subtitle)}</span>
         </span>
       </span>
       <span class="feature-card__go">
@@ -99,7 +97,7 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 
 /* ===================== HOME ===================== */
 export function renderHome(ctx) {
-  const { user, catalog } = ctx.state.bootstrap;
+  const { user } = ctx.state.bootstrap;
   const showTestQuestions =
     user.is_admin ||
     ctx.state.bootstrap.test_questions_visible === true;
@@ -113,31 +111,29 @@ export function renderHome(ctx) {
 
       <div class="home-primary">
         ${prototypeFeature(ctx, {
-          title: "Митні компетенції",
-          subtitle: "Навчання, тестування, статистика",
-          icon: "graduation",
-          screen: "customs",
-          action: "Відкрити розділ",
-        })}
-        ${prototypeFeature(ctx, {
           title: "Атестація посадових осіб — 1 етап",
-          subtitle: `${catalog.attestation_stage_1?.count || 800} перевірених питань`,
           icon: "document",
           screen: "attestation-stage-1",
           action: "Перейти до атестації",
+        })}
+        ${prototypeFeature(ctx, {
+          title: "Митні компетенції",
+          icon: "graduation",
+          screen: "customs",
+          action: "Відкрити розділ",
         })}
       </div>
 
       ${ctx.group({
         header: "Матеріали",
         children: [
-          prototypeMenuCell(ctx, { title: "Кейси", subtitle: "Питання та правильні відповіді", icon: "folder", screen: "cases" }),
-          prototypeMenuCell(ctx, { title: "Митний кодекс", subtitle: "Розділи, глави, статті та пошук", icon: "scale", screen: "customs-code" }),
+          prototypeMenuCell(ctx, { title: "Кейси", icon: "folder", screen: "cases" }),
+          prototypeMenuCell(ctx, { title: "Митний кодекс", icon: "scale", screen: "customs-code" }),
           showTestQuestions
-            ? prototypeMenuCell(ctx, { title: "Тестові питання", subtitle: "Питання підсумкового тестування", icon: "clipboard", screen: "test-exam-questions" })
+            ? prototypeMenuCell(ctx, { title: "Тестові питання", icon: "clipboard", screen: "test-exam-questions" })
             : "",
           user.is_admin || user.access?.tier === "full"
-            ? prototypeMenuCell(ctx, { title: "Пошук питань", subtitle: "Пошук по законодавству, ОК та кейсах", icon: "search", screen: "question-search" })
+            ? prototypeMenuCell(ctx, { title: "Пошук питань", icon: "search", screen: "question-search" })
             : "",
         ].join(""),
       })}
@@ -145,9 +141,9 @@ export function renderHome(ctx) {
       ${ctx.group({
         header: "Допомога",
         children: [
-          prototypeMenuCell(ctx, { title: "Підтримка", subtitle: "Група, адміністратор", icon: "support", screen: "help" }),
+          prototypeMenuCell(ctx, { title: "Підтримка", icon: "support", screen: "help" }),
           user.is_admin
-            ? prototypeMenuCell(ctx, { title: "Адмін-панель", subtitle: "Користувачі та банк питань", icon: "settings", screen: "admin" })
+            ? prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" })
             : "",
         ].join(""),
       })}
@@ -159,7 +155,7 @@ export function renderHome(ctx) {
 
 /* ===================== CUSTOMS ===================== */
 export function renderCustoms(ctx) {
-  const { catalog, stats } = ctx.state.bootstrap;
+  const { stats } = ctx.state.bootstrap;
   const last = stats.last;
 
   ctx.setChrome({ showBack: true });
@@ -171,9 +167,9 @@ export function renderCustoms(ctx) {
 
       ${ctx.group({
         children: [
-          prototypeMenuCell(ctx, { title: "Навчання", subtitle: `${catalog.law_groups.length} розділів закону`, icon: "books", screen: "learning" }),
-          prototypeMenuCell(ctx, { title: "Тестування", subtitle: "Зібрати з модулів і закону", icon: "flask", screen: "testing" }),
-          prototypeMenuCell(ctx, { title: "Статистика", subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест", icon: "chart", screen: "stats", detail: last ? percentLabel(last.percent) : "" }),
+          prototypeMenuCell(ctx, { title: "Навчання", icon: "books", screen: "learning" }),
+          prototypeMenuCell(ctx, { title: "Тестування", icon: "flask", screen: "testing" }),
+          prototypeMenuCell(ctx, { title: "Статистика", icon: "chart", screen: "stats", detail: last ? percentLabel(last.percent) : "" }),
         ].join(""),
       })}
     </section>

@@ -208,6 +208,7 @@ body.ui-prototype {
 }
 
 .ui-prototype .feature-card__subtitle {
+  display: none;
   margin-top: 5px;
   color: var(--label-secondary);
   font-size: 14px;
@@ -321,6 +322,7 @@ body.ui-prototype {
 }
 
 .ui-prototype .cell__subtitle {
+  display: none;
   color: var(--label-secondary);
   font-size: 13px;
 }
