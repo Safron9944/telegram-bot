@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260809-unified-ui-02";
+import "/static/js/app.js?v=20260809-unified-ui-03";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

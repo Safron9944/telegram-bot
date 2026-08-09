@@ -275,6 +275,10 @@ function decoratePrototypeScreen() {
   refs.mainPanel.dataset.screen = state.currentView ? `session-${state.currentView.screen || state.currentView.mode || "active"}` : state.currentScreen;
 
   if (!enabled) return;
+  // Test sessions start directly with progress and the question. Telegram already
+  // provides the native top bar, so an additional in-app hero is unnecessary.
+  if (state.currentView) return;
+
   const content = refs.mainPanel.querySelector(".screen-content");
   if (!content || content.querySelector(":scope > .page-hero")) return;
 
@@ -286,21 +290,8 @@ function decoratePrototypeScreen() {
     return;
   }
 
-  let title = content.querySelector(":scope > .page-title");
-  let subtitle = content.querySelector(":scope > .page-subtitle");
-  const view = state.currentView;
-
-  if (!title && view) {
-    title = document.createElement("h1");
-    title.className = "page-title";
-    title.textContent = view.screen === "feedback"
-      ? "Розбір відповіді"
-      : view.screen === "review"
-        ? "Перегляд помилок"
-        : view.screen === "question"
-          ? "Тестування"
-          : "Навчальна сесія";
-  }
+  const title = content.querySelector(":scope > .page-title");
+  const subtitle = content.querySelector(":scope > .page-subtitle");
 
   if (!title) return;
 
@@ -308,7 +299,7 @@ function decoratePrototypeScreen() {
   hero.className = "page-hero";
   const eyebrow = document.createElement("div");
   eyebrow.className = "page-hero__eyebrow";
-  eyebrow.textContent = view ? "Навчальна сесія" : (SCREEN_EYEBROWS[state.currentScreen] || "Test_Customs");
+  eyebrow.textContent = SCREEN_EYEBROWS[state.currentScreen] || "Test_Customs";
   hero.append(eyebrow, title);
   if (subtitle) hero.append(subtitle);
   content.prepend(hero);
