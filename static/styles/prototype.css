@@ -68,7 +68,7 @@ body.ui-prototype {
   align-items: flex-start;
   gap: 0;
   margin: 0 -16px -4px;
-  padding: calc(25px + env(safe-area-inset-top)) 18px 20px;
+  padding: 16px 18px 20px;
   min-height: 0;
   background: var(--navy);
   color: #fff;
@@ -137,7 +137,7 @@ body.ui-prototype {
 .ui-prototype .screen-content--home .page-hero {
   margin-bottom: -4px;
   min-height: 0;
-  padding-top: calc(32px + env(safe-area-inset-top));
+  padding-top: 16px;
   padding-bottom: 20px;
 }
 
