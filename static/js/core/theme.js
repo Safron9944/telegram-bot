@@ -4,7 +4,7 @@ const STORAGE_KEY = "prep-app-theme";
 const THEMES = new Set(["light", "dark"]);
 
 function normalizeTheme(value) {
-  return THEMES.has(value) ? value : "light";
+  return "light";
 }
 
 function readStoredTheme() {
@@ -35,8 +35,9 @@ function cssVar(name) {
 function updateTelegramChrome() {
   if (!tg) return;
   const background = cssVar("--bg") || "#ffffff";
+  const header = cssVar("--navy") || "#10233f";
   tg.setBackgroundColor?.(background);
-  tg.setHeaderColor?.(background);
+  tg.setHeaderColor?.(header);
 }
 
 export function applyTheme(value, { persist = false } = {}) {
@@ -48,18 +49,16 @@ export function applyTheme(value, { persist = false } = {}) {
 }
 
 export function getCurrentTheme() {
-  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  return "light";
 }
 
 export function toggleTheme() {
-  const next = getCurrentTheme() === "dark" ? "light" : "dark";
-  applyTheme(next, { persist: true });
-  return next;
+  applyTheme("light", { persist: true });
+  return "light";
 }
 
 export function initializeTheme() {
-  const stored = readStoredTheme();
-  applyTheme(stored || "light");
+  applyTheme("light", { persist: true });
 
   tg?.onEvent?.("themeChanged", () => {
     updateTelegramChrome();

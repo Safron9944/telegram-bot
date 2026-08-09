@@ -2,7 +2,7 @@ import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { state } from "./core/state.js?v=20260802-attestation-stage1-05";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260617-question-search-04";
-import { initializeTheme } from "./core/theme.js?v=20260617-question-search-04";
+import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -39,7 +39,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260802-attestation-stage1-05";
+} from "./screens/user.js?v=20260809-prototype-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -60,6 +60,46 @@ import {
   runQuestionSearch,
 } from "./screens/admin.js?v=20260802-admin-sheet-01";
 import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-04";
+
+const PROTOTYPE_SCREENS = new Set([
+  "home",
+  "customs",
+  "learning",
+  "law-parts",
+  "ok-levels",
+  "attestation-stage-1",
+  "attestation-parts",
+  "testing",
+  "stats",
+  "cases",
+  "case-detail",
+  "customs-code",
+  "customs-code-section",
+  "customs-code-article",
+  "ok-questions",
+  "test-exam-questions",
+  "question-search",
+]);
+
+const SCREEN_EYEBROWS = {
+  home: "Навчальний сервіс",
+  customs: "Митні компетенції",
+  learning: "Митні компетенції",
+  "law-parts": "Навчання",
+  "ok-levels": "Навчання",
+  "attestation-stage-1": "Атестація",
+  "attestation-parts": "Атестація",
+  testing: "Митні компетенції",
+  stats: "Митні компетенції",
+  cases: "Матеріали",
+  "case-detail": "Матеріали",
+  "customs-code": "Матеріали",
+  "customs-code-section": "Митний кодекс",
+  "customs-code-article": "Митний кодекс",
+  "ok-questions": "Матеріали",
+  "test-exam-questions": "Матеріали",
+  "question-search": "Матеріали",
+};
 
 window.__APP_READY__ = false;
 
@@ -207,6 +247,51 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "customs-code-article") void loadCustomsArticle(createContext());
 }
 
+function decoratePrototypeScreen() {
+  const enabled = Boolean(state.currentView) || PROTOTYPE_SCREENS.has(state.currentScreen);
+  document.body.classList.toggle("ui-prototype", enabled);
+  refs.mainPanel.dataset.screen = state.currentView ? `session-${state.currentView.screen || state.currentView.mode || "active"}` : state.currentScreen;
+
+  if (!enabled) return;
+  const content = refs.mainPanel.querySelector(".screen-content");
+  if (!content || content.querySelector(":scope > .page-hero")) return;
+
+  const caseHeader = content.querySelector(":scope > .case-header");
+  if (caseHeader) {
+    const appLabel = caseHeader.querySelector(".case-header__app");
+    if (appLabel) appLabel.textContent = "Матеріали";
+    caseHeader.classList.add("page-hero", "page-hero--case");
+    return;
+  }
+
+  let title = content.querySelector(":scope > .page-title");
+  let subtitle = content.querySelector(":scope > .page-subtitle");
+  const view = state.currentView;
+
+  if (!title && view) {
+    title = document.createElement("h1");
+    title.className = "page-title";
+    title.textContent = view.screen === "feedback"
+      ? "Розбір відповіді"
+      : view.screen === "review"
+        ? "Перегляд помилок"
+        : view.screen === "question"
+          ? "Тестування"
+          : "Навчальна сесія";
+  }
+
+  if (!title) return;
+
+  const hero = document.createElement("header");
+  hero.className = "page-hero";
+  const eyebrow = document.createElement("div");
+  eyebrow.className = "page-hero__eyebrow";
+  eyebrow.textContent = view ? "Навчальна сесія" : (SCREEN_EYEBROWS[state.currentScreen] || "Test_Customs");
+  hero.append(eyebrow, title);
+  if (subtitle) hero.append(subtitle);
+  content.prepend(hero);
+}
+
 function render() {
   if (!state.bootstrap) {
     setChrome({ showBack: false });
@@ -226,6 +311,7 @@ function render() {
 
   if (state.currentView) {
     renderCurrentView(ctx);
+    decoratePrototypeScreen();
     syncClosingConfirmation(state.currentView);
     return;
   }
@@ -270,16 +356,9 @@ function render() {
       content.style.animation = "";
     });
 
-    if (state.currentScreen !== "home" && state.screenHistory.length > 0) {
-      const nav = document.createElement("button");
-      nav.className = "back-nav";
-      nav.type = "button";
-      nav.innerHTML = '<span aria-hidden="true">‹</span> Назад';
-      nav.addEventListener("click", () => void goBack());
-      content.prepend(nav);
-    }
   }
 
+  decoratePrototypeScreen();
   syncClosingConfirmation(state.currentView);
 }
 
