@@ -50,6 +50,10 @@ body.ui-prototype {
   animation: prototype-screen-in 180ms ease both;
 }
 
+.ui-prototype .screen[data-screen^="session-"] {
+  padding-top: 20px;
+}
+
 @keyframes prototype-screen-in {
   from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
@@ -63,9 +67,9 @@ body.ui-prototype {
   flex-direction: column;
   align-items: flex-start;
   gap: 0;
-  margin: 0 -16px 2px;
-  padding: calc(25px + env(safe-area-inset-top)) 18px 28px;
-  min-height: 150px;
+  margin: 0 -16px -4px;
+  padding: calc(25px + env(safe-area-inset-top)) 18px 20px;
+  min-height: 0;
   background: var(--navy);
   color: #fff;
 }
@@ -131,9 +135,10 @@ body.ui-prototype {
 }
 
 .ui-prototype .screen-content--home .page-hero {
-  margin-bottom: 5px;
-  min-height: 192px;
+  margin-bottom: -4px;
+  min-height: 0;
   padding-top: calc(32px + env(safe-area-inset-top));
+  padding-bottom: 20px;
 }
 
 .ui-prototype .home-primary {
