@@ -19,6 +19,56 @@ function initialOf(name) {
   return (name || "U").trim().slice(0, 1).toUpperCase();
 }
 
+const MENU_ICONS = {
+  graduation: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 9 12 4l9 5-9 5-9-5Z"/><path d="M7 11.2V16c0 1.7 2.2 3 5 3s5-1.3 5-3v-4.8"/><path d="M21 10v5"/></svg>`,
+  document: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5"/><path d="M9 12h6M9 16h4"/></svg>`,
+  folder: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7.5h6l2 2h10v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7.5Z"/><path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1.5"/></svg>`,
+  scale: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v18M5 7h14M7 7l-4 7h8L7 7ZM17 7l-4 7h8l-4-7Z"/><path d="M8 21h8"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>`,
+  support: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 13v-1a8 8 0 0 1 16 0v1"/><path d="M4 13h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1v-6ZM20 13h-2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1"/><path d="M19 20c0 1-1 1-2 1h-3"/></svg>`,
+  books: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 4h11a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4Z"/><path d="M8 4v16M18 17H8"/></svg>`,
+  flask: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M7.5 15h9"/></svg>`,
+  chart: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>`,
+  clipboard: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5H6a2 2 0 0 0-2 2v13h16V7a2 2 0 0 0-2-2h-2"/><rect x="8" y="3" width="8" height="4" rx="2"/><path d="M8 12h8M8 16h5"/></svg>`,
+  settings: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>`,
+};
+
+function menuIcon(name) {
+  return MENU_ICONS[name] || MENU_ICONS.document;
+}
+
+function prototypeMenuCell(ctx, { title, subtitle, icon, screen, detail = "" }) {
+  return `
+    <button class="cell menu-cell" type="button" data-screen-target="${ctx.escapeHtml(screen)}">
+      <span class="cell__icon menu-cell__icon">${menuIcon(icon)}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(title)}</span>
+        ${subtitle ? `<span class="cell__subtitle">${ctx.escapeHtml(subtitle)}</span>` : ""}
+      </span>
+      ${detail ? `<span class="cell__detail">${ctx.escapeHtml(detail)}</span>` : ""}
+      <span class="cell__chevron" aria-hidden="true"></span>
+    </button>
+  `;
+}
+
+function prototypeFeature(ctx, { title, subtitle, icon, screen, action }) {
+  return `
+    <button class="feature-card" type="button" data-screen-target="${ctx.escapeHtml(screen)}">
+      <span class="feature-card__topline">
+        <span class="feature-card__icon">${menuIcon(icon)}</span>
+        <span class="feature-card__copy">
+          <span class="feature-card__title">${ctx.escapeHtml(title)}</span>
+          <span class="feature-card__subtitle">${ctx.escapeHtml(subtitle)}</span>
+        </span>
+      </span>
+      <span class="feature-card__go">
+        <span class="feature-card__arrow">→</span>
+        <span>${ctx.escapeHtml(action)}</span>
+      </span>
+    </button>
+  `;
+}
+
 function renderCorrectAnswer(ctx, value, correctCount = 0) {
   const lines = String(value || "—")
     .split(/\n+/)
@@ -49,9 +99,7 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 
 /* ===================== HOME ===================== */
 export function renderHome(ctx) {
-  const { user, catalog, stats } = ctx.state.bootstrap;
-  const modules = selectedModules(catalog);
-  const last = stats.last;
+  const { user, catalog } = ctx.state.bootstrap;
   const showTestQuestions =
     user.is_admin ||
     ctx.state.bootstrap.test_questions_visible === true;
@@ -59,56 +107,37 @@ export function renderHome(ctx) {
   ctx.setChrome({ showBack: false });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
+    <section class="screen-content screen-content--home">
       <h1 class="page-title">Головна</h1>
+      <p class="page-subtitle">Митні компетенції, атестація та робота з матеріалами — в одному середовищі.</p>
+
+      <div class="home-primary">
+        ${prototypeFeature(ctx, {
+          title: "Митні компетенції",
+          subtitle: "Навчання, тестування, статистика",
+          icon: "graduation",
+          screen: "customs",
+          action: "Відкрити розділ",
+        })}
+        ${prototypeFeature(ctx, {
+          title: "Атестація посадових осіб — 1 етап",
+          subtitle: `${catalog.attestation_stage_1?.count || 800} перевірених питань`,
+          icon: "document",
+          screen: "attestation-stage-1",
+          action: "Перейти до атестації",
+        })}
+      </div>
 
       ${ctx.group({
+        header: "Матеріали",
         children: [
-          ctx.cell({
-            title: "Митні компетенції",
-            subtitle: "Навчання, тестування, статистика",
-            icon: "🎓",
-            tint: "blue",
-            screen: "customs",
-          }),
-          ctx.cell({
-            title: "Атестація посадових осіб — 1 етап",
-            subtitle: `${catalog.attestation_stage_1?.count || 800} перевірених питань`,
-            icon: "📝",
-            tint: "purple",
-            screen: "attestation-stage-1",
-          }),
-          ctx.cell({
-            title: "Кейси",
-            subtitle: "Питання та правильні відповіді",
-            icon: "🗂",
-            tint: "green",
-            screen: "cases",
-          }),
-          ctx.cell({
-            title: "Митний кодекс",
-            subtitle: "Розділи, глави, статті та пошук",
-            icon: "⚖",
-            tint: "indigo",
-            screen: "customs-code",
-          }),
+          prototypeMenuCell(ctx, { title: "Кейси", subtitle: "Питання та правильні відповіді", icon: "folder", screen: "cases" }),
+          prototypeMenuCell(ctx, { title: "Митний кодекс", subtitle: "Розділи, глави, статті та пошук", icon: "scale", screen: "customs-code" }),
           showTestQuestions
-            ? ctx.cell({
-                title: "Тестові питання",
-                subtitle: "Питання підсумкового тестування",
-                icon: "📋",
-                tint: "orange",
-                screen: "test-exam-questions",
-              })
+            ? prototypeMenuCell(ctx, { title: "Тестові питання", subtitle: "Питання підсумкового тестування", icon: "clipboard", screen: "test-exam-questions" })
             : "",
           user.is_admin || user.access?.tier === "full"
-            ? ctx.cell({
-                title: "Пошук питань",
-                subtitle: "Пошук по законодавству, ОК та кейсах",
-                icon: "🔎",
-                tint: "teal",
-                screen: "question-search",
-              })
+            ? prototypeMenuCell(ctx, { title: "Пошук питань", subtitle: "Пошук по законодавству, ОК та кейсах", icon: "search", screen: "question-search" })
             : "",
         ].join(""),
       })}
@@ -116,21 +145,9 @@ export function renderHome(ctx) {
       ${ctx.group({
         header: "Допомога",
         children: [
-          ctx.cell({
-            title: "Підтримка",
-            subtitle: "Група, адміністратор",
-            icon: "💬",
-            tint: "orange",
-            screen: "help",
-          }),
+          prototypeMenuCell(ctx, { title: "Підтримка", subtitle: "Група, адміністратор", icon: "support", screen: "help" }),
           user.is_admin
-            ? ctx.cell({
-                title: "Адмін-панель",
-                subtitle: "Користувачі та банк питань",
-                icon: "⚙",
-                tint: "indigo",
-                screen: "admin",
-              })
+            ? prototypeMenuCell(ctx, { title: "Адмін-панель", subtitle: "Користувачі та банк питань", icon: "settings", screen: "admin" })
             : "",
         ].join(""),
       })}
@@ -150,31 +167,13 @@ export function renderCustoms(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Митні компетенції</h1>
+      <p class="page-subtitle">Навчання, тестування та ваші результати.</p>
 
       ${ctx.group({
         children: [
-          ctx.cell({
-            title: "Навчання",
-            subtitle: `${catalog.law_groups.length} розділів закону`,
-            icon: "📚",
-            tint: "blue",
-            screen: "learning",
-          }),
-          ctx.cell({
-            title: "Тестування",
-            subtitle: "Зібрати з модулів і закону",
-            icon: "🧪",
-            tint: "purple",
-            screen: "testing",
-          }),
-          ctx.cell({
-            title: "Статистика",
-            subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест",
-            icon: "📊",
-            tint: "teal",
-            screen: "stats",
-            detail: last ? percentLabel(last.percent) : undefined,
-          }),
+          prototypeMenuCell(ctx, { title: "Навчання", subtitle: `${catalog.law_groups.length} розділів закону`, icon: "books", screen: "learning" }),
+          prototypeMenuCell(ctx, { title: "Тестування", subtitle: "Зібрати з модулів і закону", icon: "flask", screen: "testing" }),
+          prototypeMenuCell(ctx, { title: "Статистика", subtitle: last ? `Останній: ${last.correct}/${last.total}` : "Запустіть перший тест", icon: "chart", screen: "stats", detail: last ? percentLabel(last.percent) : "" }),
         ].join(""),
       })}
     </section>
@@ -564,7 +563,7 @@ export function renderLearning(ctx) {
     btn.addEventListener("click", () => {
       ctx.impact("light");
       ctx.state.learningTab = btn.dataset.tab;
-      renderLearning(ctx);
+      ctx.render();
     });
   });
 
@@ -595,7 +594,7 @@ function renderLawTab(ctx, root) {
     row.className = "cell";
     row.type = "button";
     row.innerHTML = `
-      <span class="cell__icon cell__icon--blue">📖</span>
+      <span class="cell__icon cell__icon--blue">${menuIcon("books")}</span>
       <span class="cell__body">
         <span class="cell__title">${ctx.escapeHtml(group.title)}</span>
         <span class="cell__subtitle">${group.count} питань · ${partCount} ${partCount === 1 ? "частина" : "частин"}</span>
@@ -755,7 +754,7 @@ function renderOkTab(ctx, root, modules) {
         ctx.state.bootstrap.catalog = response.catalog;
         ctx.setMessage("success", "Збережено.");
         ctx.impact("medium");
-        renderLearning(ctx);
+        ctx.render();
       });
     }, "block-ghost"),
   );
@@ -1003,7 +1002,7 @@ export function renderTesting(ctx) {
         <div class="group__label">Що увімкнути</div>
         <div class="group__list">
           <div class="cell" style="cursor: default;">
-            <span class="cell__icon cell__icon--blue">⚖</span>
+            <span class="cell__icon cell__icon--blue">${menuIcon("scale")}</span>
             <span class="cell__body">
               <span class="cell__title">Законодавство</span>
               <span class="cell__subtitle">50 випадкових питань</span>
