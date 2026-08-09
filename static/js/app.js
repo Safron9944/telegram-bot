@@ -60,7 +60,7 @@ import {
   renderAdminUsers,
   runQuestionSearch,
 } from "./screens/admin.js?v=20260809-unified-ui-02";
-import { renderCurrentView } from "./screens/session.js?v=20260617-question-search-04";
+import { renderCurrentView } from "./screens/session.js?v=20260809-choice-shuffle-01";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",

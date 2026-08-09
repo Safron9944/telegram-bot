@@ -116,7 +116,7 @@ function renderQuestionView(ctx, view) {
   const choices = question.choices
     .map(
       (choice, index) => `
-        <button class="choice" type="button" data-choice="${index}">
+        <button class="choice" type="button" data-choice="${choice.value ?? index}">
           <span class="choice__index">${choice.index}</span>
           <span class="choice__text">${ctx.escapeHtml(choice.text)}</span>
         </button>
