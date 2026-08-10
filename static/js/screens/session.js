@@ -281,11 +281,9 @@ function renderResultView(ctx, view) {
           : ""}
       </div>
 
-      <div class="stat-strip">
-        ${typeof summary.correct === "number" ? ctx.statPill("Правильно", `${summary.correct}/${summary.total}`) : ""}
-        ${typeof summary.percent === "number" ? ctx.statPill("Відсоток", `${summary.percent.toFixed(0)}%`) : ""}
-        ${typeof summary.remaining === "number" ? ctx.statPill("Помилок", String(summary.remaining)) : ""}
-      </div>
+      ${typeof summary.remaining === "number"
+        ? `<div class="stat-strip">${ctx.statPill("Помилок", String(summary.remaining))}</div>`
+        : ""}
 
       ${blocks.length
         ? `<div class="group">
@@ -319,6 +317,20 @@ function renderResultView(ctx, view) {
   }
 
   const actions = ctx.refs.mainPanel.querySelector("#result-actions");
+  const leaveResult = async (destination) => {
+    try {
+      await ctx.api("/api/session/leave", { method: "POST" });
+    } catch (_) {}
+
+    ctx.state.currentView = null;
+    if (destination === "home") {
+      ctx.goHome();
+    } else {
+      ctx.queueTransition("back");
+    }
+    await ctx.loadBootstrap();
+  };
+
   if (view.mode === "test_result" && view.wrong_count > 0) {
     actions.append(
       ctx.actionButton(
@@ -337,16 +349,14 @@ function renderResultView(ctx, view) {
   }
   actions.append(
     ctx.actionButton(
-      "На головну",
-      async () => {
-        try {
-          await ctx.api("/api/session/leave", { method: "POST" });
-        } catch (_) {}
-        ctx.state.currentView = null;
-        ctx.goHome();
-        await ctx.loadBootstrap();
-      },
+      "Перейти до розділу",
+      () => leaveResult("section"),
       view.mode === "test_result" && view.wrong_count > 0 ? "block-ghost" : "block",
+    ),
+    ctx.actionButton(
+      "На головну",
+      () => leaveResult("home"),
+      "block-ghost",
     ),
   );
 }
