@@ -11,6 +11,10 @@ export function initializeTelegram(onBack) {
   tg.ready();
   tg.expand();
 
+  if (tg.isVersionAtLeast?.("8.0") && typeof tg.requestFullscreen === "function") {
+    tg.requestFullscreen();
+  }
+
   if (!telegramBackAttached) {
     tg.BackButton?.onClick?.(() => {
       onBack();

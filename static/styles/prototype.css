@@ -6,6 +6,14 @@
 }
 
 body.ui-prototype {
+  --content-safe-top: max(
+    env(safe-area-inset-top, 0px),
+    var(--tg-content-safe-area-inset-top, 0px)
+  );
+  --content-safe-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    var(--tg-content-safe-area-inset-bottom, 0px)
+  );
   --bg: #f4f6f8;
   --bg-grouped: #ffffff;
   --bg-fill: #eef2f6;
@@ -42,7 +50,7 @@ body.ui-prototype {
 }
 
 .ui-prototype .screen {
-  padding: 0 16px calc(28px + env(safe-area-inset-bottom));
+  padding: 0 16px calc(28px + var(--content-safe-bottom));
 }
 
 .ui-prototype .screen-content {
@@ -50,7 +58,7 @@ body.ui-prototype {
 }
 
 .ui-prototype .screen[data-screen^="session-"] {
-  padding-top: 20px;
+  padding-top: calc(20px + var(--content-safe-top));
 }
 
 .ui-prototype .screen[data-transition="initial"] .screen-content,
@@ -111,7 +119,7 @@ body.ui-prototype {
   align-items: flex-start;
   gap: 0;
   margin: 0 -16px -4px;
-  padding: 14px 18px 16px;
+  padding: calc(14px + var(--content-safe-top)) 18px 16px;
   min-height: 0;
   background: var(--navy);
   color: #fff;
