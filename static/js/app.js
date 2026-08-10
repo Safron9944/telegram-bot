@@ -59,7 +59,7 @@ import {
   renderAdminTestQuestions,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260809-unified-ui-02";
+} from "./screens/admin.js?v=20260810-admin-access-status-01";
 import { renderCurrentView } from "./screens/session.js?v=20260809-choice-shuffle-01";
 
 const PROTOTYPE_SCREENS = new Set([
