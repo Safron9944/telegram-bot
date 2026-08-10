@@ -14,6 +14,8 @@ let modalTitle = null;
 let modalSubtitle = null;
 let modalBack = null;
 let modalContent = null;
+let modalFooter = null;
+let previousBodyOverflow = "";
 
 function ensureAdminEntry() {
   if (!refs.mainPanel) return;
@@ -55,25 +57,18 @@ function createOverlay() {
   overlay = document.createElement("div");
   overlay.id = OVERLAY_ID;
   overlay.className = "modal-overlay";
-  overlay.style.zIndex = "9999";
-  overlay.style.padding = "12px";
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) closeOverlay();
   });
 
   const modal = document.createElement("div");
-  modal.className = "modal";
-  modal.style.width = "min(760px, 100%)";
-  modal.style.maxHeight = "calc(100dvh - 24px)";
-  modal.style.display = "flex";
-  modal.style.flexDirection = "column";
-  modal.style.overflow = "hidden";
+  modal.className = "modal attestation-admin-modal";
 
   const header = document.createElement("div");
-  header.className = "modal__header";
+  header.className = "modal__header attestation-admin-header";
   header.innerHTML = `
-    <button class="btn btn--sm" type="button" id="attestation-admin-back">‹ Назад</button>
-    <span class="modal__heading" style="flex: 1; min-width: 0;">
+    <button class="btn btn--sm attestation-admin-back" type="button" id="attestation-admin-back">‹ Назад</button>
+    <span class="modal__heading">
       <span class="modal__title" id="attestation-admin-title"></span>
       <span class="modal__subtitle" id="attestation-admin-subtitle"></span>
     </span>
@@ -81,12 +76,16 @@ function createOverlay() {
   `;
 
   modalContent = document.createElement("div");
-  modalContent.style.overflowY = "auto";
-  modalContent.style.padding = "14px";
-  modalContent.style.flex = "1";
+  modalContent.className = "attestation-admin-content";
 
-  modal.append(header, modalContent);
+  modalFooter = document.createElement("div");
+  modalFooter.className = "attestation-admin-footer";
+  modalFooter.hidden = true;
+
+  modal.append(header, modalContent, modalFooter);
   overlay.append(modal);
+  previousBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
   document.body.append(overlay);
 
   modalTitle = header.querySelector("#attestation-admin-title");
@@ -109,6 +108,9 @@ function closeOverlay() {
   modalSubtitle = null;
   modalBack = null;
   modalContent = null;
+  modalFooter = null;
+  document.body.style.overflow = previousBodyOverflow;
+  previousBodyOverflow = "";
   currentView = "sections";
   selectedSection = "";
   selectedOffset = 0;
@@ -134,6 +136,11 @@ function setHeader(title, subtitle, showBack = true) {
 
 function setLoading(text = "Завантажуємо…") {
   if (!modalContent) return;
+  if (modalFooter) {
+    modalFooter.hidden = true;
+    modalFooter.innerHTML = "";
+  }
+  modalContent.scrollTop = 0;
   modalContent.innerHTML = `
     <div class="empty empty--inline">
       <h2>${escapeHtml(text)}</h2>
@@ -143,6 +150,7 @@ function setLoading(text = "Завантажуємо…") {
 
 function renderError(error) {
   if (!modalContent) return;
+  if (modalFooter) modalFooter.hidden = true;
   modalContent.innerHTML = `
     <div class="empty empty--inline">
       <h2>Не вдалося завантажити</h2>
@@ -151,10 +159,19 @@ function renderError(error) {
   `;
 }
 
+function showEditorNotice(type, message) {
+  const notice = modalContent?.querySelector("#attestation-editor-notice");
+  if (!notice) return;
+  notice.className = `attestation-editor-notice attestation-editor-notice--${type}`;
+  notice.textContent = message;
+  notice.hidden = false;
+  notice.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 function makeCell({ icon, tint = "purple", title, subtitle, onClick }) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "cell";
+  button.className = "cell attestation-admin-cell";
   button.innerHTML = `
     <span class="cell__icon cell__icon--${tint}">${escapeHtml(String(icon))}</span>
     <span class="cell__body">
@@ -342,44 +359,43 @@ async function renderEditor(questionId) {
 
     const question = payload.question;
     modalContent.innerHTML = `
-      <form id="attestation-question-edit-form" class="stack" style="gap: 12px;">
+      <div id="attestation-editor-notice" class="attestation-editor-notice" role="status" aria-live="polite" hidden></div>
+      <form id="attestation-question-edit-form" class="attestation-editor-form">
         <div class="field">
           <label class="field__label" for="attestation-question-text">Текст питання</label>
-          <textarea id="attestation-question-text" class="textarea">${escapeHtml(question.question)}</textarea>
+          <textarea id="attestation-question-text" class="textarea attestation-question-text">${escapeHtml(question.question)}</textarea>
         </div>
-        <div id="attestation-choices-editor" class="stack" style="gap: 10px;"></div>
-        <div class="row" style="gap: 8px; margin-top: 4px;">
-          <button class="btn btn--primary btn--lg" type="submit" style="flex: 1;">Зберегти</button>
-          <button class="btn btn--lg" type="button" id="attestation-question-reset">Скинути</button>
-        </div>
+        <div id="attestation-choices-editor" class="attestation-choices-editor"></div>
       </form>
     `;
 
     const choicesEditor = modalContent.querySelector("#attestation-choices-editor");
     question.choices.forEach((choice) => {
       const block = document.createElement("div");
-      block.className = "stack";
-      block.style.gap = "6px";
-      block.style.padding = "10px";
-      block.style.borderRadius = "10px";
-      block.style.background = "var(--bg-fill-soft)";
+      block.className = "attestation-choice-card";
       block.innerHTML = `
-        <div class="field">
+        <div class="attestation-choice-card__header">
           <label class="field__label" for="attestation-choice-${choice.index}">Варіант ${choice.index}</label>
-          <textarea id="attestation-choice-${choice.index}" class="textarea" style="min-height: 60px;">${escapeHtml(choice.text)}</textarea>
+          <label class="attestation-correct-toggle" for="attestation-correct-${choice.index}">
+            <span>Правильна</span>
+            <span class="switch">
+              <input id="attestation-correct-${choice.index}" type="checkbox" ${choice.is_correct ? "checked" : ""} />
+              <span class="switch__track"></span>
+            </span>
+          </label>
         </div>
-        <label class="row" style="gap: 10px; cursor: pointer;">
-          <span class="switch">
-            <input id="attestation-correct-${choice.index}" type="checkbox" ${choice.is_correct ? "checked" : ""} />
-            <span class="switch__track"></span>
-          </span>
-          <span style="font-size: 14px; font-weight: 500;">Правильна відповідь</span>
-        </label>
+        <textarea id="attestation-choice-${choice.index}" class="textarea attestation-choice-text">${escapeHtml(choice.text)}</textarea>
       `;
       choicesEditor.append(block);
     });
 
-    modalContent
+    modalFooter.innerHTML = `
+      <button class="btn btn--primary btn--lg" type="submit" form="attestation-question-edit-form" id="attestation-question-save">Зберегти зміни</button>
+      <button class="btn btn--lg" type="button" id="attestation-question-reset">Скинути</button>
+    `;
+    modalFooter.hidden = false;
+
+    modalFooter
       .querySelector("#attestation-question-reset")
       .addEventListener("click", () => void renderEditor(questionId));
 
@@ -404,19 +420,26 @@ async function renderEditor(questionId) {
         });
 
         if (!questionText) {
-          setMessage("error", "Текст питання не може бути порожнім.");
+          showEditorNotice("error", "Текст питання не може бути порожнім.");
           return;
         }
         if (choices.some((item) => !item)) {
-          setMessage("error", "Заповніть усі варіанти відповіді.");
+          showEditorNotice("error", "Заповніть усі варіанти відповіді.");
           return;
         }
         if (!correct.length) {
-          setMessage("error", "Позначте хоча б одну правильну відповідь.");
+          showEditorNotice("error", "Позначте хоча б одну правильну відповідь.");
           return;
         }
 
+        const saveButton = modalFooter?.querySelector("#attestation-question-save");
+        const resetButton = modalFooter?.querySelector("#attestation-question-reset");
         try {
+          if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.textContent = "Зберігаємо…";
+          }
+          if (resetButton) resetButton.disabled = true;
           await api(`/api/admin/questions/${questionId}`, {
             method: "PATCH",
             body: {
@@ -425,10 +448,15 @@ async function renderEditor(questionId) {
               correct,
             },
           });
-          setMessage("success", "Питання збережено.");
           await renderEditor(questionId);
+          showEditorNotice("success", "Питання збережено.");
         } catch (error) {
-          setMessage("error", error.message);
+          showEditorNotice("error", error.message || "Не вдалося зберегти питання.");
+          if (saveButton) {
+            saveButton.disabled = false;
+            saveButton.textContent = "Зберегти зміни";
+          }
+          if (resetButton) resetButton.disabled = false;
         }
       });
   } catch (error) {
