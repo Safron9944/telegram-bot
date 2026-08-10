@@ -388,6 +388,32 @@ body.ui-prototype {
   margin-top: 3px;
 }
 
+.ui-prototype .admin-user-status {
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ui-prototype .admin-user-status--active {
+  background: #e7f6ec;
+  color: #137a3f;
+}
+
+.ui-prototype .admin-user-status--trial {
+  background: #fff2db;
+  color: #9a5b00;
+}
+
+.ui-prototype .admin-user-status--none {
+  background: #edf0f4;
+  color: #667085;
+}
+
 .ui-prototype .cell__detail {
   color: var(--navy-2);
   font-size: 13px;

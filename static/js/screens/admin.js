@@ -116,21 +116,22 @@ export async function loadAdminUsers(ctx, offset = 0) {
       list.innerHTML = "";
       payload.items.forEach((item) => {
         const isSelected = ctx.state.selectedAdminUserId === item.user_id;
-        const tint = item.access.label.toLowerCase().includes("актив")
-          ? "green"
-          : item.access.label.toLowerCase().includes("тріал")
-            ? "orange"
-            : "gray";
+        const status = item.access.state === "trial"
+          ? { label: "Тріал", tone: "trial", tint: "orange" }
+          : item.access.has_access
+            ? { label: "Активний", tone: "active", tint: "green" }
+            : { label: "Без доступу", tone: "none", tint: "gray" };
 
         const row = document.createElement("button");
         row.type = "button";
-        row.className = "cell";
+        row.className = "cell cell--admin-user";
         row.innerHTML = `
-          <span class="cell__icon cell__icon--${tint}">${ctx.escapeHtml((item.display_name || "U").slice(0, 1).toUpperCase())}</span>
+          <span class="cell__icon cell__icon--${status.tint}">${ctx.escapeHtml((item.display_name || "U").slice(0, 1).toUpperCase())}</span>
           <span class="cell__body">
             <span class="cell__title">${ctx.escapeHtml(item.display_name)}</span>
             <span class="cell__subtitle">ID ${item.user_id} · ${ctx.escapeHtml(item.access.label)}</span>
           </span>
+          <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
           <span class="cell__chevron" aria-hidden="true"></span>
         `;
         if (isSelected) row.style.background = "var(--bg-fill-soft)";
