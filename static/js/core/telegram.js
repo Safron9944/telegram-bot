@@ -2,6 +2,11 @@ export const tg = window.Telegram?.WebApp || null;
 
 let telegramBackAttached = false;
 let closingConfirmationEnabled = false;
+let fullscreenEventsAttached = false;
+
+function syncFullscreenState() {
+  document.documentElement.classList.toggle("telegram-fullscreen", Boolean(tg?.isFullscreen));
+}
 
 export function initializeTelegram(onBack) {
   if (!tg) {
@@ -10,6 +15,12 @@ export function initializeTelegram(onBack) {
 
   tg.ready();
   tg.expand();
+
+  if (!fullscreenEventsAttached) {
+    tg.onEvent?.("fullscreenChanged", syncFullscreenState);
+    fullscreenEventsAttached = true;
+  }
+  syncFullscreenState();
 
   if (tg.isVersionAtLeast?.("8.0") && typeof tg.requestFullscreen === "function") {
     tg.requestFullscreen();

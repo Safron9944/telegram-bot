@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260810-ios-fullscreen-01";
+import "/static/js/app.js?v=20260810-ios-fullscreen-02";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
