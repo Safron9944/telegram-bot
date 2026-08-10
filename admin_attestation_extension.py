@@ -11,10 +11,18 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import Response
 
+from attestation_export_security import (
+    DOWNLOAD_TOKEN_TTL_SECONDS,
+    decode_download_token,
+    encode_download_token,
+)
 from questions import ATTESTATION_STAGE_1_SECTION
 
 
@@ -32,6 +40,60 @@ def _normalize_json_list(value: Any) -> list[Any]:
             return []
         return list(parsed) if isinstance(parsed, list) else []
     return []
+
+
+async def _build_export_payload(runtime: Any) -> dict[str, Any]:
+    rows = await runtime.store.fetch_questions()
+    questions = []
+
+    for row in rows:
+        section = (row.get("section") or "").strip()
+        if section != ATTESTATION_STAGE_1_SECTION:
+            continue
+
+        choices = [str(item) for item in _normalize_json_list(row.get("choices"))]
+        correct = [int(item) for item in _normalize_json_list(row.get("correct"))]
+        correct_texts = [
+            str(item)
+            for item in _normalize_json_list(row.get("correct_texts"))
+        ]
+        if not correct_texts:
+            correct_texts = [
+                choices[index - 1]
+                for index in correct
+                if 1 <= index <= len(choices)
+            ]
+
+        questions.append(
+            {
+                "id": int(row["id"]),
+                "section": section,
+                "topic": row.get("topic") or "",
+                "qnum": (
+                    int(row["qnum"])
+                    if row.get("qnum") is not None
+                    else None
+                ),
+                "question": row.get("question") or "",
+                "choices": choices,
+                "correct": correct,
+                "correct_texts": correct_texts,
+            }
+        )
+
+    questions.sort(
+        key=lambda item: (
+            item["topic"],
+            item["qnum"] if item["qnum"] is not None else 10**9,
+            item["id"],
+        )
+    )
+
+    return {
+        "section": ATTESTATION_STAGE_1_SECTION,
+        "count": len(questions),
+        "questions": questions,
+    }
 
 
 def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
@@ -113,57 +175,69 @@ def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
 
-        rows = await runtime.store.fetch_questions()
-        questions = []
+        return await _build_export_payload(runtime)
 
-        for row in rows:
-            section = (row.get("section") or "").strip()
-            if section != ATTESTATION_STAGE_1_SECTION:
-                continue
+    @app.post("/api/admin/attestation-stage-1/export-ticket")
+    async def api_admin_attestation_stage_1_export_ticket(
+        auth=Depends(get_auth_context),
+        runtime=Depends(get_runtime),
+    ):
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        if not runtime.bot_token:
+            require_http(503, "missing_bot_token", "На сервері не задано BOT_TOKEN.")
 
-            choices = [str(item) for item in _normalize_json_list(row.get("choices"))]
-            correct = [int(item) for item in _normalize_json_list(row.get("correct"))]
-            correct_texts = [
-                str(item)
-                for item in _normalize_json_list(row.get("correct_texts"))
-            ]
-            if not correct_texts:
-                correct_texts = [
-                    choices[index - 1]
-                    for index in correct
-                    if 1 <= index <= len(choices)
-                ]
-
-            questions.append(
-                {
-                    "id": int(row["id"]),
-                    "section": section,
-                    "topic": row.get("topic") or "",
-                    "qnum": (
-                        int(row["qnum"])
-                        if row.get("qnum") is not None
-                        else None
-                    ),
-                    "question": row.get("question") or "",
-                    "choices": choices,
-                    "correct": correct,
-                    "correct_texts": correct_texts,
-                }
-            )
-
-        questions.sort(
-            key=lambda item: (
-                item["topic"],
-                item["qnum"] if item["qnum"] is not None else 10**9,
-                item["id"],
-            )
+        payload = await _build_export_payload(runtime)
+        expires_at = int(time.time()) + DOWNLOAD_TOKEN_TTL_SECONDS
+        token = encode_download_token(
+            auth.user_id,
+            runtime.bot_token,
+            expires_at=expires_at,
         )
-
+        date = datetime.now(timezone.utc).date().isoformat()
+        file_name = f"attestation_stage_1_current_{date}.json"
         return {
-            "section": ATTESTATION_STAGE_1_SECTION,
-            "count": len(questions),
-            "questions": questions,
+            "count": payload["count"],
+            "file_name": file_name,
+            "download_path": (
+                "/api/admin/attestation-stage-1/download"
+                f"?token={token}"
+            ),
+            "expires_at": expires_at,
         }
+
+    @app.get("/api/admin/attestation-stage-1/download")
+    async def api_admin_attestation_stage_1_download(
+        token: str,
+        runtime=Depends(get_runtime),
+    ):
+        if not runtime.bot_token:
+            require_http(503, "missing_bot_token", "На сервері не задано BOT_TOKEN.")
+
+        token_data = decode_download_token(token, runtime.bot_token)
+        if not token_data:
+            require_http(
+                401,
+                "invalid_download_token",
+                "Посилання на файл недійсне або застаріло. Створіть експорт ще раз.",
+            )
+        user_id, _ = token_data
+        if user_id not in runtime.admin_ids:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+
+        payload = await _build_export_payload(runtime)
+        date = datetime.now(timezone.utc).date().isoformat()
+        file_name = f"attestation_stage_1_current_{date}.json"
+        content = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{file_name}"',
+                "Access-Control-Allow-Origin": "https://web.telegram.org",
+                "Cache-Control": "no-store",
+            },
+        )
 
     app.state._admin_attestation_routes_installed = True
 
