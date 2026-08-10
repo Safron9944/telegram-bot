@@ -880,12 +880,6 @@ export function renderAttestationStage1(ctx) {
       <h1 class="page-title">Атестація посадових осіб</h1>
       <p class="page-subtitle">1 етап · випадковий тест із перевіреного переліку питань.</p>
 
-      <div class="stat-strip">
-        ${ctx.statPill("Питань", String(catalog.count || 800))}
-        ${ctx.statPill("Розділів", String(catalog.topics || 4))}
-        ${ctx.statPill("Прохідний", "60%")}
-      </div>
-
       ${ctx.group({
         header: "Оберіть розділ",
         children: sections.map((item, index) => `
@@ -967,7 +961,7 @@ export function renderAttestationParts(ctx) {
   ["1-50", "51-100", "101-150", "151-200"].forEach((block, index) => {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = "cell";
+    row.className = "cell cell--part-range";
     row.innerHTML = `
       <span class="cell__icon cell__icon--blue">${index + 1}</span>
       <span class="cell__body">

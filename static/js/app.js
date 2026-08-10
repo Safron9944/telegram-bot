@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260809-screen-motion-01";
+} from "./screens/user.js?v=20260810-attestation-ranges-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
