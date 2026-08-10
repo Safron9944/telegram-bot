@@ -1,5 +1,6 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { api } from "./core/api.js?v=20260617-question-search-04";
+import { tg } from "./core/telegram.js?v=20260523-cases-search-02";
 import { escapeHtml, setMessage } from "./core/ui.js?v=20260809-unified-ui-02";
 
 const ENTRY_ID = "admin-attestation-stage1-entry";
@@ -186,31 +187,52 @@ function makeCell({ icon, tint = "purple", title, subtitle, onClick }) {
 
 async function downloadCurrentQuestionsJson() {
   try {
-    const payload = await api("/api/admin/attestation-stage-1/export");
+    const ticket = await api("/api/admin/attestation-stage-1/export-ticket", {
+      method: "POST",
+    });
 
-    if (payload.count !== 800) {
+    if (ticket.count !== 800) {
       const confirmed = window.confirm(
-        `У базі знайдено ${payload.count} питань замість 800. Все одно завантажити файл?`,
+        `У базі знайдено ${ticket.count} питань замість 800. Все одно завантажити файл?`,
       );
       if (!confirmed) return;
     }
 
-    const jsonText = JSON.stringify(payload, null, 2);
-    const blob = new Blob([jsonText], {
-      type: "application/json;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const date = new Date().toISOString().slice(0, 10);
+    const downloadUrl = new URL(ticket.download_path, window.location.origin).href;
+    const canUseTelegramDownload =
+      downloadUrl.startsWith("https://") &&
+      tg?.isVersionAtLeast?.("8.0") &&
+      typeof tg.downloadFile === "function";
 
-    link.href = url;
-    link.download = `attestation_stage_1_current_${date}.json`;
+    if (canUseTelegramDownload) {
+      try {
+        tg.downloadFile(
+          {
+            url: downloadUrl,
+            file_name: ticket.file_name,
+          },
+          (accepted) => {
+            if (accepted) {
+              setMessage("success", `Завантаження ${ticket.count} питань розпочато.`);
+            }
+          },
+        );
+        return;
+      } catch {
+        // Some older Telegram clients expose the method before it is usable.
+      }
+    }
+
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = ticket.file_name;
+    link.target = "_blank";
+    link.rel = "noopener";
     document.body.append(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
 
-    setMessage("success", `Експортовано ${payload.count} актуальних питань.`);
+    setMessage("success", `Завантаження ${ticket.count} питань розпочато.`);
   } catch (error) {
     setMessage("error", error.message || "Не вдалося створити JSON-файл.");
   }
