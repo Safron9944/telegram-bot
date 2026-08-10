@@ -383,6 +383,11 @@ body.ui-prototype {
   font-size: 13px;
 }
 
+.ui-prototype .cell--part-range .cell__subtitle {
+  display: block;
+  margin-top: 3px;
+}
+
 .ui-prototype .cell__detail {
   color: var(--navy-2);
   font-size: 13px;
