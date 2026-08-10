@@ -1,7 +1,7 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { state } from "./core/state.js?v=20260802-attestation-stage1-05";
 import { api } from "./core/api.js?v=20260617-question-search-04";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260810-ios-fullscreen-01";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260810-ios-fullscreen-02";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
 import {
   actionButton,

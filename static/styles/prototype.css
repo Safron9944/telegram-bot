@@ -6,6 +6,7 @@
 }
 
 body.ui-prototype {
+  --telegram-controls-offset: 0px;
   --content-safe-top: max(
     env(safe-area-inset-top, 0px),
     var(--tg-content-safe-area-inset-top, 0px)
@@ -35,6 +36,10 @@ body.ui-prototype {
   --row-h: 64px;
 }
 
+html.telegram-fullscreen body.ui-prototype {
+  --telegram-controls-offset: 36px;
+}
+
 html[data-theme="dark"] {
   color-scheme: light;
 }
@@ -58,7 +63,7 @@ body.ui-prototype {
 }
 
 .ui-prototype .screen[data-screen^="session-"] {
-  padding-top: calc(20px + var(--content-safe-top));
+  padding-top: calc(20px + var(--content-safe-top) + var(--telegram-controls-offset));
 }
 
 .ui-prototype .screen[data-transition="initial"] .screen-content,
@@ -119,7 +124,7 @@ body.ui-prototype {
   align-items: flex-start;
   gap: 0;
   margin: 0 -16px -4px;
-  padding: calc(14px + var(--content-safe-top)) 18px 16px;
+  padding: calc(14px + var(--content-safe-top) + var(--telegram-controls-offset)) 18px 16px;
   min-height: 0;
   background: var(--navy);
   color: #fff;
