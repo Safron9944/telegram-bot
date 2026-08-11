@@ -8,6 +8,7 @@ export const state = {
   adminUsersOffset: 0,
   adminQuestionsPage: 0,
   selectedAdminUserId: null,
+  adminUserDetail: null,
   selectedQuestionId: null,
   searchResults: null,
   questionSearchQuery: "",
