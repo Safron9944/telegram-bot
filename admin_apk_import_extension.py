@@ -98,16 +98,18 @@ def register_apk_import_routes(
         runtime = runtime_for(request)
         dynamic = await runtime.store.list_attestation_banks_for_admin()
         stage_1_count = len(getattr(runtime.qb, "attestation_stage_1", []) or [])
-        items = [{
-            "id": None,
-            "slug": "stage-1",
-            "title": "Атестація посадових осіб — 1 етап",
-            "status": "published",
-            "visible": True,
-            "display_order": -1,
-            "questions_count": stage_1_count,
-            "system": True,
-        }]
+        items = []
+        if (await runtime.store.get_setting("attestation_stage_1_deleted", "0")) != "1":
+            items.append({
+                "id": "stage-1",
+                "slug": "stage-1",
+                "title": "Атестація посадових осіб — 1 етап",
+                "status": "published",
+                "visible": True,
+                "display_order": -1,
+                "questions_count": stage_1_count,
+                "system": True,
+            })
         items.extend({**row, "visible": row.get("status") == "published", "system": False} for row in dynamic)
         return {"items": items}
 
@@ -140,10 +142,16 @@ def register_apk_import_routes(
         await reload_catalog(runtime)
         return {"ok": True}
 
-    @app.delete("/api/admin/attestation-banks/{bank_id}", status_code=204)
-    async def delete_attestation_bank(bank_id: int, request: Request, auth=Depends(get_auth_context)):
+    @app.delete("/api/admin/attestation-banks/{bank_key}", status_code=204)
+    async def delete_attestation_bank(bank_key: str, request: Request, auth=Depends(get_auth_context)):
         require_admin(auth)
         runtime = runtime_for(request)
+        if bank_key == "stage-1":
+            await runtime.store.set_setting("attestation_stage_1_deleted", "1")
+            return Response(status_code=204)
+        if not bank_key.isdigit():
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        bank_id = int(bank_key)
         if not await runtime.store.delete_attestation_bank(bank_id):
             _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
         await reload_catalog(runtime)
