@@ -118,6 +118,11 @@ class QuestionBank:
         self._build_indexes()
 
     async def load_published_attestation_banks(self, store: "Any") -> None:
+        # Fetch first so requests can keep using the current catalog while the
+        # database query is in progress. Replacing the in-memory snapshot only
+        # after the await also prevents a transient bank-not-found response.
+        rows = await store.list_published_attestation_banks()
+
         for slug, bank in list(self.attestation_banks.items()):
             if slug == "stage-1":
                 continue
@@ -133,7 +138,7 @@ class QuestionBank:
                     return []
             return value
 
-        for row in await store.list_published_attestation_banks():
+        for row in rows:
             if (row.get("slug") or "").strip() == "stage-1":
                 continue
             questions = []
