@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import asyncio
 import unittest
 
 from app import AuthContext, MiniAppService
@@ -32,6 +33,17 @@ class ConflictingStage1Store:
         return [row]
 
 
+class PausedPublishedStore(PublishedStore):
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def list_published_attestation_banks(self):
+        self.started.set()
+        await self.release.wait()
+        return await super().list_published_attestation_banks()
+
+
 class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_loads_published_database_banks(self):
         bank = QuestionBank("unused.json")
@@ -62,6 +74,22 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(800, len(bank.attestation_banks["stage-1"].qids))
         self.assertEqual(800, len(bank.attestation_stage_1))
+
+    async def test_reload_keeps_current_catalog_available_while_fetching(self):
+        bank = QuestionBank("unused.json")
+        bank.register_attestation_bank("existing", "Existing", [], published=True)
+        bank.attestation_banks["existing"].qids = [123]
+        store = PausedPublishedStore()
+
+        reload_task = asyncio.create_task(bank.load_published_attestation_banks(store))
+        await store.started.wait()
+
+        self.assertIn("existing", bank.attestation_banks)
+
+        store.release.set()
+        await reload_task
+        self.assertNotIn("existing", bank.attestation_banks)
+        self.assertIn("stage-2", bank.attestation_banks)
 
 
 if __name__ == "__main__":
