@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260810-result-navigation-01";
+import "/static/js/app.js?v=20260811-attestation-start-retry-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
