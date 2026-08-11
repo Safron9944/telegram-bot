@@ -1360,3 +1360,87 @@
   .admin-attestation-row__actions .btn { width: 100%; min-height: 44px; }
   .admin-attestation-visibility { grid-column: 1 / -1; }
 }
+
+/* ===================== ATTESTATION CMS ===================== */
+.attestation-bank-title-form,
+.attestation-bank-toolbar,
+.attestation-managed-question-form {
+  display: grid;
+  gap: 14px;
+}
+
+.attestation-bank-title-form,
+.attestation-bank-toolbar {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-grouped);
+}
+
+.attestation-bank-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.attestation-managed-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  gap: 10px;
+}
+
+.attestation-managed-question-text { min-height: 140px; }
+
+.attestation-managed-shuffle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-grouped);
+}
+
+.attestation-managed-shuffle > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.attestation-managed-shuffle small {
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.attestation-managed-choices {
+  display: grid;
+  gap: 12px;
+}
+
+.attestation-managed-choice {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  background: var(--bg-grouped);
+}
+
+.attestation-managed-choice__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attestation-managed-choice-text { min-height: 76px; }
+.attestation-managed-choice-remove { justify-self: start; }
+
+@media (max-width: 600px) {
+  .attestation-bank-filters,
+  .attestation-managed-meta { grid-template-columns: 1fr; }
+  .attestation-bank-filters .btn { width: 100%; }
+}

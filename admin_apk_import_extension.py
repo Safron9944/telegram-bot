@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import functools
 import inspect
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -35,6 +35,19 @@ class MoveRequest(BaseModel):
     direction: Literal["up", "down"]
 
 
+class BankTitleRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+
+
+class ManagedQuestionRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=240)
+    qnum: int | None = Field(default=None, ge=1)
+    question: str = Field(min_length=1, max_length=10000)
+    choices: list[str] = Field(min_length=2, max_length=12)
+    correct: list[int] = Field(min_length=1)
+    shuffle_choices: bool = True
+
+
 def _error(status: int, code: str, message: str):
     raise HTTPException(status_code=status, detail={"code": code, "message": message})
 
@@ -55,6 +68,30 @@ def _translate(exc: Exception):
     if isinstance(exc, AttestationPublishError):
         _error(422, exc.code, str(exc))
     raise exc
+
+
+def _clean_managed_question(payload: ManagedQuestionRequest) -> dict[str, Any]:
+    topic = (payload.topic or "").strip()
+    question = (payload.question or "").strip()
+    choices = [str(item).strip() for item in payload.choices]
+    correct = sorted({int(item) for item in payload.correct})
+    if not topic:
+        _error(400, "attestation_topic_required", "Вкажіть підрозділ питання.")
+    if not question:
+        _error(400, "attestation_question_required", "Текст питання не може бути порожнім.")
+    if len(choices) < 2 or any(not item for item in choices):
+        _error(400, "attestation_choices_invalid", "Заповніть щонайменше два варіанти відповіді.")
+    if not correct or any(index < 1 or index > len(choices) for index in correct):
+        _error(400, "attestation_correct_invalid", "Позначте правильну відповідь для наявних варіантів.")
+    return {
+        "topic": topic,
+        "qnum": payload.qnum,
+        "question": question,
+        "choices": choices,
+        "correct": correct,
+        "correct_texts": [choices[index - 1] for index in correct],
+        "shuffle_choices": bool(payload.shuffle_choices),
+    }
 
 
 async def _read_bounded(file: UploadFile) -> bytes:
@@ -112,6 +149,112 @@ def register_apk_import_routes(
             })
         items.extend({**row, "visible": row.get("status") == "published", "system": False} for row in dynamic)
         return {"items": items}
+
+    @app.patch("/api/admin/attestation-banks/{bank_id}")
+    async def update_attestation_bank(
+        bank_id: int,
+        payload: BankTitleRequest,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        title = (payload.title or "").strip()
+        if not title:
+            _error(400, "attestation_title_required", "Вкажіть назву розділу.")
+        row = await runtime.store.update_attestation_bank_title(bank_id, title)
+        if not row:
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        await reload_catalog(runtime)
+        return {**row, "visible": row.get("status") == "published", "system": False}
+
+    @app.get("/api/admin/attestation-banks/{bank_id}/questions")
+    async def list_attestation_bank_questions(
+        bank_id: int,
+        request: Request,
+        topic: str = "",
+        q: str = "",
+        offset: int = 0,
+        limit: int = 25,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        offset = max(0, int(offset))
+        limit = max(1, min(int(limit), 100))
+        result = await runtime.store.list_attestation_questions_for_admin(
+            bank_id,
+            topic=(topic or "").strip(),
+            query=(q or "").strip(),
+            offset=offset,
+            limit=limit,
+        )
+        if not result:
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        result["has_prev"] = offset > 0
+        result["has_next"] = offset + limit < int(result.get("total") or 0)
+        return result
+
+    @app.get("/api/admin/attestation-banks/{bank_id}/questions/{question_id}")
+    async def get_attestation_bank_question(
+        bank_id: int,
+        question_id: int,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        row = await runtime.store.get_attestation_question_for_admin(bank_id, question_id)
+        if not row:
+            _error(404, "attestation_question_not_found", "Питання не знайдено.")
+        return {"question": row}
+
+    @app.post("/api/admin/attestation-banks/{bank_id}/questions", status_code=201)
+    async def create_attestation_bank_question(
+        bank_id: int,
+        payload: ManagedQuestionRequest,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        row = await runtime.store.create_attestation_question(bank_id, **_clean_managed_question(payload))
+        if not row:
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        await reload_catalog(runtime)
+        return {"question": row}
+
+    @app.patch("/api/admin/attestation-banks/{bank_id}/questions/{question_id}")
+    async def update_attestation_bank_question(
+        bank_id: int,
+        question_id: int,
+        payload: ManagedQuestionRequest,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        row = await runtime.store.update_attestation_question(
+            bank_id, question_id, **_clean_managed_question(payload)
+        )
+        if not row:
+            _error(404, "attestation_question_not_found", "Питання не знайдено.")
+        await reload_catalog(runtime)
+        return {"question": row}
+
+    @app.delete("/api/admin/attestation-banks/{bank_id}/questions/{question_id}", status_code=204)
+    async def delete_attestation_bank_question(
+        bank_id: int,
+        question_id: int,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        if not await runtime.store.delete_attestation_question(bank_id, question_id):
+            _error(404, "attestation_question_not_found", "Питання не знайдено.")
+        await reload_catalog(runtime)
+        return Response(status_code=204)
 
     @app.patch("/api/admin/attestation-banks/{bank_id}/visibility")
     async def set_attestation_bank_visibility(

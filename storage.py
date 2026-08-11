@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -125,6 +126,7 @@ class Storage:
                 );
             """)
             await con.execute("CREATE INDEX IF NOT EXISTS idx_published_attestation_questions_bank ON published_attestation_questions(bank_id);")
+            await con.execute("ALTER TABLE published_attestation_questions ADD COLUMN IF NOT EXISTS managed_manually BOOLEAN NOT NULL DEFAULT FALSE;")
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS question_revisions (
                     id BIGSERIAL PRIMARY KEY,
@@ -888,6 +890,225 @@ class Storage:
             )
             return row is not None
 
+    async def get_attestation_bank_for_admin(self, bank_id: int) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                SELECT id, slug, title, source_id, status, display_order, questions_count,
+                       created_at, updated_at
+                FROM attestation_banks
+                WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                """,
+                int(bank_id),
+            )
+            return dict(row) if row else None
+
+    async def update_attestation_bank_title(self, bank_id: int, title: str) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                UPDATE attestation_banks
+                SET title=$2, updated_at=now()
+                WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                RETURNING id, slug, title, source_id, status, display_order, questions_count,
+                          created_at, updated_at
+                """,
+                int(bank_id), title,
+            )
+            return dict(row) if row else None
+
+    async def list_attestation_questions_for_admin(
+        self,
+        bank_id: int,
+        *,
+        topic: str = "",
+        query: str = "",
+        offset: int = 0,
+        limit: int = 25,
+    ) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            bank = await con.fetchrow(
+                """
+                SELECT id, slug, title, source_id, status, display_order, questions_count,
+                       created_at, updated_at
+                FROM attestation_banks
+                WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                """,
+                int(bank_id),
+            )
+            if not bank:
+                return None
+
+            topics = await con.fetch(
+                """
+                SELECT topic, COUNT(*)::INT AS questions_count
+                FROM published_attestation_questions
+                WHERE bank_id=$1
+                GROUP BY topic
+                ORDER BY topic
+                """,
+                int(bank_id),
+            )
+            clean_topic = (topic or "").strip()
+            clean_query = (query or "").strip()
+            pattern = f"%{clean_query}%"
+            total = int(await con.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM published_attestation_questions
+                WHERE bank_id=$1
+                  AND ($2='' OR topic=$2)
+                  AND ($3='' OR question ILIKE $4 OR topic ILIKE $4 OR COALESCE(qnum::TEXT, '') ILIKE $4)
+                """,
+                int(bank_id), clean_topic, clean_query, pattern,
+            ) or 0)
+            rows = await con.fetch(
+                """
+                SELECT id, source_key, qnum, topic, question, choices, correct,
+                       correct_texts, shuffle_choices, managed_manually,
+                       created_at, updated_at
+                FROM published_attestation_questions
+                WHERE bank_id=$1
+                  AND ($2='' OR topic=$2)
+                  AND ($3='' OR question ILIKE $4 OR topic ILIKE $4 OR COALESCE(qnum::TEXT, '') ILIKE $4)
+                ORDER BY topic, qnum NULLS LAST, id
+                OFFSET $5 LIMIT $6
+                """,
+                int(bank_id), clean_topic, clean_query, pattern, int(offset), int(limit),
+            )
+            return {
+                "bank": dict(bank),
+                "topics": [dict(row) for row in topics],
+                "items": [dict(row) for row in rows],
+                "total": total,
+                "offset": int(offset),
+                "limit": int(limit),
+            }
+
+    async def get_attestation_question_for_admin(self, bank_id: int, question_id: int) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                SELECT id, bank_id, source_key, qnum, topic, question, choices, correct,
+                       correct_texts, shuffle_choices, managed_manually,
+                       created_at, updated_at
+                FROM published_attestation_questions
+                WHERE bank_id=$1 AND id=$2
+                """,
+                int(bank_id), int(question_id),
+            )
+            return dict(row) if row else None
+
+    async def create_attestation_question(
+        self,
+        bank_id: int,
+        *,
+        topic: str,
+        qnum: int | None,
+        question: str,
+        choices: list[str],
+        correct: list[int],
+        correct_texts: list[str],
+        shuffle_choices: bool,
+    ) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                bank = await con.fetchrow(
+                    "SELECT id FROM attestation_banks WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1' FOR UPDATE",
+                    int(bank_id),
+                )
+                if not bank:
+                    return None
+                final_qnum = qnum
+                if final_qnum is None:
+                    final_qnum = int(await con.fetchval(
+                        "SELECT COALESCE(MAX(qnum), 0) + 1 FROM published_attestation_questions WHERE bank_id=$1 AND topic=$2",
+                        int(bank_id), topic,
+                    ) or 1)
+                row = await con.fetchrow(
+                    """
+                    INSERT INTO published_attestation_questions(
+                        bank_id, source_key, qnum, topic, question, choices, correct,
+                        correct_texts, shuffle_choices, managed_manually
+                    )
+                    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,TRUE)
+                    RETURNING id, bank_id, source_key, qnum, topic, question, choices, correct,
+                              correct_texts, shuffle_choices, managed_manually,
+                              created_at, updated_at
+                    """,
+                    int(bank_id), f"manual:{uuid.uuid4().hex}", int(final_qnum), topic, question,
+                    json.dumps(choices, ensure_ascii=False), json.dumps(correct),
+                    json.dumps(correct_texts, ensure_ascii=False), bool(shuffle_choices),
+                )
+                await con.execute(
+                    """
+                    UPDATE attestation_banks
+                    SET questions_count=(SELECT COUNT(*) FROM published_attestation_questions WHERE bank_id=$1),
+                        updated_at=now()
+                    WHERE id=$1
+                    """,
+                    int(bank_id),
+                )
+                return dict(row) if row else None
+
+    async def update_attestation_question(
+        self,
+        bank_id: int,
+        question_id: int,
+        *,
+        topic: str,
+        qnum: int | None,
+        question: str,
+        choices: list[str],
+        correct: list[int],
+        correct_texts: list[str],
+        shuffle_choices: bool,
+    ) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                UPDATE published_attestation_questions
+                SET topic=$3, qnum=$4, question=$5, choices=$6::jsonb, correct=$7::jsonb,
+                    correct_texts=$8::jsonb, shuffle_choices=$9,
+                    managed_manually=TRUE, updated_at=now()
+                WHERE bank_id=$1 AND id=$2
+                RETURNING id, bank_id, source_key, qnum, topic, question, choices, correct,
+                          correct_texts, shuffle_choices, managed_manually,
+                          created_at, updated_at
+                """,
+                int(bank_id), int(question_id), topic, qnum, question,
+                json.dumps(choices, ensure_ascii=False), json.dumps(correct),
+                json.dumps(correct_texts, ensure_ascii=False), bool(shuffle_choices),
+            )
+            return dict(row) if row else None
+
+    async def delete_attestation_question(self, bank_id: int, question_id: int) -> bool:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                row = await con.fetchrow(
+                    "DELETE FROM published_attestation_questions WHERE bank_id=$1 AND id=$2 RETURNING id",
+                    int(bank_id), int(question_id),
+                )
+                if not row:
+                    return False
+                await con.execute(
+                    """
+                    UPDATE attestation_banks
+                    SET questions_count=(SELECT COUNT(*) FROM published_attestation_questions WHERE bank_id=$1),
+                        updated_at=now()
+                    WHERE id=$1
+                    """,
+                    int(bank_id),
+                )
+                return True
+
     async def publish_attestation_bank(self, bank, *, title: str, slug: str, changed_by: str) -> dict:
         assert self.pool
         source_id = (bank.source or slug).casefold()
@@ -941,20 +1162,30 @@ class Storage:
                     """
                     INSERT INTO published_attestation_questions(
                         bank_id, source_key, qnum, topic, question, choices,
-                        correct, correct_texts, shuffle_choices
+                        correct, correct_texts, shuffle_choices, managed_manually
                     )
-                    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9)
+                    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,FALSE)
                     ON CONFLICT(bank_id, source_key) DO UPDATE SET
                         qnum=EXCLUDED.qnum, topic=EXCLUDED.topic,
                         question=EXCLUDED.question, choices=EXCLUDED.choices,
                         correct=EXCLUDED.correct, correct_texts=EXCLUDED.correct_texts,
                         shuffle_choices=EXCLUDED.shuffle_choices, updated_at=now()
+                    WHERE NOT published_attestation_questions.managed_manually
                     """,
                     rows,
                 )
                 await con.execute(
-                    "DELETE FROM published_attestation_questions WHERE bank_id=$1 AND NOT(source_key = ANY($2::text[]))",
+                    "DELETE FROM published_attestation_questions WHERE bank_id=$1 AND managed_manually=FALSE AND NOT(source_key = ANY($2::text[]))",
                     bank_id, source_keys,
+                )
+                await con.execute(
+                    """
+                    UPDATE attestation_banks
+                    SET questions_count=(SELECT COUNT(*) FROM published_attestation_questions WHERE bank_id=$1),
+                        updated_at=now()
+                    WHERE id=$1
+                    """,
+                    bank_id,
                 )
                 return {
                     "id": bank_id,

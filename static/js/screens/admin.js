@@ -118,6 +118,15 @@ export async function loadAdminAttestationBanks(ctx) {
       if (bank.system) {
         actions.append(remove);
       } else {
+        const manage = ctx.actionButton("Керувати питаннями", async () => {
+          ctx.state.selectedAttestationAdminBankId = Number(bank.id);
+          ctx.state.selectedAttestationAdminBank = bank;
+          ctx.state.selectedAttestationAdminQuestionId = null;
+          ctx.state.attestationAdminTopic = "";
+          ctx.state.attestationAdminQuery = "";
+          ctx.state.attestationAdminOffset = 0;
+          ctx.navigate("admin-attestation-bank");
+        }, "sm");
         const visibility = document.createElement("label");
         visibility.className = "admin-attestation-visibility";
         visibility.innerHTML = `<input type="checkbox" ${bank.visible ? "checked" : ""}><span>Показувати</span>`;
@@ -142,7 +151,7 @@ export async function loadAdminAttestationBanks(ctx) {
         up.dataset.direction = "up"; // direction: "up"
         const down = move("↓ Нижче", "down");
         down.dataset.direction = "down"; // direction: "down"
-        actions.append(visibility, up, down, remove);
+        actions.append(manage, visibility, up, down, remove);
       }
       list.append(row);
     });
