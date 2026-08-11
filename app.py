@@ -599,6 +599,7 @@ class MiniAppService:
         if mode == "pretest":
             return self.build_pretest_view(state, auth.is_admin)
         if mode in {"learn", "test", "mistakes"}:
+            self.ensure_session_access(auth, state)
             return await self.build_session_view(auth, state)
         if mode == "test_result":
             return self.build_test_result_view(state)
