@@ -64,6 +64,10 @@ import {
   runQuestionSearch,
 } from "./screens/admin.js?v=20260811-delete-all-attestation-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
+import {
+  cleanupAdminApkImport,
+  renderAdminApkImport,
+} from "./admin_apk_import.js?v=20260811-apk-screen-01";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",
@@ -87,6 +91,7 @@ const PROTOTYPE_SCREENS = new Set([
   "help",
   "admin",
   "admin-global-search",
+  "admin-apk-import",
   "admin-users",
   "admin-user-detail",
   "admin-questions",
@@ -226,6 +231,10 @@ async function goBack() {
     return;
   }
 
+  if (state.currentScreen === "admin-apk-import") {
+    await cleanupAdminApkImport();
+  }
+
   if (state.screenHistory.length) {
     const previous = state.screenHistory.pop();
     state.currentScreen = previous || "home";
@@ -352,6 +361,7 @@ function render() {
     case "help":                  renderHelp(ctx); break;
     case "admin":                  renderAdminHub(ctx); break;
     case "admin-global-search":    renderAdminGlobalSearch(ctx); break;
+    case "admin-apk-import":       renderAdminApkImport(ctx); break;
     case "admin-users":            renderAdminUsers(ctx); break;
     case "admin-user-detail":      renderAdminUserDetail(ctx); break;
     case "admin-questions":        renderAdminQuestions(ctx); break;
