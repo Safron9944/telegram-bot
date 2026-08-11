@@ -25,6 +25,13 @@ class PublishedStore:
         }]
 
 
+class ConflictingStage1Store:
+    async def list_published_attestation_banks(self):
+        row = dict((await PublishedStore().list_published_attestation_banks())[0])
+        row.update({"slug": "stage-1", "title": "Старий запис", "source_id": "stage-1.enc"})
+        return [row]
+
+
 class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_loads_published_database_banks(self):
         bank = QuestionBank("unused.json")
@@ -46,6 +53,15 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(catalog["attestation_banks"][0]["system"])
         self.assertFalse(catalog["attestation_banks"][1]["system"])
         self.assertEqual("Новий розділ", catalog["attestation_banks"][1]["sections"][0]["title"])
+
+    async def test_database_row_cannot_replace_bundled_stage_1_questions(self):
+        bank = QuestionBank("unused.json")
+        bank.load_attestation_stage_1("attestation_stage_1.json")
+
+        await bank.load_published_attestation_banks(ConflictingStage1Store())
+
+        self.assertEqual(800, len(bank.attestation_banks["stage-1"].qids))
+        self.assertEqual(800, len(bank.attestation_stage_1))
 
 
 if __name__ == "__main__":

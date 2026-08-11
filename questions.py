@@ -134,6 +134,8 @@ class QuestionBank:
             return value
 
         for row in await store.list_published_attestation_banks():
+            if (row.get("slug") or "").strip() == "stage-1":
+                continue
             questions = []
             for item in row.get("questions", []):
                 questions.append(Q(
@@ -243,7 +245,15 @@ class QuestionBank:
             title = (self.by_id[qid].topic or "Інші питання").strip()
             counts[title] = counts.get(title, 0) + 1
         return [
-            {"key": title, "title": title, "count": count}
+            {
+                "key": title,
+                "title": title,
+                "count": count,
+                "blocks": [
+                    {"key": f"{start}-{min(start + 49, count)}", "title": f"{start}-{min(start + 49, count)}"}
+                    for start in range(1, count + 1, 50)
+                ],
+            }
             for title, count in counts.items()
         ]
 

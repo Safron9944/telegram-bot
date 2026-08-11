@@ -91,6 +91,10 @@ class AttestationStage1BankTests(unittest.TestCase):
 
     def test_each_section_is_split_into_four_numbered_blocks(self):
         for section in self.bank.attestation_stage_1_sections():
+            self.assertEqual(
+                ["1-50", "51-100", "101-150", "151-200"],
+                [item["key"] for item in section["blocks"]],
+            )
             title = section["title"]
             for block, expected_numbers in {
                 "1-50": range(1, 51),
