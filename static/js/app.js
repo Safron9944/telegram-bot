@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260802-attestation-stage1-05";
+import { state } from "./core/state.js?v=20260811-admin-user-home-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260810-ios-fullscreen-02";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260810-attestation-ranges-01";
+} from "./screens/user.js?v=20260811-admin-user-home-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -57,9 +57,10 @@ import {
   renderAdminQuestions,
   renderAdminSettings,
   renderAdminTestQuestions,
+  renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260810-admin-access-status-01";
+} from "./screens/admin.js?v=20260811-admin-user-home-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 
 const PROTOTYPE_SCREENS = new Set([
@@ -84,6 +85,7 @@ const PROTOTYPE_SCREENS = new Set([
   "admin",
   "admin-global-search",
   "admin-users",
+  "admin-user-detail",
   "admin-questions",
   "admin-question-detail",
   "admin-question-view",
@@ -251,6 +253,7 @@ async function goBack() {
 function ensureScreenData(screen = state.currentScreen) {
   if (state.currentView) return;
   if (screen === "admin-users") void loadAdminUsers(createContext(), state.adminUsersOffset);
+  if (screen === "admin-user-detail") void loadAdminUserDetail(createContext(), state.selectedAdminUserId);
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
@@ -344,6 +347,7 @@ function render() {
     case "admin":                  renderAdminHub(ctx); break;
     case "admin-global-search":    renderAdminGlobalSearch(ctx); break;
     case "admin-users":            renderAdminUsers(ctx); break;
+    case "admin-user-detail":      renderAdminUserDetail(ctx); break;
     case "admin-questions":        renderAdminQuestions(ctx); break;
     case "admin-question-detail":  renderAdminQuestionDetail(ctx); break;
     case "admin-question-view":    renderAdminQuestionView(ctx); break;
