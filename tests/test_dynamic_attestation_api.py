@@ -17,6 +17,28 @@ class StateStore:
     async def get_ui(self, user_id):
         return {"state": self.states.get(user_id, {})}
 
+    async def list_published_attestation_banks(self):
+        return []
+
+
+class ReloadingStateStore(StateStore):
+    async def list_published_attestation_banks(self):
+        return [{
+            "slug": "constitution",
+            "title": "Конституція України",
+            "source_id": "constitution.enc",
+            "questions": [{
+                "id": 9001,
+                "qnum": 1,
+                "topic": "Конституція України",
+                "question": "Питання?",
+                "choices": ["A", "B"],
+                "correct": [1],
+                "correct_texts": ["A"],
+                "shuffle_choices": False,
+            }],
+        }]
+
 
 def question(qid, number):
     return Q(qid, "Stage 2", "Topic", None, None, number, f"Q{number}", ["A", "B", "C", "D"], [1], ["A"])
@@ -39,8 +61,8 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejects_unknown_bank_or_block(self):
         for slug, block, code in (
-            ("missing", "1-50", "attestation_bank_not_found"),
             ("stage-2", "bad", "attestation_block_not_found"),
+            ("missing", "1-50", "attestation_bank_not_found"),
         ):
             with self.subTest(code=code), self.assertRaises(HTTPException) as raised:
                 await self.service.start_attestation(
@@ -55,6 +77,19 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
                 trial, "stage-2", StartAttestationRequest(section="Topic", block="1-50")
             )
         self.assertEqual("attestation_access_required", raised.exception.detail["code"])
+
+    async def test_missing_runtime_bank_reloads_from_database_and_retries(self):
+        store = ReloadingStateStore()
+        service = MiniAppService(SimpleNamespace(qb=QuestionBank("unused.json"), store=store))
+
+        result = await service.start_attestation(
+            self.auth,
+            "constitution",
+            StartAttestationRequest(section="Конституція України", block="1-1"),
+        )
+
+        self.assertEqual(1, result["progress"]["total"])
+        self.assertEqual("constitution", store.states[77]["meta"]["bank_slug"])
 
 
 if __name__ == "__main__":
