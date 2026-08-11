@@ -32,6 +32,7 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         self.assertIn('direction: "up"', admin)
         self.assertIn('direction: "down"', admin)
         self.assertIn('bank.system', admin)
+        self.assertNotIn("Захищено", admin)
 
 
 if __name__ == "__main__":
