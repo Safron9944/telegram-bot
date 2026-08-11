@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260811-apk-screen-01";
+import "/static/js/app.js?v=20260811-attestation-cms-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

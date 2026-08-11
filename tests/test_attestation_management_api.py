@@ -27,6 +27,50 @@ class ManagedStore:
     async def list_attestation_banks_for_admin(self):
         return list(self.banks)
 
+    async def update_attestation_bank_title(self, bank_id, title):
+        self.calls.append(("title", bank_id, title))
+        if bank_id != 7:
+            return None
+        self.banks[0]["title"] = title
+        return self.banks[0]
+
+    async def list_attestation_questions_for_admin(self, bank_id, **kwargs):
+        self.calls.append(("questions", bank_id, kwargs))
+        if bank_id != 7:
+            return None
+        return {
+            "bank": self.banks[0],
+            "topics": [{"topic": "Основний", "questions_count": 1}],
+            "items": [{
+                "id": 81, "qnum": 1, "topic": "Основний", "question": "Питання?",
+                "choices": ["Так", "Ні"], "correct": [1], "shuffle_choices": True,
+                "managed_manually": False,
+            }],
+            "total": 1, "offset": kwargs["offset"], "limit": kwargs["limit"],
+        }
+
+    async def get_attestation_question_for_admin(self, bank_id, question_id):
+        self.calls.append(("question", bank_id, question_id))
+        if bank_id != 7 or question_id != 81:
+            return None
+        return {
+            "id": 81, "bank_id": 7, "qnum": 1, "topic": "Основний",
+            "question": "Питання?", "choices": ["Так", "Ні"], "correct": [1],
+            "shuffle_choices": True, "managed_manually": False,
+        }
+
+    async def create_attestation_question(self, bank_id, **question):
+        self.calls.append(("create_question", bank_id, question))
+        return {"id": 82, "bank_id": bank_id, **question, "managed_manually": True} if bank_id == 7 else None
+
+    async def update_attestation_question(self, bank_id, question_id, **question):
+        self.calls.append(("update_question", bank_id, question_id, question))
+        return {"id": question_id, "bank_id": bank_id, **question, "managed_manually": True} if (bank_id, question_id) == (7, 81) else None
+
+    async def delete_attestation_question(self, bank_id, question_id):
+        self.calls.append(("delete_question", bank_id, question_id))
+        return (bank_id, question_id) == (7, 81)
+
     async def set_attestation_bank_visibility(self, bank_id, *, visible):
         self.calls.append(("visibility", bank_id, visible))
         return self.banks[0] if bank_id == 7 else None
@@ -87,6 +131,30 @@ class AttestationManagementApiTests(unittest.TestCase):
         self.assertEqual(204, deleted.status_code)
         self.assertEqual(("setting", "attestation_stage_1_deleted", "1"), store.calls[-1])
         self.assertNotIn("stage-1", [item["slug"] for item in listed.json()["items"]])
+
+    def test_admin_can_manage_bank_and_questions(self):
+        app, store, qb = make_app()
+        client = TestClient(app)
+        question = {
+            "topic": "Новий підрозділ", "qnum": 5, "question": "Оновлене питання?",
+            "choices": ["А", "Б"], "correct": [2], "shuffle_choices": False,
+        }
+
+        renamed = client.patch("/api/admin/attestation-banks/7", json={"title": "Нова назва"})
+        listed = client.get("/api/admin/attestation-banks/7/questions?q=Питання")
+        loaded = client.get("/api/admin/attestation-banks/7/questions/81")
+        created = client.post("/api/admin/attestation-banks/7/questions", json=question)
+        updated = client.patch("/api/admin/attestation-banks/7/questions/81", json=question)
+        deleted = client.delete("/api/admin/attestation-banks/7/questions/81")
+
+        self.assertEqual("Нова назва", renamed.json()["title"])
+        self.assertEqual(1, listed.json()["total"])
+        self.assertEqual(81, loaded.json()["question"]["id"])
+        self.assertTrue(created.json()["question"]["managed_manually"])
+        self.assertTrue(updated.json()["question"]["managed_manually"])
+        self.assertEqual(204, deleted.status_code)
+        self.assertEqual(4, qb.reloads)
+        self.assertEqual("Б", store.calls[-2][3]["correct_texts"][0])
 
     def test_missing_bank_and_non_admin_are_rejected(self):
         app, _, _ = make_app()

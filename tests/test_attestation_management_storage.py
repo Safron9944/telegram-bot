@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from storage import Storage
 
@@ -76,6 +77,13 @@ class AttestationManagementStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(moved)
         self.assertTrue(deleted)
         self.assertEqual([(8, 0), (7, 1)], self.connection.executemany_calls[0][1])
+
+    async def test_manual_question_changes_are_protected_from_reimport(self):
+        source = Path("storage.py").read_text(encoding="utf-8")
+        self.assertIn("managed_manually BOOLEAN NOT NULL DEFAULT FALSE", source)
+        self.assertIn("managed_manually=TRUE", source)
+        self.assertIn("WHERE NOT published_attestation_questions.managed_manually", source)
+        self.assertIn("managed_manually=FALSE AND NOT(source_key = ANY", source)
 
 
 if __name__ == "__main__":
