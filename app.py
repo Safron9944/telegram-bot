@@ -545,7 +545,7 @@ class MiniAppService:
             else None,
         }
 
-    def serialize_catalog(self, auth: AuthContext) -> dict[str, Any]:
+    def serialize_catalog(self, auth: AuthContext, *, include_stage_1: bool = True) -> dict[str, Any]:
         law_groups = []
         for key, qids in self.qb.law_groups.items():
             law_groups.append(
@@ -579,15 +579,21 @@ class MiniAppService:
             )
 
         attestation_sections = self.qb.attestation_stage_1_sections()
-        attestation_banks = [{
-            "slug": "stage-1",
-            "title": "Атестація посадових осіб — 1 етап",
-            "count": len(self.qb.attestation_stage_1),
-            "topics": len(attestation_sections),
-            "sections": attestation_sections,
-            "system": True,
-        }]
-        for bank in self.qb.published_attestation_banks():
+        attestation_banks = []
+        if include_stage_1:
+            attestation_banks.append({
+                "slug": "stage-1",
+                "title": "Атестація посадових осіб — 1 етап",
+                "count": len(self.qb.attestation_stage_1),
+                "topics": len(attestation_sections),
+                "sections": attestation_sections,
+                "system": True,
+            })
+        visible_attestation_banks = [
+            bank for bank in self.qb.published_attestation_banks()
+            if include_stage_1 or bank.slug != "stage-1"
+        ]
+        for bank in visible_attestation_banks:
             if bank.slug == "stage-1":
                 continue
             attestation_banks.append({
@@ -604,17 +610,17 @@ class MiniAppService:
             "ok_modules": ok_modules,
             "attestation_stage_1": {
                 "title": "Атестація посадових осіб — 1 етап",
-                "count": len(self.qb.attestation_stage_1),
-                "topics": len(attestation_sections),
-                "sections": attestation_sections,
+                "count": len(self.qb.attestation_stage_1) if include_stage_1 else 0,
+                "topics": len(attestation_sections) if include_stage_1 else 0,
+                "sections": attestation_sections if include_stage_1 else [],
             },
             "attestation_banks": attestation_banks,
             "counts": {
                 "questions": len(self.qb.by_id),
                 "law": len(self.qb.law),
                 "ok_modules": len(self.qb.ok_modules),
-                "attestation_stage_1": len(self.qb.attestation_stage_1),
-                "attestation": sum(len(bank.qids) for bank in self.qb.published_attestation_banks()),
+                "attestation_stage_1": len(self.qb.attestation_stage_1) if include_stage_1 else 0,
+                "attestation": sum(len(bank.qids) for bank in visible_attestation_banks),
             },
         }
 
@@ -624,6 +630,7 @@ class MiniAppService:
         prices = await get_payment_prices(self.store)
         home_visibility = await get_home_visibility(self.store)
         tq_visible = (await self.store.get_setting("test_questions_visible", "0")) == "1"
+        include_stage_1 = (await self.store.get_setting("attestation_stage_1_deleted", "0")) != "1"
         db_admin_url = await self.store.get_setting("admin_contact_url", "")
         admin_url = db_admin_url or get_admin_contact_url(self.runtime.admin_ids)
         return {
@@ -633,7 +640,7 @@ class MiniAppService:
                 "admin_url": admin_url,
                 "webapp_url": self.runtime.webapp_url,
             },
-            "catalog": self.serialize_catalog(auth),
+            "catalog": self.serialize_catalog(auth, include_stage_1=include_stage_1),
             "stats": self.serialize_stats(stats),
             "saved_view": saved_view,
             "payment_prices": prices,
@@ -985,7 +992,11 @@ class MiniAppService:
         cleaned = [name for name in payload.modules if name in available]
         await self.store.set_ok_modules(auth.user_id, cleaned)
         auth.user = await self.store.get_user(auth.user_id)
-        return {"user": self.serialize_user(auth), "catalog": self.serialize_catalog(auth)}
+        include_stage_1 = (await self.store.get_setting("attestation_stage_1_deleted", "0")) != "1"
+        return {
+            "user": self.serialize_user(auth),
+            "catalog": self.serialize_catalog(auth, include_stage_1=include_stage_1),
+        }
 
     async def start_test(self, auth: AuthContext, payload: StartTestRequest) -> dict[str, Any]:
         self.ensure_access(auth)
@@ -1066,6 +1077,8 @@ class MiniAppService:
         auth: AuthContext,
         payload: StartAttestationStage1Request,
     ) -> dict[str, Any]:
+        if (await self.store.get_setting("attestation_stage_1_deleted", "0")) == "1":
+            require_http(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
         return await self.start_attestation(
             auth,
             "stage-1",
