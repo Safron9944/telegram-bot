@@ -24,6 +24,13 @@ export function renderAdminHub(ctx) {
             screen: "admin-questions",
           }),
           ctx.cell({
+            title: "Питання з APK",
+            subtitle: "Витягнути та створити новий розділ",
+            icon: "APK",
+            tint: "green",
+            screen: "admin-apk-import",
+          }),
+          ctx.cell({
             title: "Розділи атестації",
             subtitle: "Видимість, порядок і видалення",
             iconName: "document",
