@@ -108,7 +108,7 @@ class Storage:
                 );
             """)
             await con.execute("""
-                CREATE TABLE IF NOT EXISTS attestation_questions (
+                CREATE TABLE IF NOT EXISTS published_attestation_questions (
                     id BIGSERIAL PRIMARY KEY,
                     bank_id BIGINT NOT NULL REFERENCES attestation_banks(id) ON DELETE CASCADE,
                     source_key TEXT NOT NULL,
@@ -124,7 +124,7 @@ class Storage:
                     UNIQUE(bank_id, source_key)
                 );
             """)
-            await con.execute("CREATE INDEX IF NOT EXISTS idx_attestation_questions_bank ON attestation_questions(bank_id);")
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_published_attestation_questions_bank ON published_attestation_questions(bank_id);")
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS question_revisions (
                     id BIGSERIAL PRIMARY KEY,
@@ -810,7 +810,7 @@ class Storage:
                     """
                     SELECT id, source_key, qnum, topic, question, choices, correct,
                            correct_texts, shuffle_choices
-                    FROM attestation_questions
+                    FROM published_attestation_questions
                     WHERE bank_id=$1
                     ORDER BY topic, qnum NULLS LAST, id
                     """,
@@ -871,7 +871,7 @@ class Storage:
                 ]
                 await con.executemany(
                     """
-                    INSERT INTO attestation_questions(
+                    INSERT INTO published_attestation_questions(
                         bank_id, source_key, qnum, topic, question, choices,
                         correct, correct_texts, shuffle_choices
                     )
@@ -885,7 +885,7 @@ class Storage:
                     rows,
                 )
                 await con.execute(
-                    "DELETE FROM attestation_questions WHERE bank_id=$1 AND NOT(source_key = ANY($2::text[]))",
+                    "DELETE FROM published_attestation_questions WHERE bank_id=$1 AND NOT(source_key = ANY($2::text[]))",
                     bank_id, source_keys,
                 )
                 return {
