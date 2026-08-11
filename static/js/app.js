@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260811-dynamic-attestation-01";
+} from "./screens/user.js?v=20260811-attestation-start-retry-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
