@@ -1,6 +1,11 @@
 import unittest
 from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+from fastapi import HTTPException
+
+from app import AuthContext, MiniAppService
 from access import access_status, access_tier, has_attestation_access
 from utils import now
 
@@ -26,6 +31,30 @@ class AccessTierTests(unittest.TestCase):
         user = {"trial_end": now() - timedelta(seconds=1)}
         self.assertEqual("none", access_tier(user))
         self.assertEqual((False, "expired"), access_status(user))
+
+
+class SavedAttestationAccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_expired_subscription_cannot_restore_attestation_session(self):
+        state = {
+            "mode": "learn",
+            "meta": {"kind": "attestation_stage_1"},
+        }
+        store = SimpleNamespace(get_ui=AsyncMock(return_value={"state": state}))
+        service = MiniAppService(SimpleNamespace(store=store))
+        service.build_session_view = AsyncMock(return_value={"screen": "question"})
+        auth = AuthContext(
+            telegram_user={"id": 42},
+            user={"trial_end": now() - timedelta(seconds=1)},
+            user_id=42,
+            is_admin=False,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            await service.saved_view(auth)
+
+        self.assertEqual(403, raised.exception.status_code)
+        self.assertEqual("attestation_access_required", raised.exception.detail["code"])
+        service.build_session_view.assert_not_awaited()
 
 
 if __name__ == "__main__":
