@@ -1,3 +1,4 @@
+from dataclasses import replace
 import unittest
 
 from apk_importer.models import ParsedBank, ParsedQuestion, ParsedSection
@@ -73,6 +74,16 @@ class AttestationPublishingTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(1, result["count"])
+
+    async def test_reserved_stage_1_slug_cannot_replace_bundled_stage(self):
+        store = FakeStore()
+        bank = replace(parsed_bank(), source="stage-1.enc")
+
+        result = await AttestationPublishingService(store, lambda: None).publish(
+            bank, "Інший тест", changed_by="99"
+        )
+
+        self.assertNotEqual("stage-1", result["slug"])
 
 
 if __name__ == "__main__":

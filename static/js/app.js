@@ -43,6 +43,7 @@ import {
 } from "./screens/user.js?v=20260811-dynamic-attestation-01";
 import {
   loadAdminCases,
+  loadAdminAttestationBanks,
   loadAdminQuestions,
   loadAdminSettings,
   loadAdminTestQuestions,
@@ -50,6 +51,7 @@ import {
   loadAdminUsers,
   loadQuestionDetail,
   renderAdminCases,
+  renderAdminAttestationBanks,
   renderAdminGlobalSearch,
   renderAdminHub,
   renderAdminQuestionDetail,
@@ -60,7 +62,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260811-admin-user-home-01";
+} from "./screens/admin.js?v=20260811-attestation-management-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 
 const PROTOTYPE_SCREENS = new Set([
@@ -91,6 +93,7 @@ const PROTOTYPE_SCREENS = new Set([
   "admin-question-detail",
   "admin-question-view",
   "admin-cases",
+  "admin-attestation-banks",
   "admin-settings",
   "admin-test-questions",
 ]);
@@ -257,6 +260,7 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-user-detail") void loadAdminUserDetail(createContext(), state.selectedAdminUserId);
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
+  if (screen === "admin-attestation-banks") void loadAdminAttestationBanks(createContext());
   if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
   if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
@@ -354,6 +358,7 @@ function render() {
     case "admin-question-detail":  renderAdminQuestionDetail(ctx); break;
     case "admin-question-view":    renderAdminQuestionView(ctx); break;
     case "admin-cases":            renderAdminCases(ctx); break;
+    case "admin-attestation-banks": renderAdminAttestationBanks(ctx); break;
     case "admin-settings":      renderAdminSettings(ctx); break;
     case "admin-test-questions": renderAdminTestQuestions(ctx); break;
     default:

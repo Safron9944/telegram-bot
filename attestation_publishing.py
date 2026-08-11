@@ -17,6 +17,8 @@ class AttestationPublishError(ValueError):
 def _slug_for(bank: ParsedBank) -> str:
     stem = PurePath(bank.source or "assessment").stem.casefold()
     slug = re.sub(r"[^a-z0-9]+", "-", stem).strip("-")
+    if slug == "stage-1":
+        slug = "imported-stage-1"
     return slug or f"assessment-{bank.source_hash[:12]}"
 
 

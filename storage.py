@@ -820,6 +820,74 @@ class Storage:
                 result.append(item)
             return result
 
+    async def list_attestation_banks_for_admin(self) -> list[dict]:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            rows = await con.fetch(
+                """
+                SELECT id, slug, title, source_id, status, display_order, questions_count,
+                       created_at, updated_at
+                FROM attestation_banks
+                ORDER BY display_order, id
+                """
+            )
+            return [dict(row) for row in rows]
+
+    async def set_attestation_bank_visibility(self, bank_id: int, *, visible: bool) -> dict | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                UPDATE attestation_banks
+                SET status=$2, updated_at=now()
+                WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                RETURNING id, slug, title, source_id, status, display_order, questions_count
+                """,
+                int(bank_id), "published" if visible else "hidden",
+            )
+            return dict(row) if row else None
+
+    async def move_attestation_bank(self, bank_id: int, *, direction: str) -> bool:
+        if direction not in {"up", "down"}:
+            return False
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                rows = [dict(row) for row in await con.fetch(
+                    """
+                    SELECT id, slug, source_id, display_order
+                    FROM attestation_banks
+                    WHERE slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                    ORDER BY display_order, id
+                    FOR UPDATE
+                    """
+                )]
+                index = next((i for i, row in enumerate(rows) if int(row["id"]) == int(bank_id)), None)
+                if index is None:
+                    return False
+                target = index - 1 if direction == "up" else index + 1
+                if target < 0 or target >= len(rows):
+                    return True
+                rows[index], rows[target] = rows[target], rows[index]
+                await con.executemany(
+                    "UPDATE attestation_banks SET display_order=$2, updated_at=now() WHERE id=$1",
+                    [(int(row["id"]), order) for order, row in enumerate(rows)],
+                )
+                return True
+
+    async def delete_attestation_bank(self, bank_id: int) -> bool:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                DELETE FROM attestation_banks
+                WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                RETURNING id
+                """,
+                int(bank_id),
+            )
+            return row is not None
+
     async def publish_attestation_bank(self, bank, *, title: str, slug: str, changed_by: str) -> dict:
         assert self.pool
         source_id = (bank.source or slug).casefold()

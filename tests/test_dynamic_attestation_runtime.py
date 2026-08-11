@@ -42,8 +42,10 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         catalog = MiniAppService(runtime).serialize_catalog(auth)
 
-        self.assertEqual(["stage-2"], [item["slug"] for item in catalog["attestation_banks"]])
-        self.assertEqual("Новий розділ", catalog["attestation_banks"][0]["sections"][0]["title"])
+        self.assertEqual(["stage-1", "stage-2"], [item["slug"] for item in catalog["attestation_banks"]])
+        self.assertTrue(catalog["attestation_banks"][0]["system"])
+        self.assertFalse(catalog["attestation_banks"][1]["system"])
+        self.assertEqual("Новий розділ", catalog["attestation_banks"][1]["sections"][0]["title"])
 
 
 if __name__ == "__main__":

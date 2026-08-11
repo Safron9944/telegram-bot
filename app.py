@@ -579,14 +579,24 @@ class MiniAppService:
             )
 
         attestation_sections = self.qb.attestation_stage_1_sections()
-        attestation_banks = []
+        attestation_banks = [{
+            "slug": "stage-1",
+            "title": "Атестація посадових осіб — 1 етап",
+            "count": len(self.qb.attestation_stage_1),
+            "topics": len(attestation_sections),
+            "sections": attestation_sections,
+            "system": True,
+        }]
         for bank in self.qb.published_attestation_banks():
+            if bank.slug == "stage-1":
+                continue
             attestation_banks.append({
                 "slug": bank.slug,
                 "title": bank.title,
                 "count": len(bank.qids),
                 "topics": len(self.qb.attestation_sections(bank.slug)),
                 "sections": self.qb.attestation_sections(bank.slug),
+                "system": False,
             })
 
         return {

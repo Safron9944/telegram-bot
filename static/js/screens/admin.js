@@ -24,6 +24,13 @@ export function renderAdminHub(ctx) {
             screen: "admin-questions",
           }),
           ctx.cell({
+            title: "Розділи атестації",
+            subtitle: "Видимість, порядок і видалення",
+            iconName: "document",
+            tint: "purple",
+            screen: "admin-attestation-banks",
+          }),
+          ctx.cell({
             title: "Кейси",
             subtitle: "Імпорт Keys.db",
             iconName: "folder",
@@ -57,6 +64,84 @@ export function renderAdminHub(ctx) {
   `;
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+}
+
+/* ===================== ADMIN ATTESTATION BANKS ===================== */
+export function renderAdminAttestationBanks(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">Розділи атестації</h1>
+      <p class="page-subtitle">Перший етап захищений. Нові розділи можна впорядковувати, приховувати й видаляти.</p>
+      <div class="group">
+        <div class="group__list" id="admin-attestation-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+export async function loadAdminAttestationBanks(ctx) {
+  if (ctx.state.currentScreen !== "admin-attestation-banks") return;
+  const list = document.querySelector("#admin-attestation-list");
+  try {
+    const payload = await ctx.api("/api/admin/attestation-banks");
+    if (!list || ctx.state.currentScreen !== "admin-attestation-banks") return;
+    list.innerHTML = "";
+    payload.items.forEach((bank, index) => {
+      const row = document.createElement("div");
+      row.className = "admin-attestation-row";
+      row.innerHTML = `
+        <div class="admin-attestation-row__info">
+          <strong>${ctx.escapeHtml(bank.title)}</strong>
+          <span>${ctx.escapeHtml(bank.questions_count || 0)} питань · ${bank.system ? "системний розділ" : `позиція ${index}`}</span>
+        </div>
+        <div class="admin-attestation-row__actions"></div>
+      `;
+      const actions = row.querySelector(".admin-attestation-row__actions");
+      if (bank.system) {
+        actions.innerHTML = '<span class="apk-badge">Захищено</span>';
+      } else {
+        const visibility = document.createElement("label");
+        visibility.className = "admin-attestation-visibility";
+        visibility.innerHTML = `<input type="checkbox" ${bank.visible ? "checked" : ""}><span>Показувати</span>`;
+        visibility.querySelector("input").addEventListener("change", async (event) => {
+          try {
+            await ctx.api(`/api/admin/attestation-banks/${bank.id}/visibility`, {
+              method: "PATCH", body: { visible: event.currentTarget.checked },
+            });
+            await loadAdminAttestationBanks(ctx);
+          } catch (error) { event.currentTarget.checked = !event.currentTarget.checked; ctx.setMessage("error", error.message); }
+        });
+        const move = (label, direction) => {
+          const button = ctx.actionButton(label, async () => {
+            try {
+              await ctx.api(`/api/admin/attestation-banks/${bank.id}/move`, { method: "POST", body: { direction } });
+              await loadAdminAttestationBanks(ctx);
+            } catch (error) { ctx.setMessage("error", error.message); }
+          }, "sm");
+          return button;
+        };
+        const up = move("↑ Вище", "up");
+        up.dataset.direction = "up"; // direction: "up"
+        const down = move("↓ Нижче", "down");
+        down.dataset.direction = "down"; // direction: "down"
+        const remove = ctx.actionButton("Видалити", async () => {
+          if (!window.confirm(`Видалити «${bank.title}» разом із питаннями?`)) return;
+          try {
+            await ctx.api(`/api/admin/attestation-banks/${bank.id}`, { method: "DELETE" });
+            await loadAdminAttestationBanks(ctx);
+          } catch (error) { ctx.setMessage("error", error.message); }
+        }, "sm");
+        remove.classList.add("btn--danger");
+        actions.append(visibility, up, down, remove);
+      }
+      list.append(row);
+    });
+  } catch (error) {
+    if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
+  }
 }
 
 function adminUserStatus(access, isAdmin = false) {

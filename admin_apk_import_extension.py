@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import inspect
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
@@ -24,6 +25,14 @@ _LIMIT = ArchiveLimits().upload_bytes
 
 class PublishRequest(BaseModel):
     title: str = Field(min_length=1, max_length=160)
+
+
+class VisibilityRequest(BaseModel):
+    visible: bool
+
+
+class MoveRequest(BaseModel):
+    direction: Literal["up", "down"]
 
 
 def _error(status: int, code: str, message: str):
@@ -76,6 +85,69 @@ def register_apk_import_routes(
         if not auth.is_admin:
             _error(403, "forbidden", "Потрібні права адміністратора.")
         return app.state.apk_import_service
+
+    def runtime_for(request: Request):
+        return request.app.state.runtime
+
+    async def reload_catalog(runtime) -> None:
+        await runtime.qb.load_published_attestation_banks(runtime.store)
+
+    @app.get("/api/admin/attestation-banks")
+    async def list_attestation_banks(request: Request, auth=Depends(get_auth_context)):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        dynamic = await runtime.store.list_attestation_banks_for_admin()
+        stage_1_count = len(getattr(runtime.qb, "attestation_stage_1", []) or [])
+        items = [{
+            "id": None,
+            "slug": "stage-1",
+            "title": "Атестація посадових осіб — 1 етап",
+            "status": "published",
+            "visible": True,
+            "display_order": -1,
+            "questions_count": stage_1_count,
+            "system": True,
+        }]
+        items.extend({**row, "visible": row.get("status") == "published", "system": False} for row in dynamic)
+        return {"items": items}
+
+    @app.patch("/api/admin/attestation-banks/{bank_id}/visibility")
+    async def set_attestation_bank_visibility(
+        bank_id: int,
+        payload: VisibilityRequest,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        row = await runtime.store.set_attestation_bank_visibility(bank_id, visible=payload.visible)
+        if not row:
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        await reload_catalog(runtime)
+        return {**row, "visible": payload.visible, "system": False}
+
+    @app.post("/api/admin/attestation-banks/{bank_id}/move")
+    async def move_attestation_bank(
+        bank_id: int,
+        payload: MoveRequest,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        if not await runtime.store.move_attestation_bank(bank_id, direction=payload.direction):
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        await reload_catalog(runtime)
+        return {"ok": True}
+
+    @app.delete("/api/admin/attestation-banks/{bank_id}", status_code=204)
+    async def delete_attestation_bank(bank_id: int, request: Request, auth=Depends(get_auth_context)):
+        require_admin(auth)
+        runtime = runtime_for(request)
+        if not await runtime.store.delete_attestation_bank(bank_id):
+            _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        await reload_catalog(runtime)
+        return Response(status_code=204)
 
     @app.post("/api/admin/apk-import/sessions")
     async def upload_apk(file: UploadFile = File(...), auth=Depends(get_auth_context)):
