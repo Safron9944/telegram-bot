@@ -4,11 +4,25 @@ import base64
 import binascii
 import hashlib
 import hmac
+import json
 import time
+from datetime import date, datetime, timezone
+from typing import Any
 
 
 DOWNLOAD_TOKEN_TTL_SECONDS = 5 * 60
 _DOWNLOAD_TOKEN_PURPOSE = b"attestation-stage-1-export"
+
+
+def build_export_document(
+    payload: dict[str, Any],
+    *,
+    export_date: date | None = None,
+) -> tuple[str, bytes]:
+    current_date = export_date or datetime.now(timezone.utc).date()
+    file_name = f"attestation_stage_1_current_{current_date.isoformat()}.json"
+    content = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    return file_name, content
 
 
 def _token_key(bot_token: str) -> bytes:
