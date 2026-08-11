@@ -1293,3 +1293,20 @@
 .customs-article-text p:last-child {
   margin-bottom: 0;
 }
+.apk-import-overlay { align-items: stretch; }
+.apk-import-modal { width: min(760px, 100%); max-height: 100%; margin: auto; overflow: auto; }
+.apk-import-content { padding: 16px; display: grid; gap: 14px; }
+.apk-import-message { min-height: 24px; padding: 0 16px 12px; color: var(--text-secondary); }
+.apk-import-message.is-error { color: var(--danger, #d93025); }
+.apk-drop { display: grid; gap: 6px; padding: 24px; border: 1px dashed var(--separator); border-radius: 14px; }
+.apk-drop input { margin-top: 8px; }
+.apk-bank-list, .apk-question-list { display: grid; gap: 10px; }
+.apk-summary, .apk-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.apk-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.apk-filters label { display: grid; gap: 5px; }
+.apk-filters input, .apk-filters select { width: 100%; padding: 10px; border: 1px solid var(--separator); border-radius: 10px; }
+.apk-question { padding: 14px; border: 1px solid var(--separator); border-radius: 12px; }
+.apk-question ol { margin-bottom: 0; padding-left: 24px; }
+.apk-question .is-correct { color: var(--success, #188038); font-weight: 600; }
+.apk-badge { margin-left: 8px; padding: 2px 6px; border-radius: 7px; background: #fff3cd; font-size: 12px; }
+@media (max-width: 600px) { .apk-filters { grid-template-columns: 1fr; } }
