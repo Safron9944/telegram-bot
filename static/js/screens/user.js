@@ -934,6 +934,12 @@ export function renderAttestationStage1(ctx) {
 }
 
 async function startAttestationBlock(ctx, section, block) {
+  const errorPanel = ctx.refs.mainPanel.querySelector("#attestation-start-error");
+  if (errorPanel) {
+    errorPanel.hidden = true;
+    errorPanel.textContent = "";
+  }
+  ctx.setMessage("", "");
   try {
     const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
     const bank = banks.find((item) => item.slug === ctx.state.selectedAttestationBankSlug);
@@ -948,6 +954,11 @@ async function startAttestationBlock(ctx, section, block) {
     if (error.code === "attestation_access_required" || error.code === "access_expired") {
       ctx.queueTransition("forward");
       renderPaywall(ctx, error.code);
+      return;
+    }
+    if (errorPanel) {
+      errorPanel.textContent = error.message || "Не вдалося розпочати тест. Спробуйте ще раз.";
+      errorPanel.hidden = false;
       return;
     }
     ctx.setMessage("error", error.message);
@@ -969,6 +980,7 @@ export function renderAttestationParts(ctx) {
       <p class="page-subtitle">${ctx.escapeHtml(section.count)} питань · частини до 50 питань</p>
 
       <div id="attestation-random"></div>
+      <div class="message message--error attestation-start-error" id="attestation-start-error" role="alert" hidden></div>
 
       <div class="group">
         <div class="group__label">Частини</div>
