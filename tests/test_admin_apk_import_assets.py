@@ -8,13 +8,19 @@ ROOT = Path(__file__).parents[1]
 class AdminApkImportAssetsTests(unittest.TestCase):
     def test_module_is_loaded_and_exposes_complete_workflow(self):
         html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        app = (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+        admin = (ROOT / "static" / "js" / "screens" / "admin.js").read_text(encoding="utf-8")
         module = (ROOT / "static" / "js" / "admin_apk_import.js").read_text(encoding="utf-8")
 
-        self.assertIn("/static/js/admin_apk_import.js", html)
-        self.assertIn("admin-apk-import-entry", module)
+        self.assertNotIn("/static/js/admin_apk_import.js", html)
+        self.assertIn("./admin_apk_import.js", app)
+        self.assertIn('case "admin-apk-import"', app)
+        self.assertIn('state.currentScreen === "admin-apk-import"', app)
+        self.assertIn('screen: "admin-apk-import"', admin)
+        self.assertIn("renderAdminApkImport", module)
         for fragment in ("/sessions", "/banks/", "/parse", "/preview", "/download"):
             self.assertIn(fragment, module)
-        for label in ("Завантажити APK", "Оберіть банк", "Пошук питань", "Правильна відповідь"):
+        for label in ("Вибрати файл", "Оберіть банк", "Пошук питань", "Правильна відповідь"):
             self.assertIn(label, module)
 
     def test_importer_has_touch_friendly_mobile_layout_and_busy_state(self):
@@ -23,14 +29,14 @@ class AdminApkImportAssetsTests(unittest.TestCase):
 
         for fragment in (
             "@media (max-width: 767px)",
-            "height: 100dvh",
-            "overflow-y: auto",
-            "-webkit-overflow-scrolling: touch",
+            ".apk-import-screen",
+            ".apk-file-picker",
+            ".apk-import-message:empty",
             "min-height: 44px",
             "font-size: 16px",
         ):
             self.assertIn(fragment, css)
-        self.assertIn('document.body.classList.add("apk-import-open")', module)
+        self.assertIn("cleanupAdminApkImport", module)
         self.assertIn('button.className = "cell apk-bank"', module)
         self.assertIn("bank.title || bank.filename", module)
         self.assertIn('message("")', module)

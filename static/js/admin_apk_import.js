@@ -3,8 +3,6 @@ import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg } from "./core/telegram.js?v=20260523-cases-search-02";
 import { escapeHtml } from "./core/ui.js?v=20260809-unified-ui-02";
 
-const ENTRY_ID = "admin-apk-import-entry";
-const OVERLAY_ID = "admin-apk-import-overlay";
 const BASE = "/api/admin/apk-import/sessions";
 let token = "";
 let selectedSection = "";
@@ -13,48 +11,66 @@ let offset = 0;
 let suggestedTitle = "";
 let publishing = false;
 
-function ensureEntry() {
-  const title = refs.mainPanel?.querySelector(".page-title")?.textContent.trim();
-  const list = refs.mainPanel?.querySelector(".group__list");
-  if (title !== "Адмін" || !list || document.querySelector(`#${ENTRY_ID}`)) return;
-  const button = document.createElement("button");
-  button.id = ENTRY_ID;
-  button.type = "button";
-  button.className = "cell";
-  button.innerHTML = `<span class="cell__icon cell__icon--green">APK</span><span class="cell__body"><span class="cell__title">Витягнути питання з APK</span><span class="cell__subtitle">Знайти банк, перевірити та завантажити JSON</span></span><span class="cell__chevron"></span>`;
-  button.addEventListener("click", open);
-  list.prepend(button);
-}
-
-function content() { return document.querySelector(`#${OVERLAY_ID} .apk-import-content`); }
+function content() { return refs.mainPanel?.querySelector(".apk-import-content"); }
 function message(text, error = false) {
-  const node = document.querySelector(`#${OVERLAY_ID} .apk-import-message`);
+  const node = refs.mainPanel?.querySelector(".apk-import-message");
   if (node) { node.textContent = text; node.classList.toggle("is-error", error); }
 }
 
-function open() {
-  document.querySelector(`#${OVERLAY_ID}`)?.remove();
-  document.body.classList.add("apk-import-open");
-  const overlay = document.createElement("div");
-  overlay.id = OVERLAY_ID;
-  overlay.className = "modal-overlay apk-import-overlay";
-  overlay.innerHTML = `<div class="modal apk-import-modal" role="dialog" aria-modal="true" aria-labelledby="apk-import-title"><div class="modal__header"><div class="modal__heading"><span class="modal__title" id="apk-import-title">Питання з APK</span><span class="modal__subtitle">APK, XAPK або APKS · до 50 MiB</span></div><button class="modal__close" type="button" aria-label="Закрити">✕</button></div><div class="apk-import-content"></div><div class="apk-import-message" aria-live="polite"></div></div>`;
-  document.body.append(overlay);
-  overlay.querySelector(".modal__close").addEventListener("click", close);
-  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+export function renderAdminApkImport(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content apk-import-screen">
+      <h1 class="page-title">Питання з APK</h1>
+      <p class="page-subtitle">APK, XAPK або APKS · до 50 MiB</p>
+      <div class="apk-import-content"></div>
+      <div class="apk-import-message" role="status" aria-live="polite"></div>
+    </section>
+  `;
   renderUpload();
 }
 
-async function close() {
+export async function cleanupAdminApkImport() {
   if (token) { try { await api(`${BASE}/${token}`, { method: "DELETE" }); } catch {} }
   token = "";
-  document.querySelector(`#${OVERLAY_ID}`)?.remove();
-  document.body.classList.remove("apk-import-open");
+  selectedSection = "";
+  query = "";
+  offset = 0;
+  suggestedTitle = "";
+  publishing = false;
 }
 
 function renderUpload() {
-  content().innerHTML = `<form id="apk-upload-form"><label class="apk-drop"><strong>Завантажити APK</strong><span>Оберіть файл із пристрою</span><input id="apk-file" type="file" accept=".apk,.xapk,.apks" required aria-label="Завантажити APK"></label><button class="btn btn--primary btn--lg" type="submit">Перевірити файл</button></form>`;
-  content().querySelector("form").addEventListener("submit", upload);
+  const root = content();
+  if (!root) return;
+  root.innerHTML = `
+    <form id="apk-upload-form">
+      <div class="group">
+        <div class="group__label">Файл із питаннями</div>
+        <div class="group__list">
+          <label class="cell apk-file-picker" for="apk-file">
+            <span class="cell__icon cell__icon--green">APK</span>
+            <span class="cell__body">
+              <span class="cell__title">Вибрати файл</span>
+              <span class="cell__subtitle" id="apk-file-name">APK, XAPK або APKS</span>
+            </span>
+            <span class="cell__chevron" aria-hidden="true"></span>
+          </label>
+        </div>
+        <div class="group__footer">Максимальний розмір файлу — 50 MiB.</div>
+      </div>
+      <input class="apk-file-input" id="apk-file" type="file" accept=".apk,.xapk,.apks" required aria-label="Вибрати APK">
+      <button class="btn btn--primary btn--block" type="submit" disabled>Перевірити файл</button>
+    </form>
+  `;
+  const input = root.querySelector("#apk-file");
+  const submit = root.querySelector('button[type="submit"]');
+  input.addEventListener("change", () => {
+    const file = input.files[0];
+    root.querySelector("#apk-file-name").textContent = file?.name || "APK, XAPK або APKS";
+    submit.disabled = !file;
+  });
+  root.querySelector("form").addEventListener("submit", upload);
 }
 
 async function upload(event) {
@@ -73,12 +89,12 @@ async function upload(event) {
 }
 
 function renderBanks(banks) {
-  content().innerHTML = `<h2 class="apk-import-heading">Оберіть банк</h2><div class="apk-bank-list"></div>`;
+  content().innerHTML = `<div class="group"><div class="group__label">Оберіть банк</div><div class="group__list apk-bank-list"></div><div class="group__footer">Натисніть на банк, щоб витягнути й перевірити питання.</div></div>`;
   const list = content().querySelector(".apk-bank-list");
   banks.forEach((bank) => {
     const button = document.createElement("button");
     button.type = "button"; button.className = "cell apk-bank"; button.disabled = !bank.supported;
-    button.innerHTML = `<span class="cell__body"><span class="cell__title">${escapeHtml(bank.title || bank.filename)}</span><span class="cell__subtitle">${bank.supported ? "Натисніть, щоб витягнути питання" : `Поки не підтримується · ${escapeHtml(bank.filename)}`}</span></span><span class="cell__chevron"></span>`;
+    button.innerHTML = `<span class="cell__icon cell__icon--green">${escapeHtml(String(bank.title || bank.filename || "Б").trim().charAt(0).toUpperCase())}</span><span class="cell__body"><span class="cell__title">${escapeHtml(bank.title || bank.filename)}</span><span class="cell__subtitle">${bank.supported ? "Витягнути та переглянути питання" : `Поки не підтримується · ${escapeHtml(bank.filename)}`}</span></span><span class="cell__chevron"></span>`;
     if (bank.supported) button.addEventListener("click", (event) => parse(bank.id, event.currentTarget));
     list.append(button);
   });
@@ -155,6 +171,3 @@ function download(event) {
   else if (params.get("dev_user_id")) url.searchParams.set("dev_user_id", params.get("dev_user_id"));
   window.location.href = url.href;
 }
-
-new MutationObserver(ensureEntry).observe(refs.mainPanel, { childList: true, subtree: true });
-ensureEntry();
