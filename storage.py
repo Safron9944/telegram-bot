@@ -336,6 +336,20 @@ class Storage:
             return
         raise ValueError(f"Unknown access type: {access}")
 
+    async def delete_user(self, user_id: int) -> bool:
+        """Delete a user and all user-owned progress in one transaction."""
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                await con.execute("DELETE FROM ui_state WHERE user_id=$1", user_id)
+                await con.execute("DELETE FROM errors WHERE user_id=$1", user_id)
+                await con.execute("DELETE FROM tests WHERE user_id=$1", user_id)
+                await con.execute("DELETE FROM users WHERE user_id=$1", user_id)
+        return True
+
     async def get_ui(self, user_id: int) -> dict:
         r = await self._fetchrow("SELECT * FROM ui_state WHERE user_id=$1", user_id)
         if not r:
@@ -394,7 +408,7 @@ class Storage:
 
     async def list_users(self, offset: int, limit: int) -> list[dict]:
         rows = await self._fetch("""
-            SELECT user_id, first_name, last_name, trial_start, trial_end,
+            SELECT user_id, first_name, last_name, is_admin, trial_start, trial_end,
                    sub_end, sub_infinite, sub_tier, created_at
             FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
         """, limit, offset)
