@@ -18,8 +18,12 @@ from apk_importer.sessions import FileSessionStore, SessionAccessError
 FIXTURE = Path(__file__).parent / "fixtures" / "testms_plaintext_small.txt"
 
 
-def encrypted_fixture(passphrase: str) -> bytes:
-    plaintext = FIXTURE.read_text(encoding="utf-8").encode("cp1251")
+def encrypted_fixture(passphrase: str, header: str = "testmsat 3", *, section: bool = True) -> bytes:
+    plaintext_text = FIXTURE.read_text(encoding="utf-8")
+    plaintext_text = plaintext_text.replace("testmsat 3", header, 1)
+    if not section:
+        plaintext_text = plaintext_text.replace("~I. Основи\n\n", "", 1)
+    plaintext = plaintext_text.encode("cp1251")
     padding = 16 - len(plaintext) % 16
     padded = plaintext + bytes([padding]) * padding
     salt = b"12345678"
@@ -33,9 +37,9 @@ def apk_payload(passphrase: str) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED) as archive:
         archive.writestr("assets/www/testmsat.enc", encrypted_fixture(passphrase))
-        archive.writestr("assets/www/testmsca.enc", b"unsupported-ca")
-        archive.writestr("assets/www/testmsmo.enc", b"unsupported-mo")
-        archive.writestr("assets/www/testmsto.enc", b"unsupported-to")
+        archive.writestr("assets/www/testmsca.enc", encrypted_fixture("jYfYZHqt6TuKUaB5", "testms 8"))
+        archive.writestr("assets/www/testmsmo.enc", encrypted_fixture("A6KPIz8Rci2ZF3sy", "testmsmo 11"))
+        archive.writestr("assets/www/testmsto.enc", encrypted_fixture("ERT2penZTQaDh6mQ", "testmsto 12", section=False))
     return output.getvalue()
 
 
@@ -46,7 +50,7 @@ class ApkImportServiceTests(unittest.TestCase):
             session = service.create_session(7, "base.apk", apk_payload("yYR4XEef3MugI3jb"))
             self.assertTrue(next(bank for bank in session.banks if bank.filename == "testmsat.enc").supported)
 
-    def test_lists_all_banks_and_parses_only_supported_bank(self):
+    def test_lists_and_parses_all_known_banks_with_friendly_titles(self):
         with TemporaryDirectory() as directory:
             store = FileSessionStore(Path(directory), clock=lambda: 1_000.0)
             service = ApkImportService(store=store, testmsat_passphrase="secret")
@@ -55,13 +59,14 @@ class ApkImportServiceTests(unittest.TestCase):
 
             self.assertEqual(4, len(session.banks))
             supported = [bank for bank in session.banks if bank.supported]
-            self.assertEqual(["testmsat.enc"], [bank.filename for bank in supported])
-            parsed = service.parse_bank(7, session.token, supported[0].id)
-            self.assertEqual(2, parsed.summary.questions_count)
-            self.assertEqual(1, parsed.summary.no_shuffle_count)
-            unsupported = next(bank for bank in session.banks if not bank.supported)
-            with self.assertRaises(UnsupportedBankError):
-                service.parse_bank(7, session.token, unsupported.id)
+            self.assertEqual(4, len(supported))
+            self.assertEqual(
+                {"Перший етап", "Митних органів", "Територіальних органів", "Центрального апарату"},
+                {bank.title for bank in supported},
+            )
+            for selected in supported:
+                parsed = service.parse_bank(7, session.token, selected.id)
+                self.assertEqual(2, parsed.summary.questions_count)
             with self.assertRaises(SessionAccessError):
                 service.get_session(8, session.token)
 

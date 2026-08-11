@@ -12,6 +12,7 @@ class ArchiveBank:
     supported: bool = False
     adapter: str | None = None
     status: str = "unsupported"
+    title: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -22,6 +23,7 @@ class ArchiveBank:
             "supported": self.supported,
             "adapter": self.adapter,
             "status": self.status,
+            "title": self.title,
         }
 
 

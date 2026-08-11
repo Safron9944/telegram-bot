@@ -76,7 +76,7 @@ function renderBanks(banks) {
   banks.forEach((bank) => {
     const button = document.createElement("button");
     button.type = "button"; button.className = "cell apk-bank"; button.disabled = !bank.supported;
-    button.innerHTML = `<span class="cell__body"><span class="cell__title">${escapeHtml(bank.filename)}</span><span class="cell__subtitle">${bank.supported ? "Натисніть, щоб витягнути питання" : "Цей формат банку ще не підтримується"}</span></span><span class="cell__chevron"></span>`;
+    button.innerHTML = `<span class="cell__body"><span class="cell__title">${escapeHtml(bank.title || bank.filename)}</span><span class="cell__subtitle">${bank.supported ? "Натисніть, щоб витягнути питання" : `Поки не підтримується · ${escapeHtml(bank.filename)}`}</span></span><span class="cell__chevron"></span>`;
     if (bank.supported) button.addEventListener("click", (event) => parse(bank.id, event.currentTarget));
     list.append(button);
   });

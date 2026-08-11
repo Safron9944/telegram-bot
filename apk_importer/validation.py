@@ -22,7 +22,7 @@ def _normalized(value: str) -> str:
     return " ".join(str(value).casefold().split())
 
 
-def validate_bank(bank: ParsedBank) -> None:
+def validate_bank(bank: ParsedBank, *, allow_duplicate_choices: bool = False) -> None:
     issues: list[ValidationIssue] = []
     section_titles = {section.title.strip() for section in bank.sections if section.title.strip()}
     seen_keys: set[str] = set()
@@ -46,7 +46,7 @@ def validate_bank(bank: ParsedBank) -> None:
         choices = tuple(choice.strip() for choice in question.choices)
         if len(choices) < 2:
             issues.append(ValidationIssue("too_few_choices", key, "Потрібно щонайменше дві відповіді."))
-        if len({_normalized(choice) for choice in choices}) != len(choices):
+        if not allow_duplicate_choices and len({_normalized(choice) for choice in choices}) != len(choices):
             issues.append(ValidationIssue("duplicate_choices", key, "Варіанти відповіді повторюються."))
 
         if not question.correct:

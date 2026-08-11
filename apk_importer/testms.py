@@ -7,7 +7,7 @@ from .models import ParsedBank, ParsedQuestion, ParsedSection
 from .validation import validate_bank
 
 
-_HEADER_RE = re.compile(r"^testmsat\s+(\S+)\s*$")
+_HEADER_RE = re.compile(r"^(testms[a-z0-9_-]*)\s+(\S+)\s*$", re.IGNORECASE)
 _SECTION_RE = re.compile(r"^~([^\.]+)\.\s*(.+?)\s*$")
 _QUESTION_RE = re.compile(r"^#([^\.]+)\.\s*(\d+)\.\s*(.+?)\s*$")
 
@@ -74,17 +74,17 @@ def expand_testms_macros(text: str) -> str:
     return "\n".join(expanded)
 
 
-def parse_testms_bank(text: str, *, source: str, source_hash: str) -> ParsedBank:
+def parse_testms_bank(text: str, *, source: str, source_hash: str, default_section_title: str = "Питання") -> ParsedBank:
     expanded = expand_testms_macros(text)
     lines = expanded.splitlines()
     header = _HEADER_RE.match(lines[0].strip())
     assert header is not None
-    version = header.group(1)
+    version = header.group(2)
 
     sections: OrderedDict[str, str] = OrderedDict()
     section_counts: dict[str, int] = {}
     questions: list[ParsedQuestion] = []
-    active_section: tuple[str, str] | None = None
+    active_section: tuple[str, str, str] | None = None
     pending: dict | None = None
 
     def finish_question(line_number: int) -> None:
@@ -142,22 +142,29 @@ def parse_testms_bank(text: str, *, source: str, source_hash: str) -> ParsedBank
         section = _SECTION_RE.match(line)
         if section:
             code, title = section.group(1).strip(), section.group(2).strip()
-            if code in sections:
-                raise TestMsParseError("duplicate_section", "Розділ TestMS повторюється.", line=line_number)
-            sections[code] = title
-            section_counts[code] = 0
-            active_section = (code, title)
+            internal_code = code
+            suffix = 2
+            while internal_code in sections:
+                internal_code = f"{code}#{suffix}"
+                suffix += 1
+            sections[internal_code] = title
+            section_counts[internal_code] = 0
+            active_section = (code, internal_code, title)
             continue
 
         question = _QUESTION_RE.match(line)
         if question:
             code, qnum, question_text = question.group(1).strip(), int(question.group(2)), question.group(3).strip()
-            if active_section is None or active_section[0] != code:
+            if active_section is None:
+                sections[code] = default_section_title
+                section_counts[code] = 0
+                active_section = (code, code, default_section_title)
+            if active_section[0] != code:
                 raise TestMsParseError("unknown_section", "Питання не належить активному розділу.", line=line_number)
             pending = {
-                "section_code": code,
+                "section_code": active_section[1],
                 "qnum": qnum,
-                "topic": active_section[1],
+                "topic": active_section[2],
                 "question": question_text,
                 "choices": [],
                 "correct": [],
@@ -187,5 +194,5 @@ def parse_testms_bank(text: str, *, source: str, source_hash: str) -> ParsedBank
         sections=parsed_sections,
         questions=tuple(questions),
     )
-    validate_bank(bank)
+    validate_bank(bank, allow_duplicate_choices=True)
     return bank

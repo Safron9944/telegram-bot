@@ -7,6 +7,7 @@ import os
 
 from .archive import inspect_package, read_bank
 from .crypto import decrypt_testms_payload
+from .discovery import BANK_PROFILES, discover_bank_titles
 from .models import ParsedBank, ParsedQuestion, ParsedSection
 from .sessions import FileSessionStore, ImportSession
 from .testms import parse_testms_bank
@@ -29,12 +30,18 @@ class ApkImportService:
 
     def create_session(self, admin_id: int, filename: str, payload: bytes) -> ImportSession:
         package = inspect_package(payload, filename)
+        titles = discover_bank_titles(package.apk_payload, [bank.filename for bank in package.banks])
         banks = []
         for bank in package.banks:
-            known = bank.filename.casefold() == "testmsat.enc"
-            supported = known and bool(self.testmsat_passphrase)
+            profile = BANK_PROFILES.get(bank.filename.casefold())
+            passphrase = self.testmsat_passphrase if bank.filename.casefold() == "testmsat.enc" else profile.passphrase if profile else ""
+            known = profile is not None
+            supported = known and bool(passphrase)
             status = "supported" if supported else "missing_passphrase" if known else "unsupported"
-            banks.append(replace(bank, supported=supported, adapter="testms" if known else None, status=status))
+            banks.append(replace(
+                bank, supported=supported, adapter="testms" if known else None, status=status,
+                title=titles.get(bank.filename, profile.title if profile else bank.filename),
+            ))
         return self.store.create(admin_id, filename, payload, tuple(banks))
 
     def get_session(self, admin_id: int, token: str) -> ImportSession:
@@ -47,9 +54,14 @@ class ApkImportService:
             raise UnsupportedBankError("Цей банк поки не підтримується.")
         package = inspect_package(self.store.read_upload(admin_id, token), session.filename)
         payload = read_bank(package, bank_id)
-        plaintext = decrypt_testms_payload(payload, self.testmsat_passphrase)
+        profile = BANK_PROFILES.get(selected.filename.casefold())
+        if profile is None:
+            raise UnsupportedBankError("Цей банк поки не підтримується.")
+        passphrase = self.testmsat_passphrase if selected.filename.casefold() == "testmsat.enc" else profile.passphrase
+        plaintext = decrypt_testms_payload(payload, passphrase, expected_header=profile.expected_header)
         bank = parse_testms_bank(
-            plaintext, source=selected.filename, source_hash=hashlib.sha256(payload).hexdigest()
+            plaintext, source=selected.filename, source_hash=hashlib.sha256(payload).hexdigest(),
+            default_section_title=selected.title or profile.title,
         )
         self.store.write_parsed(admin_id, token, bank_id, bank.to_dict())
         return bank

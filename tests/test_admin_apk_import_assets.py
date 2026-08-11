@@ -32,6 +32,7 @@ class AdminApkImportAssetsTests(unittest.TestCase):
             self.assertIn(fragment, css)
         self.assertIn('document.body.classList.add("apk-import-open")', module)
         self.assertIn('button.className = "cell apk-bank"', module)
+        self.assertIn("bank.title || bank.filename", module)
         self.assertIn('message("")', module)
 
 
