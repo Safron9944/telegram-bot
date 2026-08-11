@@ -73,6 +73,10 @@
   margin-top: 10px;
 }
 
+.attestation-start-error[hidden] {
+  display: none;
+}
+
 /* ===================== GREETING ===================== */
 .greeting {
   display: flex;
