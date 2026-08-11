@@ -198,3 +198,4 @@ QuestionBank.load_attestation_stage_1 = _load_attestation_stage_1_without_duplic
 
 # Register dedicated admin endpoints before Uvicorn imports the FastAPI app.
 import admin_attestation_extension  # noqa: E402,F401
+import admin_apk_import_extension  # noqa: E402,F401
