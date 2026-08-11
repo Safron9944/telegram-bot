@@ -72,7 +72,7 @@ export function renderAdminAttestationBanks(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Розділи атестації</h1>
-      <p class="page-subtitle">Перший етап захищений. Нові розділи можна впорядковувати, приховувати й видаляти.</p>
+      <p class="page-subtitle">Усі розділи можна видаляти. Додані розділи також можна впорядковувати й приховувати.</p>
       <div class="group">
         <div class="group__list" id="admin-attestation-list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
@@ -100,8 +100,16 @@ export async function loadAdminAttestationBanks(ctx) {
         <div class="admin-attestation-row__actions"></div>
       `;
       const actions = row.querySelector(".admin-attestation-row__actions");
+      const remove = ctx.actionButton("Видалити", async () => {
+        if (!window.confirm(`Видалити «${bank.title}» разом із питаннями?`)) return;
+        try {
+          await ctx.api(`/api/admin/attestation-banks/${bank.id}`, { method: "DELETE" });
+          await loadAdminAttestationBanks(ctx);
+        } catch (error) { ctx.setMessage("error", error.message); }
+      }, "sm");
+      remove.classList.add("btn--danger");
       if (bank.system) {
-        actions.innerHTML = '<span class="apk-badge">Захищено</span>';
+        actions.append(remove);
       } else {
         const visibility = document.createElement("label");
         visibility.className = "admin-attestation-visibility";
@@ -127,14 +135,6 @@ export async function loadAdminAttestationBanks(ctx) {
         up.dataset.direction = "up"; // direction: "up"
         const down = move("↓ Нижче", "down");
         down.dataset.direction = "down"; // direction: "down"
-        const remove = ctx.actionButton("Видалити", async () => {
-          if (!window.confirm(`Видалити «${bank.title}» разом із питаннями?`)) return;
-          try {
-            await ctx.api(`/api/admin/attestation-banks/${bank.id}`, { method: "DELETE" });
-            await loadAdminAttestationBanks(ctx);
-          } catch (error) { ctx.setMessage("error", error.message); }
-        }, "sm");
-        remove.classList.add("btn--danger");
         actions.append(visibility, up, down, remove);
       }
       list.append(row);

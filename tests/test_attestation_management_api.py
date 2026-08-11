@@ -15,6 +15,14 @@ class ManagedStore:
             "status": "published", "display_order": 0, "questions_count": 400,
         }]
         self.calls = []
+        self.settings = {}
+
+    async def get_setting(self, key, default=None):
+        return self.settings.get(key, default)
+
+    async def set_setting(self, key, value):
+        self.settings[key] = value
+        self.calls.append(("setting", key, value))
 
     async def list_attestation_banks_for_admin(self):
         return list(self.banks)
@@ -68,6 +76,17 @@ class AttestationManagementApiTests(unittest.TestCase):
         self.assertEqual([("visibility", 7, False), ("move", 7, "up"), ("delete", 7)], store.calls)
         self.assertEqual(3, qb.reloads)
         self.assertEqual([200, 200, 204], [hidden.status_code, moved.status_code, deleted.status_code])
+
+    def test_admin_can_delete_bundled_stage_1(self):
+        app, store, _ = make_app()
+        client = TestClient(app)
+
+        deleted = client.delete("/api/admin/attestation-banks/stage-1")
+        listed = client.get("/api/admin/attestation-banks")
+
+        self.assertEqual(204, deleted.status_code)
+        self.assertEqual(("setting", "attestation_stage_1_deleted", "1"), store.calls[-1])
+        self.assertNotIn("stage-1", [item["slug"] for item in listed.json()["items"]])
 
     def test_missing_bank_and_non_admin_are_rejected(self):
         app, _, _ = make_app()

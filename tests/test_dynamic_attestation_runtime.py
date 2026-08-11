@@ -66,6 +66,17 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(catalog["attestation_banks"][1]["system"])
         self.assertEqual("Новий розділ", catalog["attestation_banks"][1]["sections"][0]["title"])
 
+    async def test_catalog_can_exclude_deleted_bundled_stage_1(self):
+        bank = QuestionBank("unused.json")
+        await bank.load_published_attestation_banks(PublishedStore())
+        runtime = SimpleNamespace(qb=bank, store=None)
+        auth = AuthContext({}, {"ok_modules": [], "ok_last_levels": []}, 1, False)
+
+        catalog = MiniAppService(runtime).serialize_catalog(auth, include_stage_1=False)
+
+        self.assertEqual(["stage-2"], [item["slug"] for item in catalog["attestation_banks"]])
+        self.assertEqual(0, catalog["attestation_stage_1"]["count"])
+
     async def test_database_row_cannot_replace_bundled_stage_1_questions(self):
         bank = QuestionBank("unused.json")
         bank.load_attestation_stage_1("attestation_stage_1.json")
