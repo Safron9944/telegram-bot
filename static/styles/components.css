@@ -1334,6 +1334,10 @@ body.apk-import-open { overflow: hidden; }
 .ui-prototype .apk-bank .cell__subtitle { display: block; margin-top: 3px; white-space: normal; }
 .ui-prototype .apk-bank:disabled { opacity: 0.48; }
 .apk-summary, .apk-pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.apk-publish { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--separator); border-radius: 12px; }
+.apk-publish label { display: grid; gap: 7px; font-weight: 700; }
+.apk-publish input { width: 100%; min-height: 44px; padding: 10px; border: 1px solid var(--separator); border-radius: 10px; font-size: 16px; }
+.apk-publish-success { display: grid; gap: 12px; padding: 20px; text-align: center; }
 .apk-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .apk-filters label { display: grid; gap: 5px; }
 .apk-filters input, .apk-filters select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; border: 1px solid var(--separator); border-radius: 10px; font-size: 16px; }
@@ -1375,6 +1379,7 @@ body.apk-import-open { overflow: hidden; }
   .apk-filters { grid-template-columns: minmax(0, 1fr); }
   .apk-summary { align-items: stretch; flex-direction: column; }
   .apk-summary .btn { width: 100%; min-height: 44px; }
+  .apk-publish .btn, .apk-publish-success .btn { width: 100%; min-height: 48px; }
   .apk-pagination { display: grid; grid-template-columns: 1fr auto 1fr; }
   .apk-pagination .btn { min-height: 44px; }
 }

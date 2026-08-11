@@ -45,6 +45,47 @@ class AdminApkImportApiTests(unittest.TestCase):
             self.assertIn("attachment", downloaded.headers["content-disposition"])
             self.assertEqual(204, deleted.status_code)
 
+    def test_admin_can_create_test_section_from_parsed_bank(self):
+        with TemporaryDirectory() as directory:
+            app = FastAPI()
+            service = ApkImportService(
+                store=FileSessionStore(Path(directory), clock=lambda: 1_000.0),
+                testmsat_passphrase="secret",
+            )
+
+            class Publisher:
+                async def publish(self, bank, title, *, changed_by):
+                    return {
+                        "slug": "testmsat",
+                        "title": title,
+                        "count": len(bank.questions),
+                        "updated": False,
+                    }
+
+            async def admin_auth():
+                return SimpleNamespace(user_id=7, is_admin=True)
+
+            register_apk_import_routes(app, admin_auth, service=service, publisher=Publisher())
+            client = TestClient(app)
+            uploaded = client.post(
+                "/api/admin/apk-import/sessions",
+                files={"file": ("base.apk", apk_payload("secret"), "application/vnd.android.package-archive")},
+            ).json()
+            selected_bank = next(bank for bank in uploaded["banks"] if bank["supported"])
+            bank_id = selected_bank["id"]
+            parsed = client.post(
+                f"/api/admin/apk-import/sessions/{uploaded['token']}/banks/{bank_id}/parse"
+            )
+            created = client.post(
+                f"/api/admin/apk-import/sessions/{uploaded['token']}/publish",
+                json={"title": "Атестація — 2 етап"},
+            )
+
+            self.assertEqual(selected_bank["title"], parsed.json()["suggested_title"])
+            self.assertEqual(200, created.status_code)
+            self.assertEqual("testmsat", created.json()["slug"])
+            self.assertEqual(2, created.json()["count"])
+
     def test_non_admin_is_forbidden(self):
         app = FastAPI()
 

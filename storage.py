@@ -93,6 +93,39 @@ class Storage:
             await con.execute("CREATE INDEX IF NOT EXISTS idx_questions_ok ON questions(ok);")
             await con.execute("CREATE INDEX IF NOT EXISTS idx_questions_level ON questions(level);")
             await con.execute("""
+                CREATE TABLE IF NOT EXISTS attestation_banks (
+                    id BIGSERIAL PRIMARY KEY,
+                    slug TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    source_id TEXT NOT NULL UNIQUE,
+                    source_hash TEXT NOT NULL,
+                    source_version TEXT,
+                    status TEXT NOT NULL DEFAULT 'published',
+                    display_order INT NOT NULL DEFAULT 0,
+                    questions_count INT NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """)
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS attestation_questions (
+                    id BIGSERIAL PRIMARY KEY,
+                    bank_id BIGINT NOT NULL REFERENCES attestation_banks(id) ON DELETE CASCADE,
+                    source_key TEXT NOT NULL,
+                    qnum INT,
+                    topic TEXT NOT NULL,
+                    question TEXT NOT NULL,
+                    choices JSONB NOT NULL,
+                    correct JSONB NOT NULL,
+                    correct_texts JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    shuffle_choices BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE(bank_id, source_key)
+                );
+            """)
+            await con.execute("CREATE INDEX IF NOT EXISTS idx_attestation_questions_bank ON attestation_questions(bank_id);")
+            await con.execute("""
                 CREATE TABLE IF NOT EXISTS question_revisions (
                     id BIGSERIAL PRIMARY KEY,
                     qid INT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
@@ -757,6 +790,111 @@ class Storage:
                     )
                     inserted += 1
         return inserted
+
+    async def list_published_attestation_banks(self) -> list[dict]:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            banks = await con.fetch(
+                """
+                SELECT id, slug, title, source_id, source_hash, source_version,
+                       status, display_order, questions_count
+                FROM attestation_banks
+                WHERE status='published'
+                ORDER BY display_order, id
+                """
+            )
+            result = []
+            for row in banks:
+                item = dict(row)
+                questions = await con.fetch(
+                    """
+                    SELECT id, source_key, qnum, topic, question, choices, correct,
+                           correct_texts, shuffle_choices
+                    FROM attestation_questions
+                    WHERE bank_id=$1
+                    ORDER BY topic, qnum NULLS LAST, id
+                    """,
+                    item["id"],
+                )
+                item["questions"] = [dict(question) for question in questions]
+                result.append(item)
+            return result
+
+    async def publish_attestation_bank(self, bank, *, title: str, slug: str, changed_by: str) -> dict:
+        assert self.pool
+        source_id = (bank.source or slug).casefold()
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                existing = await con.fetchrow(
+                    "SELECT * FROM attestation_banks WHERE source_id=$1 FOR UPDATE",
+                    source_id,
+                )
+                updated = existing is not None
+                if existing:
+                    bank_id = int(existing["id"])
+                    stable_slug = existing["slug"]
+                    await con.execute(
+                        """
+                        UPDATE attestation_banks
+                        SET title=$2, source_hash=$3, source_version=$4,
+                            status='published', questions_count=$5, updated_at=now()
+                        WHERE id=$1
+                        """,
+                        bank_id, title, bank.source_hash, bank.source_version, len(bank.questions),
+                    )
+                else:
+                    row = await con.fetchrow(
+                        """
+                        INSERT INTO attestation_banks(
+                            slug, title, source_id, source_hash, source_version,
+                            status, display_order, questions_count
+                        )
+                        VALUES($1,$2,$3,$4,$5,'published',
+                               COALESCE((SELECT MAX(display_order) + 1 FROM attestation_banks), 0),$6)
+                        RETURNING id, slug
+                        """,
+                        slug, title, source_id, bank.source_hash, bank.source_version, len(bank.questions),
+                    )
+                    bank_id = int(row["id"])
+                    stable_slug = row["slug"]
+
+                source_keys = [question.source_key for question in bank.questions]
+                rows = [
+                    (
+                        bank_id, item.source_key, item.qnum, item.topic, item.question,
+                        json.dumps(list(item.choices), ensure_ascii=False),
+                        json.dumps(list(item.correct), ensure_ascii=False),
+                        json.dumps(list(item.correct_texts), ensure_ascii=False),
+                        bool(item.shuffle_choices),
+                    )
+                    for item in bank.questions
+                ]
+                await con.executemany(
+                    """
+                    INSERT INTO attestation_questions(
+                        bank_id, source_key, qnum, topic, question, choices,
+                        correct, correct_texts, shuffle_choices
+                    )
+                    VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9)
+                    ON CONFLICT(bank_id, source_key) DO UPDATE SET
+                        qnum=EXCLUDED.qnum, topic=EXCLUDED.topic,
+                        question=EXCLUDED.question, choices=EXCLUDED.choices,
+                        correct=EXCLUDED.correct, correct_texts=EXCLUDED.correct_texts,
+                        shuffle_choices=EXCLUDED.shuffle_choices, updated_at=now()
+                    """,
+                    rows,
+                )
+                await con.execute(
+                    "DELETE FROM attestation_questions WHERE bank_id=$1 AND NOT(source_key = ANY($2::text[]))",
+                    bank_id, source_keys,
+                )
+                return {
+                    "id": bank_id,
+                    "slug": stable_slug,
+                    "title": title,
+                    "count": len(bank.questions),
+                    "updated": updated,
+                }
 
     async def search_test_exam_questions(self, query: str, limit: int = 20, offset: int = 0) -> dict:
         assert self.pool

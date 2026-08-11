@@ -338,6 +338,11 @@ class StartAttestationStage1Request(BaseModel):
     block: Literal["1-50", "51-100", "101-150", "151-200", "random"]
 
 
+class StartAttestationRequest(BaseModel):
+    section: str
+    block: str
+
+
 class SelectIndexRequest(BaseModel):
     index: int
 
@@ -496,7 +501,7 @@ class MiniAppService:
 
     def ensure_session_access(self, auth: AuthContext, state: dict[str, Any]) -> None:
         meta = dict(state.get("meta", {}) or {})
-        if meta.get("kind") == "attestation_stage_1":
+        if meta.get("kind") in {"attestation_stage_1", "attestation"}:
             self.ensure_attestation_access(auth)
             return
         self.ensure_access(auth)
@@ -574,6 +579,15 @@ class MiniAppService:
             )
 
         attestation_sections = self.qb.attestation_stage_1_sections()
+        attestation_banks = []
+        for bank in self.qb.published_attestation_banks():
+            attestation_banks.append({
+                "slug": bank.slug,
+                "title": bank.title,
+                "count": len(bank.qids),
+                "topics": len(self.qb.attestation_sections(bank.slug)),
+                "sections": self.qb.attestation_sections(bank.slug),
+            })
 
         return {
             "law_groups": sort_law_groups(law_groups),
@@ -584,11 +598,13 @@ class MiniAppService:
                 "topics": len(attestation_sections),
                 "sections": attestation_sections,
             },
+            "attestation_banks": attestation_banks,
             "counts": {
                 "questions": len(self.qb.by_id),
                 "law": len(self.qb.law),
                 "ok_modules": len(self.qb.ok_modules),
                 "attestation_stage_1": len(self.qb.attestation_stage_1),
+                "attestation": sum(len(bank.qids) for bank in self.qb.published_attestation_banks()),
             },
         }
 
@@ -704,7 +720,9 @@ class MiniAppService:
             chosen = int(feedback.get("chosen"))
             q = self.qb.by_id.get(qid)
             if q:
-                choice_order, order_created = ensure_choice_order(state, qid, len(q.choices or []))
+                choice_order, order_created = ensure_choice_order(
+                    state, qid, len(q.choices or []), shuffle_choices=q.shuffle_choices
+                )
                 if order_created:
                     await self.set_state(auth.user_id, state)
                 return {
@@ -750,7 +768,9 @@ class MiniAppService:
 
         qid = int(pending[0])
         q = self.qb.by_id[qid]
-        choice_order, _ = ensure_choice_order(state, qid, len(q.choices or []))
+        choice_order, _ = ensure_choice_order(
+            state, qid, len(q.choices or []), shuffle_choices=q.shuffle_choices
+        )
 
         state["pending"] = pending
         state["current_qid"] = qid
@@ -875,7 +895,9 @@ class MiniAppService:
             if q:
                 chosen = chosen_map.get(str(qid))
                 chosen_idx = int(chosen) if chosen is not None else None
-                choice_order, order_created = ensure_choice_order(state, qid, len(q.choices or []))
+                choice_order, order_created = ensure_choice_order(
+                    state, qid, len(q.choices or []), shuffle_choices=q.shuffle_choices
+                )
                 if order_created:
                     await self.set_state(user_id, state)
                 return {
@@ -1034,30 +1056,43 @@ class MiniAppService:
         auth: AuthContext,
         payload: StartAttestationStage1Request,
     ) -> dict[str, Any]:
+        return await self.start_attestation(
+            auth,
+            "stage-1",
+            StartAttestationRequest(section=payload.section, block=payload.block),
+            legacy=True,
+        )
+
+    async def start_attestation(
+        self,
+        auth: AuthContext,
+        bank_slug: str,
+        payload: StartAttestationRequest,
+        *,
+        legacy: bool = False,
+    ) -> dict[str, Any]:
         self.ensure_attestation_access(auth)
-
-        all_qids = list(self.qb.attestation_stage_1)
-        if not all_qids:
-            require_http(503, "attestation_stage_1_empty", "Питання для першого етапу атестації не завантажені.")
-
+        bank = self.qb.attestation_banks.get((bank_slug or "").strip())
+        if not bank or not bank.published:
+            require_http(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        if not bank.qids:
+            require_http(503, "attestation_bank_empty", "У цьому розділі ще немає питань.")
         section = (payload.section or "").strip()
         if not section:
             require_http(400, "attestation_section_required", "Оберіть розділ атестації.")
-        pool = self.qb.attestation_stage_1_section_qids(section)
-        if not pool:
+        if not self.qb.attestation_section_qids(bank.slug, section):
             require_http(404, "attestation_section_not_found", "Обраний розділ атестації не знайдено.")
-
-        qids = self.qb.attestation_stage_1_block_qids(section, payload.block)
+        qids = self.qb.attestation_block_qids(bank.slug, section, payload.block)
+        if not qids:
+            require_http(404, "attestation_block_not_found", "Обрану частину тесту не знайдено.")
         block_label = "Випадкові 50" if payload.block == "random" else payload.block
-        if len(qids) != 50:
-            require_http(503, "attestation_block_incomplete", "В обраній частині має бути 50 питань.")
-
         await self.start_learning_session(
             auth.user_id,
             qids,
             f"{section} • {block_label}",
             {
-                "kind": "attestation_stage_1",
+                "kind": "attestation_stage_1" if legacy else "attestation",
+                "bank_slug": bank.slug,
                 "section": section,
                 "block": payload.block,
             },
@@ -1728,6 +1763,7 @@ async def lifespan(app: FastAPI):
     if not attestation_stage_1_path.exists():
         raise RuntimeError(f"Attestation question file not found: {attestation_stage_1_path}")
     qb.load_attestation_stage_1(str(attestation_stage_1_path))
+    await qb.load_published_attestation_banks(store)
 
     runtime = RuntimeContext(
         store=store,
@@ -1848,6 +1884,16 @@ async def api_attestation_stage_1_start(
     runtime: RuntimeContext = Depends(get_runtime),
 ):
     return await MiniAppService(runtime).start_attestation_stage_1(auth, payload)
+
+
+@app.post("/api/attestation/{bank_slug}/start")
+async def api_attestation_start(
+    bank_slug: str,
+    payload: StartAttestationRequest,
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).start_attestation(auth, bank_slug, payload)
 
 
 @app.post("/api/test/review/open")

@@ -35,6 +35,17 @@ class AdminApkImportAssetsTests(unittest.TestCase):
         self.assertIn("bank.title || bank.filename", module)
         self.assertIn('message("")', module)
 
+    def test_preview_can_create_a_test_section(self):
+        module = (ROOT / "static" / "js" / "admin_apk_import.js").read_text(encoding="utf-8")
+        css = (ROOT / "static" / "styles" / "components.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="apk-publish-title"', module)
+        self.assertIn('id="apk-publish"', module)
+        self.assertIn("Створити розділ", module)
+        self.assertIn("publishing", module)
+        self.assertIn("openAttestationBank", module)
+        self.assertIn(".apk-publish", css)
+
 
 if __name__ == "__main__":
     unittest.main()

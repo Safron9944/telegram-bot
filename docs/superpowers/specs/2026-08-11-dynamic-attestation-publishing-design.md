@@ -8,17 +8,16 @@ Allow an administrator to turn a question bank extracted from an APK into a new 
 
 1. The administrator uploads an APK, XAPK, or APKS and selects a discovered question bank.
 2. The existing importer decrypts and parses the bank, then shows its sections, questions, answer choices, correct answers, shuffle restrictions, duplicates, and validation errors.
-3. The administrator enters the public section title and presses “Опублікувати”. Publication is never automatic immediately after parsing.
+3. The administrator confirms or edits the public section title and presses “Створити розділ”.
 4. The server stores the bank durably in PostgreSQL and makes it available in the running application without a deployment or restart.
 5. The Mini App adds a home-screen card for the published bank and uses the same section, 50-question block, random block, answer, feedback, result, mistake, and subscription behavior as Stage 1.
-6. The admin question editor can browse and correct questions in every published bank.
-7. Publishing the same source bank again replaces that bank atomically, records a backup/revision, and does not create a duplicate home card.
+6. Publishing the same source bank again updates that generated section and does not create a duplicate home card.
 
 ## Architecture
 
 ### Persistent catalog
 
-Add PostgreSQL tables for published assessment banks, their questions, and immutable publication revisions. A bank has a stable slug, public title, source filename/hash, status, display order, access policy, timestamps, and question count. Questions retain their section/topic, source number, choices, correct indexes, and `shuffle_choices` flag.
+Add PostgreSQL tables for published assessment banks and their questions. A bank has a stable slug, public title, source filename/hash, status, display order, timestamps, and question count. Questions retain their section/topic, source number, choices, correct indexes, and `shuffle_choices` flag.
 
 Stage 1 remains available and is represented through the same runtime catalog. Its existing bundled JSON remains the safe bootstrap fallback until it has a database record. Dynamic banks are loaded from PostgreSQL during startup and immediately after a successful publication.
 
@@ -32,17 +31,15 @@ Choice rendering continues to use the current choice-order mechanism. Choices ar
 
 ### Publication service
 
-The importer session remains temporary until publication. The publish endpoint validates administrator access, title, bank contents, unique source identity, four choices, correct-answer indexes, and non-empty sections. Invalid banks are rejected with a readable report.
+The importer session remains temporary until publication. The publish endpoint validates administrator access, title, bank contents, at least two answer choices, correct-answer indexes, and non-empty sections. Invalid banks are rejected with a readable report.
 
-Publication runs in one database transaction: lock the existing bank identity, save a revision of the previous version when present, upsert metadata, replace its questions, and commit. Only after commit is the in-memory catalog refreshed. A failure leaves the previous published version untouched.
+Publication runs in one database transaction: lock the existing bank identity, upsert metadata and questions, remove obsolete questions, and commit. Only after commit is the in-memory catalog refreshed. A failure leaves the previous published version untouched.
 
 ### Mini App
 
-The APK preview gains a title field and a primary “Опублікувати” button. After success it displays the created section and offers to open it.
+The APK preview gains a title field and a primary “Створити розділ” button. After success it displays the created section and offers to open it.
 
 The user home screen renders published assessment cards from the bootstrap catalog rather than hard-coding Stage 1. Selecting a card opens the same section/block screen currently used by Stage 1. Hidden or draft banks are omitted.
-
-The admin editor receives a bank selector and reuses its current search, pagination, editing, revision, export, and send-to-chat behavior for the selected bank.
 
 ## Access and visibility
 
@@ -58,7 +55,7 @@ Every newly published assessment bank defaults to the same subscription requirem
 
 ## Testing
 
-Tests cover schema creation, first publication, replacement with revision, rollback on invalid content, dynamic catalog serialization, access enforcement, generic block selection, shuffle and no-shuffle correctness, admin editing, mobile publish controls, and backward compatibility for Stage 1. The full existing test suite must pass before pushing to `main`.
+Tests cover publication validation, dynamic catalog serialization, access enforcement, generic block selection, shuffle and no-shuffle correctness, mobile creation controls, and backward compatibility for Stage 1. The full existing test suite must pass before pushing to `main`.
 
 ## Out of scope
 

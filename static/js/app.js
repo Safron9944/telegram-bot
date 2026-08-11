@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260811-admin-user-home-01";
+import { state } from "./core/state.js?v=20260811-dynamic-attestation-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260810-ios-fullscreen-02";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260811-admin-user-home-01";
+} from "./screens/user.js?v=20260811-dynamic-attestation-01";
 import {
   loadAdminCases,
   loadAdminQuestions,
@@ -70,6 +70,7 @@ const PROTOTYPE_SCREENS = new Set([
   "law-parts",
   "ok-levels",
   "attestation-stage-1",
+  "attestation-bank",
   "attestation-parts",
   "testing",
   "stats",
@@ -328,6 +329,7 @@ function render() {
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
     case "attestation-stage-1": renderAttestationStage1(ctx); break;
+    case "attestation-bank":    renderAttestationStage1(ctx); break;
     case "attestation-parts": renderAttestationParts(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
@@ -427,6 +429,16 @@ async function loadBootstrap(showSuccess = false) {
     const payload = await api("/api/bootstrap", { timeoutMs: 12000 });
     state.bootstrap = payload;
     state.currentView = payload.saved_view || null;
+
+    const openAttestationBank = window.sessionStorage.getItem("openAttestationBank");
+    if (!state.currentView && openAttestationBank
+        && (payload.catalog.attestation_banks || []).some((bank) => bank.slug === openAttestationBank)) {
+      window.sessionStorage.removeItem("openAttestationBank");
+      state.selectedAttestationBankSlug = openAttestationBank;
+      state.selectedAttestationSection = null;
+      state.currentScreen = "attestation-bank";
+      state.screenHistory = ["home"];
+    }
 
     if (state.currentScreen.startsWith("admin") && !payload.user.is_admin) {
       state.currentScreen = "home";

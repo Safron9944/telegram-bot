@@ -26,10 +26,17 @@ def ensure_choice_order(
     choice_count: int,
     *,
     shuffle: Callable[[list[int]], None] = random.shuffle,
+    shuffle_choices: bool = True,
 ) -> tuple[list[int], bool]:
     """Create and persist one random order per question in a session state."""
     orders = dict(state.get("choice_orders", {}) or {})
     key = str(int(question_id))
+    if not shuffle_choices:
+        order = list(range(choice_count))
+        created = orders.get(key) != order
+        orders[key] = order
+        state["choice_orders"] = orders
+        return order, created
     existing = normalized_choice_order(orders.get(key), choice_count)
     if existing is not None:
         return existing, False

@@ -10,6 +10,8 @@ let token = "";
 let selectedSection = "";
 let query = "";
 let offset = 0;
+let suggestedTitle = "";
+let publishing = false;
 
 function ensureEntry() {
   const title = refs.mainPanel?.querySelector(".page-title")?.textContent.trim();
@@ -87,7 +89,8 @@ async function parse(bankId, trigger) {
   if (trigger) trigger.disabled = true;
   message("Розшифровуємо питання…");
   try {
-    await api(`${BASE}/${token}/banks/${bankId}/parse`, { method: "POST", timeoutMs: 120000 });
+    const parsed = await api(`${BASE}/${token}/banks/${bankId}/parse`, { method: "POST", timeoutMs: 120000 });
+    suggestedTitle = parsed.suggested_title || "Новий тест";
     selectedSection = ""; query = ""; offset = 0;
     await preview();
   } catch (error) {
@@ -99,14 +102,44 @@ async function parse(bankId, trigger) {
 async function preview() {
   try {
     const data = await api(`${BASE}/${token}/preview?section=${encodeURIComponent(selectedSection)}&q=${encodeURIComponent(query)}&offset=${offset}&limit=25`);
-    content().innerHTML = `<div class="apk-summary"><strong>${data.count} питань</strong><a class="btn btn--sm" id="apk-download" href="#">Завантажити JSON</a></div><div class="apk-filters"><label>Розділ<select id="apk-section"><option value="">Усі розділи</option>${data.sections.map((item) => `<option value="${escapeHtml(item.title)}" ${item.title === selectedSection ? "selected" : ""}>${escapeHtml(item.title)} (${item.questions_count})</option>`).join("")}</select></label><label>Пошук питань<input id="apk-search" value="${escapeHtml(query)}" placeholder="Пошук питань"></label></div><div class="apk-question-list">${data.items.map(renderQuestion).join("")}</div><div class="apk-pagination"><button class="btn btn--sm" id="apk-prev" ${!data.has_prev ? "disabled" : ""}>Назад</button><span>${data.total} знайдено</span><button class="btn btn--sm" id="apk-next" ${!data.has_next ? "disabled" : ""}>Далі</button></div>`;
+    content().innerHTML = `<div class="apk-summary"><strong>${data.count} питань</strong><a class="btn btn--sm" id="apk-download" href="#">Завантажити JSON</a></div><div class="apk-publish"><label>Назва нового розділу<input id="apk-publish-title" value="${escapeHtml(suggestedTitle)}" maxlength="160" autocomplete="off"></label><button class="btn btn--primary btn--lg" id="apk-publish" type="button">Створити розділ</button></div><div class="apk-filters"><label>Розділ<select id="apk-section"><option value="">Усі розділи</option>${data.sections.map((item) => `<option value="${escapeHtml(item.title)}" ${item.title === selectedSection ? "selected" : ""}>${escapeHtml(item.title)} (${item.questions_count})</option>`).join("")}</select></label><label>Пошук питань<input id="apk-search" value="${escapeHtml(query)}" placeholder="Пошук питань"></label></div><div class="apk-question-list">${data.items.map(renderQuestion).join("")}</div><div class="apk-pagination"><button class="btn btn--sm" id="apk-prev" ${!data.has_prev ? "disabled" : ""}>Назад</button><span>${data.total} знайдено</span><button class="btn btn--sm" id="apk-next" ${!data.has_next ? "disabled" : ""}>Далі</button></div>`;
     content().querySelector("#apk-section").addEventListener("change", (e) => { selectedSection = e.target.value; offset = 0; preview(); });
     content().querySelector("#apk-search").addEventListener("change", (e) => { query = e.target.value.trim(); offset = 0; preview(); });
     content().querySelector("#apk-prev").addEventListener("click", () => { offset = Math.max(0, offset - 25); preview(); });
     content().querySelector("#apk-next").addEventListener("click", () => { offset += 25; preview(); });
     content().querySelector("#apk-download").addEventListener("click", download);
+    content().querySelector("#apk-publish").addEventListener("click", createSection);
     message("");
   } catch (error) { message(error.message, true); }
+}
+
+async function createSection() {
+  if (publishing) return;
+  const titleInput = content().querySelector("#apk-publish-title");
+  const button = content().querySelector("#apk-publish");
+  const title = titleInput?.value.trim() || "";
+  if (!title) { message("Вкажіть назву нового розділу.", true); titleInput?.focus(); return; }
+  publishing = true;
+  if (button) { button.disabled = true; button.textContent = "Створюємо…"; }
+  message("Створюємо повноцінний тестовий розділ…");
+  try {
+    const result = await api(`${BASE}/${token}/publish`, {
+      method: "POST",
+      body: { title },
+      timeoutMs: 120000,
+    });
+    content().innerHTML = `<div class="apk-publish-success"><strong>${escapeHtml(result.title)}</strong><span>${result.count} питань успішно додано.</span><button class="btn btn--primary btn--lg" id="apk-open-created" type="button">Відкрити розділ</button></div>`;
+    content().querySelector("#apk-open-created").addEventListener("click", () => {
+      window.sessionStorage.setItem("openAttestationBank", result.slug);
+      window.location.reload();
+    });
+    message("Розділ створено.");
+    tg?.HapticFeedback?.notificationOccurred?.("success");
+  } catch (error) {
+    publishing = false;
+    if (button) { button.disabled = false; button.textContent = "Створити розділ"; }
+    message(error.message, true);
+  }
 }
 
 function renderQuestion(item) {

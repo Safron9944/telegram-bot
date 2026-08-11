@@ -3,9 +3,11 @@ from __future__ import annotations
 import functools
 import inspect
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
+from attestation_publishing import AttestationPublishError, AttestationPublishingService
 from apk_importer.archive import ArchiveInspectionError, ArchiveLimits
 from apk_importer.crypto import BankDecryptError
 from apk_importer.service import ApkImportService, UnsupportedBankError
@@ -18,6 +20,10 @@ from apk_importer.testms import TestMsParseError
 _ORIGINAL_FASTAPI_INIT = FastAPI.__init__
 _PATCHED = False
 _LIMIT = ArchiveLimits().upload_bytes
+
+
+class PublishRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
 
 
 def _error(status: int, code: str, message: str):
@@ -36,6 +42,8 @@ def _translate(exc: Exception):
     if isinstance(exc, UnsupportedBankError):
         _error(400, exc.code, str(exc))
     if isinstance(exc, (BankDecryptError, TestMsParseError)):
+        _error(422, exc.code, str(exc))
+    if isinstance(exc, AttestationPublishError):
         _error(422, exc.code, str(exc))
     raise exc
 
@@ -58,6 +66,7 @@ def register_apk_import_routes(
     get_auth_context,
     *,
     service: ApkImportService | None = None,
+    publisher=None,
 ) -> None:
     if getattr(app.state, "_apk_import_routes_installed", False):
         return
@@ -85,7 +94,33 @@ def register_apk_import_routes(
         service = require_admin(auth)
         try:
             bank = service.parse_bank(auth.user_id, token, bank_id)
-            return {"summary": bank.summary.to_dict(), "sections": [item.to_dict() for item in bank.sections]}
+            return {
+                "summary": bank.summary.to_dict(),
+                "sections": [item.to_dict() for item in bank.sections],
+                "suggested_title": service.suggested_title(auth.user_id, token),
+            }
+        except Exception as exc:
+            _translate(exc)
+
+    @app.post("/api/admin/apk-import/sessions/{token}/publish")
+    async def publish_bank(
+        token: str,
+        payload: PublishRequest,
+        request: Request,
+        auth=Depends(get_auth_context),
+    ):
+        service = require_admin(auth)
+        try:
+            active_publisher = publisher
+            if active_publisher is None:
+                runtime = request.app.state.runtime
+
+                async def reload_catalog():
+                    await runtime.qb.load_published_attestation_banks(runtime.store)
+
+                active_publisher = AttestationPublishingService(runtime.store, reload_catalog)
+            bank = service.get_parsed_bank(auth.user_id, token)
+            return await active_publisher.publish(bank, payload.title, changed_by=str(auth.user_id))
         except Exception as exc:
             _translate(exc)
 

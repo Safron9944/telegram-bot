@@ -5,6 +5,7 @@ export const state = {
   currentView: null,
   selectedLawGroup: null,
   selectedAttestationSection: null,
+  selectedAttestationBankSlug: null,
   adminUsersOffset: 0,
   adminQuestionsPage: 0,
   selectedAdminUserId: null,

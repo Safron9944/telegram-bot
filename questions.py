@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional
 ATTESTATION_STAGE_1_SECTION = "Атестація посадових осіб — 1 етап"
 
 
+def dynamic_attestation_runtime_id(database_id: int) -> int:
+    return -1_000_000_000 - int(database_id)
+
+
 @dataclass
 class Q:
     id: int
@@ -22,10 +26,20 @@ class Q:
     choices: List[str]
     correct: List[int]
     correct_texts: List[str]
+    shuffle_choices: bool = True
 
     @property
     def is_valid_mcq(self) -> bool:
         return bool(self.choices) and isinstance(self.correct, list) and len(self.correct) > 0
+
+
+@dataclass
+class AttestationBank:
+    slug: str
+    title: str
+    qids: List[int]
+    source_id: str = ""
+    published: bool = True
 
 
 class QuestionBank:
@@ -36,6 +50,7 @@ class QuestionBank:
         self.law_groups: Dict[str, List[int]] = {}
         self.ok_modules: Dict[str, Dict[int, List[int]]] = {}
         self.attestation_stage_1: List[int] = []
+        self.attestation_banks: Dict[str, AttestationBank] = {}
         self._law_group_titles: Dict[str, str] = {}
 
     def load(self):
@@ -58,6 +73,7 @@ class QuestionBank:
                 ok=norm.get("ok"), level=norm.get("level"), qnum=norm.get("qnum"),
                 question=norm.get("question", ""), choices=norm.get("choices", []),
                 correct=norm.get("correct", []), correct_texts=norm.get("correct_texts", []),
+                shuffle_choices=bool(norm.get("shuffle_choices", True)),
             )
             if q.id in self.by_id:
                 nid = q.id
@@ -95,10 +111,51 @@ class QuestionBank:
                 choices=_norm_json(r.get("choices")) or [],
                 correct=_norm_json(r.get("correct")) or [],
                 correct_texts=_norm_json(r.get("correct_texts")) or [],
+                shuffle_choices=bool(r.get("shuffle_choices", True)),
             )
             self.by_id[q.id] = q
 
         self._build_indexes()
+
+    async def load_published_attestation_banks(self, store: "Any") -> None:
+        for slug, bank in list(self.attestation_banks.items()):
+            if slug == "stage-1":
+                continue
+            for qid in bank.qids:
+                self.by_id.pop(qid, None)
+            self.attestation_banks.pop(slug, None)
+
+        def _json_value(value: Any):
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    return []
+            return value
+
+        for row in await store.list_published_attestation_banks():
+            questions = []
+            for item in row.get("questions", []):
+                questions.append(Q(
+                    id=dynamic_attestation_runtime_id(item["id"]),
+                    section=row.get("title") or "",
+                    topic=item.get("topic") or "",
+                    ok=None,
+                    level=None,
+                    qnum=int(item["qnum"]) if item.get("qnum") is not None else None,
+                    question=item.get("question") or "",
+                    choices=list(_json_value(item.get("choices")) or []),
+                    correct=[int(value) for value in (_json_value(item.get("correct")) or [])],
+                    correct_texts=list(_json_value(item.get("correct_texts")) or []),
+                    shuffle_choices=bool(item.get("shuffle_choices", True)),
+                ))
+            self.register_attestation_bank(
+                row.get("slug") or "",
+                row.get("title") or "",
+                questions,
+                source_id=row.get("source_id") or "",
+                published=True,
+            )
 
     def load_attestation_stage_1(self, path: str) -> None:
         with open(path, "r", encoding="utf-8") as f:
@@ -113,12 +170,19 @@ class QuestionBank:
                 ok=norm.get("ok"), level=norm.get("level"), qnum=norm.get("qnum"),
                 question=norm.get("question", ""), choices=norm.get("choices", []),
                 correct=norm.get("correct", []), correct_texts=norm.get("correct_texts", []),
+                shuffle_choices=bool(norm.get("shuffle_choices", True)),
             )
             if q.id in self.by_id:
                 raise ValueError(f"Duplicate attestation question id: {q.id}")
             self.by_id[q.id] = q
 
         self._build_indexes()
+        self.attestation_banks["stage-1"] = AttestationBank(
+            slug="stage-1",
+            title=ATTESTATION_STAGE_1_SECTION,
+            qids=list(self.attestation_stage_1),
+            source_id="bundled-stage-1",
+        )
 
     def _build_indexes(self):
         self.law.clear()
@@ -203,6 +267,84 @@ class QuestionBank:
         }
         start, end = ranges.get(block, (0, 0))
         return pool[start:end]
+
+    def register_attestation_bank(
+        self,
+        slug: str,
+        title: str,
+        questions: List[Q],
+        *,
+        source_id: str = "",
+        published: bool = True,
+    ) -> AttestationBank:
+        slug = (slug or "").strip()
+        if not slug:
+            raise ValueError("Attestation bank slug is required")
+        previous = self.attestation_banks.get(slug)
+        if previous:
+            for qid in previous.qids:
+                if qid not in self.attestation_stage_1:
+                    self.by_id.pop(qid, None)
+        qids: List[int] = []
+        for question in questions:
+            if question.id in self.by_id and question.id not in (previous.qids if previous else []):
+                raise ValueError(f"Duplicate attestation question id: {question.id}")
+            self.by_id[question.id] = question
+            qids.append(question.id)
+        bank = AttestationBank(slug, title.strip() or slug, qids, source_id, published)
+        self.attestation_banks[slug] = bank
+        return bank
+
+    def published_attestation_banks(self) -> List[AttestationBank]:
+        return [bank for bank in self.attestation_banks.values() if bank.published and bank.qids]
+
+    def attestation_sections(self, slug: str) -> List[Dict[str, Any]]:
+        bank = self.attestation_banks.get(slug)
+        if not bank or not bank.published:
+            return []
+        counts: Dict[str, int] = {}
+        for qid in bank.qids:
+            question = self.by_id.get(qid)
+            if not question:
+                continue
+            title = (question.topic or question.section or "Інші питання").strip()
+            counts[title] = counts.get(title, 0) + 1
+        return [
+            {
+                "key": title,
+                "title": title,
+                "count": count,
+                "blocks": [
+                    {"key": f"{start}-{min(start + 49, count)}", "title": f"{start}-{min(start + 49, count)}"}
+                    for start in range(1, count + 1, 50)
+                ],
+            }
+            for title, count in counts.items()
+        ]
+
+    def attestation_section_qids(self, slug: str, section: str) -> List[int]:
+        bank = self.attestation_banks.get(slug)
+        if not bank or not bank.published:
+            return []
+        qids = [
+            qid for qid in bank.qids
+            if qid in self.by_id
+            and (self.by_id[qid].topic or self.by_id[qid].section or "Інші питання").strip() == section.strip()
+        ]
+        qids.sort(key=lambda qid: (self.by_id[qid].qnum or 10 ** 9, qid))
+        return qids
+
+    def attestation_block_qids(self, slug: str, section: str, block: str) -> List[int]:
+        pool = self.attestation_section_qids(slug, section)
+        if block == "random":
+            return self.pick_random(pool, min(50, len(pool)))
+        match = re.fullmatch(r"(\d+)-(\d+)", block or "")
+        if not match:
+            return []
+        start, end = (int(value) for value in match.groups())
+        if start < 1 or end < start or end > len(pool) or end - start >= 50:
+            return []
+        return pool[start - 1:end]
 
     def _iter_raw_questions(self, raw: Any):
         if isinstance(raw, list):
@@ -433,6 +575,7 @@ class QuestionBank:
             "id": int(qid), "section": section, "topic": topic, "ok": ok,
             "level": level, "qnum": qnum, "question": qtext,
             "choices": choices, "correct": correct, "correct_texts": correct_texts,
+            "shuffle_choices": item.get("shuffle_choices", True) is not False,
         }
 
     def _law_group_key(self, topic: str) -> str:

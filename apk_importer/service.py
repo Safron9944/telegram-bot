@@ -66,6 +66,41 @@ class ApkImportService:
         self.store.write_parsed(admin_id, token, bank_id, bank.to_dict())
         return bank
 
+    def get_parsed_bank(self, admin_id: int, token: str) -> ParsedBank:
+        payload = self.store.read_parsed(admin_id, token)
+        return ParsedBank(
+            adapter="testms",
+            source=str(payload.get("source") or ""),
+            source_version=str(payload.get("source_version") or ""),
+            source_hash=str(payload.get("source_hash") or ""),
+            sections=tuple(
+                ParsedSection(
+                    title=str(item.get("title") or ""),
+                    sort_order=int(item.get("sort_order", index)),
+                    questions_count=int(item.get("questions_count", 0)),
+                )
+                for index, item in enumerate(payload.get("sections") or [])
+            ),
+            questions=tuple(
+                ParsedQuestion(
+                    source_key=str(item.get("source_key") or ""),
+                    qnum=int(item.get("qnum", 0)),
+                    topic=str(item.get("topic") or ""),
+                    question=str(item.get("question") or ""),
+                    choices=tuple(str(value) for value in (item.get("choices") or [])),
+                    correct=tuple(int(value) for value in (item.get("correct") or [])),
+                    correct_texts=tuple(str(value) for value in (item.get("correct_texts") or [])),
+                    shuffle_choices=bool(item.get("shuffle_choices", True)),
+                )
+                for item in payload.get("questions") or []
+            ),
+        )
+
+    def suggested_title(self, admin_id: int, token: str) -> str:
+        session = self.store.get(admin_id, token)
+        selected = next((bank for bank in session.banks if bank.id == session.parsed_bank_id), None)
+        return (selected.title or selected.filename) if selected else "Новий тест"
+
     def preview(
         self, admin_id: int, token: str, *, section: str = "", query: str = "",
         offset: int = 0, limit: int = 50,

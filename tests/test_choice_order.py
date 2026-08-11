@@ -35,6 +35,15 @@ class ChoiceOrderTests(unittest.TestCase):
         self.assertEqual([1, 2, 3, 0], order)
         self.assertTrue(created)
 
+    def test_order_sensitive_question_keeps_source_order(self):
+        state = {}
+
+        order, created = ensure_choice_order(state, 10, 4, shuffle_choices=False)
+
+        self.assertEqual([0, 1, 2, 3], order)
+        self.assertTrue(created)
+        self.assertEqual({"10": [0, 1, 2, 3]}, state["choice_orders"])
+
     def test_order_validation_and_fallback(self):
         self.assertEqual([2, 0, 1], normalized_choice_order([2, 0, 1], 3))
         self.assertIsNone(normalized_choice_order([2, 2, 1], 3))
