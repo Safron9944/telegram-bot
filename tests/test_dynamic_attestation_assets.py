@@ -19,6 +19,7 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         self.assertIn("/api/attestation/${bank.slug}/start", user)
         self.assertIn("section.blocks", user)
         self.assertIn("openAttestationBank", app)
+        self.assertIn("attestation-start-error", user)
 
     def test_admin_can_manage_dynamic_banks_but_stage_1_is_protected(self):
         admin = (ROOT / "static" / "js" / "screens" / "admin.js").read_text(encoding="utf-8")

@@ -1082,7 +1082,14 @@ class MiniAppService:
         legacy: bool = False,
     ) -> dict[str, Any]:
         self.ensure_attestation_access(auth)
-        bank = self.qb.attestation_banks.get((bank_slug or "").strip())
+        clean_bank_slug = (bank_slug or "").strip()
+        bank = self.qb.attestation_banks.get(clean_bank_slug)
+        if (not bank or not bank.published) and clean_bank_slug != "stage-1":
+            # A newly published bank may be missing in this worker's memory
+            # (for example after an admin action handled by another worker).
+            # Refresh once from the shared database before returning 404.
+            await self.qb.load_published_attestation_banks(self.store)
+            bank = self.qb.attestation_banks.get(clean_bank_slug)
         if not bank or not bank.published:
             require_http(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
         if not bank.qids:
