@@ -114,6 +114,14 @@ def format_dt(value: Any) -> str | None:
 
 
 DEFAULT_PRICES: dict[str, int] = {"cases": 100, "full": 250}
+HOME_VISIBILITY_DEFAULTS: dict[str, bool] = {
+    "attestation": True,
+    "customs": True,
+    "cases": True,
+    "customs_code": True,
+    "question_search": True,
+    "support": True,
+}
 
 
 async def get_payment_prices(store: "Storage") -> dict[str, int]:
@@ -122,6 +130,20 @@ async def get_payment_prices(store: "Storage") -> dict[str, int]:
     return {
         "cases": int(cases_raw) if cases_raw else DEFAULT_PRICES["cases"],
         "full": int(full_raw) if full_raw else DEFAULT_PRICES["full"],
+    }
+
+
+async def get_home_visibility(store: "Storage") -> dict[str, bool]:
+    raw = await store.get_setting("home_visibility", "")
+    try:
+        saved = json.loads(raw) if raw else {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        saved = {}
+    if not isinstance(saved, dict):
+        saved = {}
+    return {
+        key: value if isinstance((value := saved.get(key, default)), bool) else default
+        for key, default in HOME_VISIBILITY_DEFAULTS.items()
     }
 
 
@@ -574,6 +596,7 @@ class MiniAppService:
         stats = await self.store.stats(auth.user_id)
         saved_view = await self.saved_view(auth)
         prices = await get_payment_prices(self.store)
+        home_visibility = await get_home_visibility(self.store)
         tq_visible = (await self.store.get_setting("test_questions_visible", "0")) == "1"
         db_admin_url = await self.store.get_setting("admin_contact_url", "")
         admin_url = db_admin_url or get_admin_contact_url(self.runtime.admin_ids)
@@ -588,6 +611,7 @@ class MiniAppService:
             "stats": self.serialize_stats(stats),
             "saved_view": saved_view,
             "payment_prices": prices,
+            "home_visibility": home_visibility,
             "test_questions_visible": tq_visible,
         }
 
@@ -1446,6 +1470,7 @@ class MiniAppService:
                     "user_id": int(user.get("user_id")),
                     "first_name": user.get("first_name") or "",
                     "last_name": user.get("last_name") or "",
+                    "is_admin": bool(user.get("is_admin")),
                     "display_name": " ".join(
                         x for x in [user.get("first_name") or "", user.get("last_name") or ""] if x
                     ).strip()
@@ -1470,12 +1495,15 @@ class MiniAppService:
         user = await self.store.get_user(target_id)
         if not user:
             require_http(404, "user_not_found", "Користувача не знайдено.")
+        stats = await self.store.stats(target_id)
         return {
             "user_id": target_id,
             "first_name": user.get("first_name") or "",
             "last_name": user.get("last_name") or "",
+            "is_admin": bool(user.get("is_admin")) or target_id in self.runtime.admin_ids,
             "access": access_payload(user),
             "created_at": dt_to_iso(user.get("created_at")),
+            "stats": self.serialize_stats(stats),
             "ok_modules": list(user.get("ok_modules", []) or []),
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
         }
@@ -1485,6 +1513,20 @@ class MiniAppService:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         await self.store.set_admin_access(target_id, access, trial_days=3)
         return await self.admin_user_detail(auth, target_id)
+
+    async def admin_delete_user(self, auth: AuthContext, target_id: int) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        user = await self.store.get_user(target_id)
+        if not user:
+            require_http(404, "user_not_found", "Користувача не знайдено.")
+        if target_id == auth.user_id:
+            require_http(400, "cannot_delete_self", "Не можна видалити власний обліковий запис адміністратора.")
+        if bool(user.get("is_admin")) or target_id in self.runtime.admin_ids:
+            require_http(400, "cannot_delete_admin", "Не можна видалити обліковий запис адміністратора.")
+        if not await self.store.delete_user(target_id):
+            require_http(404, "user_not_found", "Користувача не знайдено.")
+        return {"ok": True, "user_id": target_id}
 
     async def admin_questions_page(self, auth: AuthContext, page: int, page_size: int = 10) -> dict[str, Any]:
         if not auth.is_admin:
@@ -1914,7 +1956,14 @@ async def api_admin_get_settings(auth: AuthContext = Depends(get_auth_context), 
     prices = await get_payment_prices(runtime.store)
     tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
     admin_contact_url = await runtime.store.get_setting("admin_contact_url", "")
-    return {"price_cases": prices["cases"], "price_full": prices["full"], "test_questions_visible": tq_visible, "admin_contact_url": admin_contact_url}
+    home_visibility = await get_home_visibility(runtime.store)
+    return {
+        "price_cases": prices["cases"],
+        "price_full": prices["full"],
+        "test_questions_visible": tq_visible,
+        "admin_contact_url": admin_contact_url,
+        "home_visibility": home_visibility,
+    }
 
 
 @app.post("/api/admin/settings")
@@ -1934,7 +1983,19 @@ async def api_admin_set_settings(request: Request, auth: AuthContext = Depends(g
             require_http(400, "invalid_price", "price_full повинно бути цілим числом ≥ 1.")
         await runtime.store.set_setting("price_full", str(price_full))
     if tq_visible is not None:
+        if not isinstance(tq_visible, bool):
+            require_http(400, "invalid_visibility", "test_questions_visible повинно бути логічним значенням.")
         await runtime.store.set_setting("test_questions_visible", "1" if tq_visible else "0")
+    home_visibility = body.get("home_visibility")
+    if home_visibility is not None:
+        if not isinstance(home_visibility, dict):
+            require_http(400, "invalid_home_visibility", "home_visibility повинно бути об'єктом.")
+        unknown = set(home_visibility) - set(HOME_VISIBILITY_DEFAULTS)
+        if unknown or any(not isinstance(value, bool) for value in home_visibility.values()):
+            require_http(400, "invalid_home_visibility", "Передано невідоме або некоректне налаштування головного екрана.")
+        merged_visibility = await get_home_visibility(runtime.store)
+        merged_visibility.update(home_visibility)
+        await runtime.store.set_setting("home_visibility", json.dumps(merged_visibility, ensure_ascii=False))
     admin_contact_url = body.get("admin_contact_url")
     if admin_contact_url is not None:
         url = (admin_contact_url or "").strip()
@@ -1972,6 +2033,11 @@ async def api_admin_user_detail(user_id: int, auth: AuthContext = Depends(get_au
 @app.post("/api/admin/users/{user_id}/access")
 async def api_admin_user_access(user_id: int, payload: AdminAccessUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_set_access(auth, user_id, payload.access)
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def api_admin_user_delete(user_id: int, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_delete_user(auth, user_id)
 
 
 @app.get("/api/admin/questions")

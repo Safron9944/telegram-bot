@@ -98,9 +98,49 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 /* ===================== HOME ===================== */
 export function renderHome(ctx) {
   const { user } = ctx.state.bootstrap;
+  const visibility = ctx.state.bootstrap.home_visibility || {};
+  const isVisible = (key) => visibility[key] !== false;
   const showTestQuestions =
     user.is_admin ||
     ctx.state.bootstrap.test_questions_visible === true;
+  const primaryItems = [];
+  const materialItems = [];
+  const helpItems = [];
+
+  if (isVisible("attestation")) {
+    primaryItems.push(prototypeFeature(ctx, {
+      title: "Атестація посадових осіб — 1 етап",
+      icon: "document",
+      screen: "attestation-stage-1",
+      action: "Перейти до атестації",
+    }));
+  }
+  if (isVisible("customs")) {
+    primaryItems.push(prototypeFeature(ctx, {
+      title: "Митні компетенції",
+      icon: "graduation",
+      screen: "customs",
+      action: "Відкрити розділ",
+    }));
+  }
+  if (isVisible("cases")) {
+    materialItems.push(prototypeMenuCell(ctx, { title: "Кейси", icon: "folder", screen: "cases" }));
+  }
+  if (isVisible("customs_code")) {
+    materialItems.push(prototypeMenuCell(ctx, { title: "Митний кодекс", icon: "scale", screen: "customs-code" }));
+  }
+  if (showTestQuestions) {
+    materialItems.push(prototypeMenuCell(ctx, { title: "Тестові питання", icon: "clipboard", screen: "test-exam-questions" }));
+  }
+  if (isVisible("question_search") && (user.is_admin || user.access?.tier === "full")) {
+    materialItems.push(prototypeMenuCell(ctx, { title: "Пошук питань", icon: "search", screen: "question-search" }));
+  }
+  if (isVisible("support")) {
+    helpItems.push(prototypeMenuCell(ctx, { title: "Підтримка", icon: "support", screen: "help" }));
+  }
+  if (user.is_admin) {
+    helpItems.push(prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }));
+  }
 
   ctx.setChrome({ showBack: false });
 
@@ -109,44 +149,17 @@ export function renderHome(ctx) {
       <h1 class="page-title">Головна</h1>
       <p class="page-subtitle">Митні компетенції, атестація та робота з матеріалами — в одному середовищі.</p>
 
-      <div class="home-primary">
-        ${prototypeFeature(ctx, {
-          title: "Атестація посадових осіб — 1 етап",
-          icon: "document",
-          screen: "attestation-stage-1",
-          action: "Перейти до атестації",
-        })}
-        ${prototypeFeature(ctx, {
-          title: "Митні компетенції",
-          icon: "graduation",
-          screen: "customs",
-          action: "Відкрити розділ",
-        })}
-      </div>
+      ${primaryItems.length ? `<div class="home-primary">${primaryItems.join("")}</div>` : ""}
 
-      ${ctx.group({
+      ${materialItems.length ? ctx.group({
         header: "Матеріали",
-        children: [
-          prototypeMenuCell(ctx, { title: "Кейси", icon: "folder", screen: "cases" }),
-          prototypeMenuCell(ctx, { title: "Митний кодекс", icon: "scale", screen: "customs-code" }),
-          showTestQuestions
-            ? prototypeMenuCell(ctx, { title: "Тестові питання", icon: "clipboard", screen: "test-exam-questions" })
-            : "",
-          user.is_admin || user.access?.tier === "full"
-            ? prototypeMenuCell(ctx, { title: "Пошук питань", icon: "search", screen: "question-search" })
-            : "",
-        ].join(""),
-      })}
+        children: materialItems.join(""),
+      }) : ""}
 
-      ${ctx.group({
+      ${helpItems.length ? ctx.group({
         header: "Допомога",
-        children: [
-          prototypeMenuCell(ctx, { title: "Підтримка", icon: "support", screen: "help" }),
-          user.is_admin
-            ? prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" })
-            : "",
-        ].join(""),
-      })}
+        children: helpItems.join(""),
+      }) : ""}
     </section>
   `;
 
