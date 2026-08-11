@@ -32,12 +32,14 @@ function message(text, error = false) {
 
 function open() {
   document.querySelector(`#${OVERLAY_ID}`)?.remove();
+  document.body.classList.add("apk-import-open");
   const overlay = document.createElement("div");
   overlay.id = OVERLAY_ID;
   overlay.className = "modal-overlay apk-import-overlay";
   overlay.innerHTML = `<div class="modal apk-import-modal" role="dialog" aria-modal="true" aria-labelledby="apk-import-title"><div class="modal__header"><div class="modal__heading"><span class="modal__title" id="apk-import-title">Питання з APK</span><span class="modal__subtitle">APK, XAPK або APKS · до 50 MiB</span></div><button class="modal__close" type="button" aria-label="Закрити">✕</button></div><div class="apk-import-content"></div><div class="apk-import-message" aria-live="polite"></div></div>`;
   document.body.append(overlay);
   overlay.querySelector(".modal__close").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
   renderUpload();
 }
 
@@ -45,6 +47,7 @@ async function close() {
   if (token) { try { await api(`${BASE}/${token}`, { method: "DELETE" }); } catch {} }
   token = "";
   document.querySelector(`#${OVERLAY_ID}`)?.remove();
+  document.body.classList.remove("apk-import-open");
 }
 
 function renderUpload() {
@@ -62,6 +65,7 @@ async function upload(event) {
     const session = await api(BASE, { method: "POST", body: form, timeoutMs: 120000 });
     token = session.token;
     renderBanks(session.banks);
+    message("");
     tg?.HapticFeedback?.notificationOccurred?.("success");
   } catch (error) { message(error.message, true); }
 }
@@ -71,20 +75,25 @@ function renderBanks(banks) {
   const list = content().querySelector(".apk-bank-list");
   banks.forEach((bank) => {
     const button = document.createElement("button");
-    button.type = "button"; button.className = "cell"; button.disabled = !bank.supported;
-    button.innerHTML = `<span class="cell__body"><span class="cell__title">${escapeHtml(bank.filename)}</span><span class="cell__subtitle">${bank.supported ? "Підтримується" : "Поки не підтримується"}</span></span><span class="cell__chevron"></span>`;
-    if (bank.supported) button.addEventListener("click", () => parse(bank.id));
+    button.type = "button"; button.className = "cell apk-bank"; button.disabled = !bank.supported;
+    button.innerHTML = `<span class="cell__body"><span class="cell__title">${escapeHtml(bank.filename)}</span><span class="cell__subtitle">${bank.supported ? "Натисніть, щоб витягнути питання" : "Цей формат банку ще не підтримується"}</span></span><span class="cell__chevron"></span>`;
+    if (bank.supported) button.addEventListener("click", (event) => parse(bank.id, event.currentTarget));
     list.append(button);
   });
 }
 
-async function parse(bankId) {
+async function parse(bankId, trigger) {
+  if (trigger?.disabled) return;
+  if (trigger) trigger.disabled = true;
   message("Розшифровуємо питання…");
   try {
     await api(`${BASE}/${token}/banks/${bankId}/parse`, { method: "POST", timeoutMs: 120000 });
     selectedSection = ""; query = ""; offset = 0;
     await preview();
-  } catch (error) { message(error.message, true); }
+  } catch (error) {
+    if (trigger) trigger.disabled = false;
+    message(error.message, true);
+  }
 }
 
 async function preview() {
