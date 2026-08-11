@@ -12,14 +12,16 @@ import functools
 import inspect
 import json
 import time
-from datetime import datetime, timezone
 from typing import Any
 
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
+from aiogram.types import BufferedInputFile
 from fastapi import Depends, FastAPI
 from fastapi.responses import Response
 
 from attestation_export_security import (
     DOWNLOAD_TOKEN_TTL_SECONDS,
+    build_export_document,
     decode_download_token,
     encode_download_token,
 )
@@ -194,8 +196,7 @@ def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
             runtime.bot_token,
             expires_at=expires_at,
         )
-        date = datetime.now(timezone.utc).date().isoformat()
-        file_name = f"attestation_stage_1_current_{date}.json"
+        file_name, _ = build_export_document(payload)
         return {
             "count": payload["count"],
             "file_name": file_name,
@@ -226,9 +227,7 @@ def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
 
         payload = await _build_export_payload(runtime)
-        date = datetime.now(timezone.utc).date().isoformat()
-        file_name = f"attestation_stage_1_current_{date}.json"
-        content = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        file_name, content = build_export_document(payload)
         return Response(
             content=content,
             media_type="application/json",
@@ -238,6 +237,45 @@ def _register_routes(app: FastAPI, module_globals: dict[str, Any]) -> None:
                 "Cache-Control": "no-store",
             },
         )
+
+    @app.post("/api/admin/attestation-stage-1/send-to-chat")
+    async def api_admin_attestation_stage_1_send_to_chat(
+        auth=Depends(get_auth_context),
+        runtime=Depends(get_runtime),
+    ):
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        if not runtime.bot:
+            require_http(503, "bot_unavailable", "Telegram-бот зараз недоступний.")
+
+        payload = await _build_export_payload(runtime)
+        file_name, content = build_export_document(payload)
+        document = BufferedInputFile(content, filename=file_name)
+
+        try:
+            await runtime.bot.send_document(
+                chat_id=auth.user_id,
+                document=document,
+                caption=f"Атестація, 1 етап: {payload['count']} актуальних питань.",
+            )
+        except TelegramForbiddenError:
+            require_http(
+                409,
+                "bot_chat_unavailable",
+                "Бот не може надіслати файл. Відкрийте чат із ботом, натисніть /start і повторіть експорт.",
+            )
+        except TelegramAPIError:
+            require_http(
+                502,
+                "telegram_send_failed",
+                "Telegram не прийняв файл. Спробуйте ще раз через кілька секунд.",
+            )
+
+        return {
+            "sent": True,
+            "count": payload["count"],
+            "file_name": file_name,
+        }
 
     app.state._admin_attestation_routes_installed = True
 

@@ -1,7 +1,7 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg } from "./core/telegram.js?v=20260523-cases-search-02";
-import { escapeHtml, setMessage } from "./core/ui.js?v=20260809-unified-ui-02";
+import { escapeHtml } from "./core/ui.js?v=20260809-unified-ui-02";
 
 const ENTRY_ID = "admin-attestation-stage1-entry";
 const OVERLAY_ID = "admin-attestation-stage1-overlay";
@@ -169,6 +169,15 @@ function showEditorNotice(type, message) {
   notice.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+function showExportNotice(type, message) {
+  const notice = modalContent?.querySelector("#attestation-export-notice");
+  if (!notice) return;
+  notice.className = `attestation-editor-notice attestation-editor-notice--${type}`;
+  notice.textContent = message;
+  notice.hidden = false;
+  notice.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 function makeCell({ icon, tint = "purple", title, subtitle, onClick }) {
   const button = document.createElement("button");
   button.type = "button";
@@ -213,7 +222,7 @@ async function downloadCurrentQuestionsJson() {
           },
           (accepted) => {
             if (accepted) {
-              setMessage("success", `Завантаження ${ticket.count} питань розпочато.`);
+              showExportNotice("success", `Завантаження ${ticket.count} питань розпочато.`);
             }
           },
         );
@@ -232,9 +241,35 @@ async function downloadCurrentQuestionsJson() {
     link.click();
     link.remove();
 
-    setMessage("success", `Завантаження ${ticket.count} питань розпочато.`);
+    showExportNotice("success", `Завантаження ${ticket.count} питань розпочато.`);
   } catch (error) {
-    setMessage("error", error.message || "Не вдалося створити JSON-файл.");
+    showExportNotice("error", error.message || "Не вдалося створити JSON-файл.");
+  }
+}
+
+async function sendCurrentQuestionsJsonToChat(event) {
+  const button = event?.currentTarget;
+  const originalText = button?.textContent || "📩 Надіслати JSON у чат із ботом";
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Надсилаємо…";
+    }
+    const payload = await api("/api/admin/attestation-stage-1/send-to-chat", {
+      method: "POST",
+    });
+    showExportNotice(
+      "success",
+      `Файл із ${payload.count} питаннями надіслано в особистий чат із ботом.`,
+    );
+  } catch (error) {
+    showExportNotice("error", error.message || "Не вдалося надіслати JSON-файл у чат.");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
@@ -251,19 +286,35 @@ async function renderSections() {
     if (!modalContent || currentView !== "sections") return;
 
     modalContent.innerHTML = "";
+    const exportNotice = document.createElement("div");
+    exportNotice.id = "attestation-export-notice";
+    exportNotice.className = "attestation-editor-notice";
+    exportNotice.setAttribute("role", "status");
+    exportNotice.setAttribute("aria-live", "polite");
+    exportNotice.hidden = true;
+    modalContent.append(exportNotice);
 
     const exportRow = document.createElement("div");
     exportRow.className = "row";
     exportRow.style.marginBottom = "14px";
+    exportRow.style.display = "grid";
+    exportRow.style.gap = "8px";
 
     const exportButton = document.createElement("button");
     exportButton.type = "button";
     exportButton.className = "btn btn--primary";
     exportButton.style.width = "100%";
-    exportButton.textContent = "⬇ Експорт поточних питань у JSON";
-    exportButton.addEventListener("click", downloadCurrentQuestionsJson);
+    exportButton.textContent = "📩 Надіслати JSON у чат із ботом";
+    exportButton.addEventListener("click", sendCurrentQuestionsJsonToChat);
 
-    exportRow.append(exportButton);
+    const downloadButton = document.createElement("button");
+    downloadButton.type = "button";
+    downloadButton.className = "btn";
+    downloadButton.style.width = "100%";
+    downloadButton.textContent = "⬇ Завантажити JSON на пристрій";
+    downloadButton.addEventListener("click", downloadCurrentQuestionsJson);
+
+    exportRow.append(exportButton, downloadButton);
     modalContent.append(exportRow);
 
     const group = document.createElement("div");
