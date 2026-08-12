@@ -65,7 +65,7 @@ import { renderCurrentView } from "./screens/session.js?v=20260810-result-naviga
 import {
   cleanupAdminApkImport,
   renderAdminApkImport,
-} from "./admin_apk_import.js?v=20260812-no-haptics-01";
+} from "./admin_apk_import.js?v=20260812-apk-100mb-01";
 import {
   loadAdminAttestationBank,
   loadAdminAttestationQuestion,
