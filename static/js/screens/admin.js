@@ -31,6 +31,13 @@ export function renderAdminHub(ctx) {
             tint: "green",
             screen: "admin-apk-import",
           }),
+          ctx.cell({
+            title: "Пошук по всіх питаннях",
+            subtitle: "Усі розділи, кейси та банки питань",
+            iconName: "search",
+            tint: "blue",
+            screen: "admin-global-search",
+          }),
         ].join(""),
       })}
     </section>
@@ -869,205 +876,6 @@ export async function loadAdminCases(ctx) {
   }
 }
 
-/* ===================== ADMIN SETTINGS ===================== */
-export function renderAdminSettings(ctx) {
-  ctx.setChrome({ showBack: true });
-
-  ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
-      <h1 class="page-title">Налаштування</h1>
-      <p class="page-subtitle">Загальні параметри застосунку.</p>
-
-      <div class="group">
-        <div class="group__label">Інші пункти головного екрана</div>
-        <div class="group__list" id="home-visibility-list">
-          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
-        </div>
-        <div class="group__footer">Атестації та їх видимість керуються в окремому розділі «Атестації».</div>
-      </div>
-
-      <div class="group" style="margin-top: 16px;">
-        <div class="group__label">Тарифи</div>
-        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-          <div>
-            <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Тільки кейси (⭐)</label>
-            <input id="price-cases" class="input" type="number" min="1" placeholder="100" style="width: 100%;" />
-          </div>
-          <div>
-            <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Повний доступ (⭐)</label>
-            <input id="price-full" class="input" type="number" min="1" placeholder="250" style="width: 100%;" />
-          </div>
-          <div id="settings-save-wrap"></div>
-        </div>
-      </div>
-
-      <div class="group" style="margin-top: 16px;">
-        <div class="group__label">Контакт адміністратора</div>
-        <div class="group__list" style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
-          <div>
-            <label style="display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-secondary);">Username або посилання</label>
-            <input id="admin-contact-url" class="input" type="text" placeholder="@username або https://t.me/username" style="width: 100%;" />
-          </div>
-          <div id="admin-contact-save-wrap"></div>
-        </div>
-        <div class="group__footer">Посилання відображається у кнопці "Адміністратор" у розділі Підтримка.</div>
-      </div>
-
-      <div class="group" style="margin-top: 16px;">
-        <div class="group__label">Тестові питання</div>
-        <div class="group__list">
-          <div class="cell" style="cursor: default;">
-            <span class="cell__body">
-              <span class="cell__title">Видимість для підписників</span>
-              <span class="cell__subtitle">Показати вкладку користувачам з повним доступом</span>
-            </span>
-            <label class="switch" id="tq-switch-label">
-              <input id="test-questions-visible" type="checkbox" />
-              <span class="switch__track"></span>
-            </label>
-          </div>
-        </div>
-        <div class="group__footer">Увімкніть після того, як заповните всі тестові питання.</div>
-      </div>
-    </section>
-  `;
-}
-
-export async function loadAdminSettings(ctx) {
-  if (ctx.state.currentScreen !== "admin-settings") return;
-  try {
-    const payload = await ctx.api("/api/admin/settings");
-    const casesInput = document.querySelector("#price-cases");
-    const fullInput = document.querySelector("#price-full");
-    const tqCheckbox = document.querySelector("#test-questions-visible");
-    const homeVisibilityList = document.querySelector("#home-visibility-list");
-
-    if (homeVisibilityList) {
-      const definitions = [
-        ["customs", "Митні компетенції", "Основна картка навчання і тестування"],
-        ["cases", "Кейси", "Пункт у блоці матеріалів"],
-        ["customs_code", "Митний кодекс", "Пункт у блоці матеріалів"],
-        ["question_search", "Пошук питань", "Відображається користувачам із повним доступом"],
-        ["support", "Підтримка", "Контакт адміністратора і довідкова інформація"],
-      ];
-      const current = { ...(payload.home_visibility || {}) };
-      homeVisibilityList.innerHTML = definitions.map(([key, title, subtitle]) => `
-        <div class="cell admin-setting-row">
-          <span class="cell__body">
-            <span class="cell__title">${ctx.escapeHtml(title)}</span>
-            <span class="cell__subtitle">${ctx.escapeHtml(subtitle)}</span>
-          </span>
-          <label class="switch">
-            <input type="checkbox" data-home-visibility="${key}" ${current[key] !== false ? "checked" : ""} />
-            <span class="switch__track"></span>
-          </label>
-        </div>
-      `).join("");
-
-      homeVisibilityList.querySelectorAll("[data-home-visibility]").forEach((checkbox) => {
-        checkbox.addEventListener("change", async () => {
-          const key = checkbox.dataset.homeVisibility;
-          const visible = checkbox.checked;
-          checkbox.disabled = true;
-          try {
-            await ctx.api("/api/admin/settings", {
-              method: "POST",
-              body: { home_visibility: { [key]: visible } },
-            });
-            current[key] = visible;
-            ctx.state.bootstrap.home_visibility = { ...ctx.state.bootstrap.home_visibility, [key]: visible };
-            ctx.impact("medium");
-            ctx.setMessage("success", visible ? "Пункт показано на головному екрані." : "Пункт приховано з головного екрана.");
-          } catch (error) {
-            checkbox.checked = !visible;
-            ctx.setMessage("error", error.message);
-          } finally {
-            checkbox.disabled = false;
-          }
-        });
-      });
-    }
-
-    if (casesInput) casesInput.value = String(payload.price_cases);
-    if (fullInput) fullInput.value = String(payload.price_full);
-    if (tqCheckbox) {
-      tqCheckbox.checked = Boolean(payload.test_questions_visible);
-      tqCheckbox.addEventListener("change", async () => {
-        const visible = tqCheckbox.checked;
-        tqCheckbox.disabled = true;
-        try {
-          await ctx.api("/api/admin/settings", {
-            method: "POST",
-            body: { test_questions_visible: visible },
-          });
-          ctx.impact("medium");
-          ctx.setMessage("success", visible ? "Тестові питання видимі для підписників." : "Тестові питання приховані.");
-          await ctx.loadBootstrap();
-        } catch (error) {
-          tqCheckbox.checked = !visible;
-          ctx.setMessage("error", error.message);
-        } finally {
-          tqCheckbox.disabled = false;
-        }
-      });
-    }
-
-    const contactInput = document.querySelector("#admin-contact-url");
-    if (contactInput) {
-      contactInput.value = payload.admin_contact_url || "";
-      const contactWrap = document.querySelector("#admin-contact-save-wrap");
-      if (contactWrap) {
-        contactWrap.innerHTML = "";
-        contactWrap.append(
-          ctx.actionButton("Зберегти контакт", async () => {
-            const val = contactInput.value.trim();
-            try {
-              await ctx.api("/api/admin/settings", { method: "POST", body: { admin_contact_url: val } });
-              ctx.impact("medium");
-              ctx.setMessage("success", "Контакт збережено.");
-              await ctx.loadBootstrap();
-            } catch (error) {
-              ctx.setMessage("error", error.message);
-            }
-          }, "block"),
-        );
-      }
-    }
-
-    const wrap = document.querySelector("#settings-save-wrap");
-    if (wrap) {
-      wrap.innerHTML = "";
-      wrap.append(
-        ctx.actionButton(
-          "Зберегти ціни",
-          async () => {
-            const cases = parseInt(document.querySelector("#price-cases")?.value, 10);
-            const full = parseInt(document.querySelector("#price-full")?.value, 10);
-            if (!cases || cases < 1 || !full || full < 1) {
-              ctx.setMessage("error", "Введіть коректні значення (ціле число ≥ 1).");
-              return;
-            }
-            try {
-              await ctx.api("/api/admin/settings", {
-                method: "POST",
-                body: { price_cases: cases, price_full: full },
-              });
-              ctx.impact("medium");
-              ctx.setMessage("success", "Ціни збережено.");
-              await ctx.loadBootstrap();
-            } catch (error) {
-              ctx.setMessage("error", error.message);
-            }
-          },
-          "block",
-        ),
-      );
-    }
-  } catch (error) {
-    ctx.setMessage("error", error.message);
-  }
-}
-
 /* ===================== ADMIN TEST EXAM QUESTIONS ===================== */
 let testQSearchTimer = 0;
 let testQRequestId = 0;
@@ -1190,7 +998,7 @@ export function renderAdminGlobalSearch(ctx) {
       <div id="global-search-results">
         <div class="empty empty--inline">
           <h2>Введіть запит</h2>
-          <p>Шукає одночасно в ОК-модулях, кейсах і тестових питаннях.</p>
+          <p>Шукає одночасно в усіх розділах і банках питань.</p>
         </div>
       </div>
     </section>
@@ -1218,7 +1026,7 @@ export function renderAdminGlobalSearch(ctx) {
     const q = e.target.value.trim();
     if (q.length < 3) {
       currentQuery = "";
-      results.innerHTML = `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Шукає в ОК-модулях, кейсах і тестових питаннях.</p></div>`;
+      results.innerHTML = `<div class="empty empty--inline"><h2>Введіть запит</h2><p>Шукає в усіх розділах і банках питань.</p></div>`;
       return;
     }
     results.innerHTML = `<div class="empty empty--inline"><h2>Шукаємо…</h2></div>`;
@@ -1228,8 +1036,9 @@ export function renderAdminGlobalSearch(ctx) {
 
 function renderGlobalSearchResults(ctx, data, container) {
   container.innerHTML = "";
+  const attestationItems = data.attestation || [];
 
-  const total = data.ok.length + data.cases.length + data.test.length;
+  const total = data.ok.length + attestationItems.length + data.cases.length + data.test.length;
   if (!total) {
     container.innerHTML = `<div class="empty empty--inline"><h2>Нічого не знайдено</h2><p>Спробуйте інший текст.</p></div>`;
     return;
@@ -1262,9 +1071,23 @@ function renderGlobalSearchResults(ctx, data, container) {
   };
 
   if (data.ok.length) {
-    addSection("ОК-модулі", data.ok, (item) =>
+    addSection("Навчальні питання", data.ok, (item) =>
       makeRow("edit", "purple", item.question, item.ok || item.topic || "Без модуля", () => {
         ctx.state.adminQuestionViewItem = { type: "ok", id: item.id, source: item.ok || item.topic || "" };
+        ctx.navigate("admin-question-view");
+      })
+    );
+  }
+
+  if (attestationItems.length) {
+    addSection("Розділи з питаннями", attestationItems, (item) =>
+      makeRow("document", "blue", item.question, [item.bank_title, item.topic].filter(Boolean).join(" · "), () => {
+        ctx.state.adminQuestionViewItem = {
+          type: item.bank_id ? "attestation-db" : "attestation",
+          id: item.id,
+          bankId: item.bank_id || null,
+          source: item.bank_title || item.topic || "",
+        };
         ctx.navigate("admin-question-view");
       })
     );
@@ -1295,13 +1118,16 @@ export function renderAdminQuestionView(ctx) {
   const item = ctx.state.adminQuestionViewItem;
   if (!item) { ctx.goBack(); return; }
 
-  if (item.type === "ok") {
+  if (["ok", "attestation", "attestation-db"].includes(item.type)) {
     ctx.refs.mainPanel.innerHTML = `
       <section class="screen-content">
         <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
       </section>
     `;
-    void ctx.api(`/api/admin/questions/${item.id}`).then((payload) => {
+    const detailUrl = item.type === "attestation-db"
+      ? `/api/admin/attestation-banks/${item.bankId}/questions/${item.id}`
+      : `/api/admin/questions/${item.id}`;
+    void ctx.api(detailUrl).then((payload) => {
       const q = payload.question;
       const panel = ctx.refs.mainPanel;
       panel.innerHTML = `

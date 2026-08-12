@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260812-order-sync-01";
+import { state } from "./core/state.js?v=20260812-global-search-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260812-no-haptics-01";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -45,7 +45,6 @@ import {
   loadAdminCases,
   loadAdminAttestationBanks,
   loadAdminQuestions,
-  loadAdminSettings,
   loadAdminTestQuestions,
   loadAdminUserDetail,
   loadAdminUsers,
@@ -57,12 +56,11 @@ import {
   renderAdminQuestionDetail,
   renderAdminQuestionView,
   renderAdminQuestions,
-  renderAdminSettings,
   renderAdminTestQuestions,
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260812-section-drag-01";
+} from "./screens/admin.js?v=20260812-global-search-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,
@@ -73,7 +71,7 @@ import {
   loadAdminAttestationQuestion,
   renderAdminAttestationBank,
   renderAdminAttestationQuestion,
-} from "./admin_attestation_banks.js?v=20260812-sections-01";
+} from "./admin_attestation_banks.js?v=20260812-global-search-01";
 import {
   loadAdminSectionTopics,
   renderAdminSection,
@@ -113,7 +111,6 @@ const PROTOTYPE_SCREENS = new Set([
   "admin-question-view",
   "admin-cases",
   "admin-attestation-banks",
-  "admin-attestation-bank",
   "admin-attestation-question",
   "admin-section",
   "admin-section-settings",
@@ -121,7 +118,6 @@ const PROTOTYPE_SCREENS = new Set([
   "admin-section-topics",
   "admin-section-topic-edit",
   "admin-section-questions",
-  "admin-settings",
   "admin-test-questions",
 ]);
 
@@ -169,7 +165,6 @@ function createContext() {
     loadAdminUserDetail: (userId) => loadAdminUserDetail(createContext(), userId),
     loadAdminQuestions: (page = state.adminQuestionsPage) => loadAdminQuestions(createContext(), page),
     loadAdminCases: () => loadAdminCases(createContext()),
-    loadAdminSettings: () => loadAdminSettings(createContext()),
     loadAdminTestQuestions: (offset = state.testQOffset || 0) => loadAdminTestQuestions(createContext(), offset),
     loadQuestionDetail: (questionId) => loadQuestionDetail(createContext(), questionId),
     runQuestionSearch: (query) => runQuestionSearch(createContext(), query),
@@ -292,11 +287,9 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
   if (screen === "admin-attestation-banks") void loadAdminAttestationBanks(createContext());
-  if (screen === "admin-attestation-bank") void loadAdminAttestationBank(createContext(), state.attestationAdminOffset || 0);
   if (screen === "admin-attestation-question") void loadAdminAttestationQuestion(createContext());
   if (screen === "admin-section-topics") void loadAdminSectionTopics(createContext());
   if (screen === "admin-section-questions") void loadAdminAttestationBank(createContext(), state.attestationAdminOffset || 0);
-  if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
   if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
   if (screen === "cases") void loadCases(createContext());
@@ -395,7 +388,6 @@ function render() {
     case "admin-question-view":    renderAdminQuestionView(ctx); break;
     case "admin-cases":            renderAdminCases(ctx); break;
     case "admin-attestation-banks": renderAdminAttestationBanks(ctx); break;
-    case "admin-attestation-bank": renderAdminAttestationBank(ctx); break;
     case "admin-attestation-question": renderAdminAttestationQuestion(ctx); break;
     case "admin-section": renderAdminSection(ctx); break;
     case "admin-section-settings": renderAdminSectionSettings(ctx); break;
@@ -403,7 +395,6 @@ function render() {
     case "admin-section-topics": renderAdminSectionTopics(ctx); break;
     case "admin-section-topic-edit": renderAdminSectionTopicEdit(ctx); break;
     case "admin-section-questions": renderAdminAttestationBank(ctx); break;
-    case "admin-settings":      renderAdminSettings(ctx); break;
     case "admin-test-questions": renderAdminTestQuestions(ctx); break;
     default:
       state.currentScreen = "home";

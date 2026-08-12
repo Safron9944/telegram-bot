@@ -2325,17 +2325,41 @@ async def api_admin_global_search(q: str = "", limit: int = 10, auth: AuthContex
         require_http(400, "short_query", "Введіть щонайменше 3 символи для пошуку.")
     per = max(1, min(int(limit), 20))
 
-    case_rows, test_data = await asyncio.gather(
+    case_rows, test_data, managed_attestation_rows, stage_one_deleted = await asyncio.gather(
         runtime.store.search_case_questions_all(q, limit=per),
         runtime.store.search_test_exam_questions(q, limit=per),
+        runtime.store.search_attestation_questions_all(q, limit=per),
+        runtime.store.get_setting("attestation_stage_1_deleted", "0"),
     )
 
-    ok_ids = find_question_ids_by_title(runtime.qb, q, limit=per)
+    runtime_attestation = {
+        int(qid): bank
+        for bank in runtime.qb.attestation_banks.values()
+        for qid in bank.qids
+    }
+    managed_runtime_ids = {
+        qid for qid, bank in runtime_attestation.items()
+        if bank.db_id is not None
+    }
+    matched_ids = find_question_ids_by_title(runtime.qb, q, limit=per * 2)
     ok_items = []
-    for qid in ok_ids:
+    bundled_attestation_items = []
+    for qid in matched_ids:
+        if qid in managed_runtime_ids:
+            continue
         qobj = runtime.qb.by_id.get(int(qid))
-        if qobj:
-            ok_items.append({"id": int(qid), "question": qobj.question, "topic": qobj.topic, "ok": qobj.ok, "level": qobj.level})
+        if not qobj:
+            continue
+        bank = runtime_attestation.get(int(qid))
+        if bank and bank.slug == "stage-1" and stage_one_deleted == "1":
+            continue
+        item = {"id": int(qid), "question": qobj.question, "topic": qobj.topic, "ok": qobj.ok, "level": qobj.level, "qnum": qobj.qnum}
+        if bank:
+            bundled_attestation_items.append(item | {"bank_slug": bank.slug, "bank_title": bank.title})
+        else:
+            ok_items.append(item)
+    ok_items = ok_items[:per]
+    bundled_attestation_items = bundled_attestation_items[:per]
 
     case_items = [serialize_case_question(r) | {"case_number": r.get("case_number", "")} for r in case_rows]
     test_items = [
@@ -2343,7 +2367,27 @@ async def api_admin_global_search(q: str = "", limit: int = 10, auth: AuthContex
         for r in test_data["items"]
     ]
 
-    return {"query": q, "ok": ok_items, "cases": case_items, "test": test_items}
+    managed_attestation_items = [
+        {
+            "id": int(row["id"]),
+            "bank_id": int(row["bank_id"]),
+            "bank_slug": row.get("bank_slug", ""),
+            "bank_title": row.get("bank_title", ""),
+            "bank_status": row.get("bank_status", ""),
+            "qnum": row.get("qnum"),
+            "topic": row.get("topic", ""),
+            "question": row.get("question", ""),
+        }
+        for row in managed_attestation_rows
+    ]
+
+    return {
+        "query": q,
+        "ok": ok_items,
+        "attestation": bundled_attestation_items + managed_attestation_items,
+        "cases": case_items,
+        "test": test_items,
+    }
 
 
 @app.get("/api/admin/test-exam-questions")
