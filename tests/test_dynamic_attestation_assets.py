@@ -20,6 +20,9 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         self.assertIn("section.blocks", user)
         self.assertIn("openAttestationBank", app)
         self.assertIn("attestation-start-error", user)
+        self.assertIn("attestation-preview-start", user)
+        self.assertIn('startAttestationBlock(ctx, "", "preview")', user)
+        self.assertIn("section.preview_count", user)
         styles = (ROOT / "static" / "styles" / "components.css").read_text(encoding="utf-8")
         self.assertIn(".attestation-start-error[hidden]", styles)
 
