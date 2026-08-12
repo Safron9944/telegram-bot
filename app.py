@@ -534,6 +534,8 @@ class MiniAppService:
     def ensure_session_access(self, auth: AuthContext, state: dict[str, Any]) -> None:
         meta = dict(state.get("meta", {}) or {})
         if meta.get("kind") in {"attestation_stage_1", "attestation"}:
+            if meta.get("preview") is True:
+                return
             self.ensure_attestation_access(auth, str(meta.get("bank_slug") or ""))
             return
         self.ensure_access(auth)
@@ -633,6 +635,7 @@ class MiniAppService:
                 "slug": bank.slug,
                 "title": bank.title,
                 "count": len(bank.qids),
+                "preview_count": min(50, len(bank.qids)) if bank.db_id is not None else 0,
                 "topics": len(self.qb.attestation_sections(bank.slug)),
                 "sections": self.qb.attestation_sections(bank.slug),
                 "system": False,
@@ -1139,18 +1142,25 @@ class MiniAppService:
             bank = self.qb.attestation_banks.get(clean_bank_slug)
         if not bank or not bank.published:
             require_http(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
-        self.ensure_attestation_access(auth, clean_bank_slug)
         if not bank.qids:
             require_http(503, "attestation_bank_empty", "У цьому розділі ще немає питань.")
-        section = (payload.section or "").strip()
-        if not section:
-            require_http(400, "attestation_section_required", "Оберіть розділ атестації.")
-        if not self.qb.attestation_section_qids(bank.slug, section):
-            require_http(404, "attestation_section_not_found", "Обраний розділ атестації не знайдено.")
-        qids = self.qb.attestation_block_qids(bank.slug, section, payload.block)
-        if not qids:
-            require_http(404, "attestation_block_not_found", "Обрану частину тесту не знайдено.")
-        block_label = "Випадкові 50" if payload.block == "random" else payload.block
+
+        is_preview = payload.block == "preview" and bank.db_id is not None
+        if is_preview:
+            qids = list(bank.qids[:50])
+            section = "Ознайомчі питання"
+            block_label = f"Перші {len(qids)}"
+        else:
+            self.ensure_attestation_access(auth, clean_bank_slug)
+            section = (payload.section or "").strip()
+            if not section:
+                require_http(400, "attestation_section_required", "Оберіть розділ атестації.")
+            if not self.qb.attestation_section_qids(bank.slug, section):
+                require_http(404, "attestation_section_not_found", "Обраний розділ атестації не знайдено.")
+            qids = self.qb.attestation_block_qids(bank.slug, section, payload.block)
+            if not qids:
+                require_http(404, "attestation_block_not_found", "Обрану частину тесту не знайдено.")
+            block_label = "Випадкові 50" if payload.block == "random" else payload.block
         await self.start_learning_session(
             auth.user_id,
             qids,
@@ -1160,6 +1170,7 @@ class MiniAppService:
                 "bank_slug": bank.slug,
                 "section": section,
                 "block": payload.block,
+                "preview": is_preview,
             },
         )
         return await self.build_session_view(auth)
