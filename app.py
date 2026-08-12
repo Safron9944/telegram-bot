@@ -16,7 +16,15 @@ from typing import Any, Literal
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonWebApp,
+    Message,
+    WebAppInfo,
+)
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -307,6 +315,8 @@ class RuntimeContext:
     bot: Bot | None = None
     dispatcher: Dispatcher | None = None
     polling_task: asyncio.Task | None = None
+    mini_app_notice_task: asyncio.Task | None = None
+    mini_app_notice_status: dict[str, Any] | None = None
 
 
 @dataclass
@@ -1715,36 +1725,80 @@ class MiniAppService:
         return {"question": serialize_question(self.qb.by_id[int(qid)], reveal_answers=True)}
 
 
+MINI_APP_START_TEXT = (
+    "<b>Вітаємо в Test_Customs!</b>\n\n"
+    "Навчання, тестування, кейси та інші розділи доступні в Mini App.\n\n"
+    "Натисніть кнопку нижче, щоб відкрити застосунок."
+)
+MINI_APP_MIGRATION_TEXT = (
+    "<b>Меню перенесено в Mini App</b>\n\n"
+    "Старі кнопки більше не використовуються. Навчання, тестування, кейси та інші розділи "
+    "тепер відкриваються через кнопку нижче."
+)
+
+
+def mini_app_markup(webapp_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Відкрити Mini App", web_app=WebAppInfo(url=webapp_url))]
+        ]
+    )
+
+
+async def ensure_bot_user(runtime: RuntimeContext, telegram_user: Any) -> None:
+    user_id = int(telegram_user.id)
+    await runtime.store.ensure_user(
+        user_id,
+        is_admin=user_id in runtime.admin_ids,
+        first_name=telegram_user.first_name,
+        last_name=telegram_user.last_name,
+    )
+    await runtime.store.start_trial_if_needed(
+        user_id,
+        first_name=telegram_user.first_name,
+        last_name=telegram_user.last_name,
+    )
+
+
+async def run_mini_app_notice(runtime: RuntimeContext) -> None:
+    status = runtime.mini_app_notice_status
+    if status is None or runtime.bot is None:
+        return
+
+    try:
+        user_ids = await runtime.store.list_user_ids()
+        status.update(total=len(user_ids), processed=0)
+        for user_id in user_ids:
+            try:
+                await runtime.bot.send_message(
+                    chat_id=user_id,
+                    text=MINI_APP_MIGRATION_TEXT,
+                    reply_markup=mini_app_markup(runtime.webapp_url),
+                )
+                status["sent"] += 1
+            except TelegramForbiddenError:
+                status["blocked"] += 1
+            except TelegramAPIError:
+                status["failed"] += 1
+            finally:
+                status["processed"] += 1
+            await asyncio.sleep(0.05)
+        status["state"] = "completed"
+    except asyncio.CancelledError:
+        status["state"] = "cancelled"
+        raise
+    except Exception:
+        status["state"] = "failed"
+        status["failed"] += max(0, int(status["total"]) - int(status["processed"]))
+
+
 def build_bot_router(runtime: RuntimeContext) -> Router:
     router = Router()
 
     @router.message(F.text.startswith("/start"))
     async def start(message: Message) -> None:
-        user_id = message.from_user.id
-        is_admin = user_id in runtime.admin_ids
-        await runtime.store.ensure_user(
-            user_id,
-            is_admin=is_admin,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
-        )
-        await runtime.store.start_trial_if_needed(
-            user_id,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name,
-        )
-
-        text = (
-            "<b>Вітаємо в Test_Customs!</b>\n\n"
-            "Тут ви можете готуватися до іспиту з митних компетенцій: навчання, тестування, кейси та митний кодекс.\n\n"
-            "Натисніть кнопку нижче, щоб відкрити застосунок."
-        )
-        markup = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="Відкрити Mini App", web_app=WebAppInfo(url=runtime.webapp_url))]
-            ]
-        )
-        await message.answer(text, reply_markup=markup)
+        await ensure_bot_user(runtime, message.from_user)
+        await message.answer(MINI_APP_START_TEXT, reply_markup=mini_app_markup(runtime.webapp_url))
 
     @router.pre_checkout_query()
     async def pre_checkout(query: PreCheckoutQuery) -> None:
@@ -1785,6 +1839,31 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
         await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
         label = "кейсів та атестації" if tier == "cases" else "повного доступу"
         await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
+
+    @router.callback_query()
+    async def redirect_legacy_callback(query: CallbackQuery) -> None:
+        with suppress(TelegramAPIError):
+            await query.answer("Старе меню перенесено в Mini App.")
+        await ensure_bot_user(runtime, query.from_user)
+        if isinstance(query.message, Message):
+            await query.message.answer(
+                MINI_APP_MIGRATION_TEXT,
+                reply_markup=mini_app_markup(runtime.webapp_url),
+            )
+        elif runtime.bot:
+            await runtime.bot.send_message(
+                query.from_user.id,
+                MINI_APP_MIGRATION_TEXT,
+                reply_markup=mini_app_markup(runtime.webapp_url),
+            )
+
+    @router.message(F.text)
+    async def redirect_legacy_text(message: Message) -> None:
+        await ensure_bot_user(runtime, message.from_user)
+        await message.answer(
+            MINI_APP_MIGRATION_TEXT,
+            reply_markup=mini_app_markup(runtime.webapp_url),
+        )
 
     return router
 
@@ -1853,6 +1932,13 @@ async def lifespan(app: FastAPI):
 
     if bot_token:
         runtime.bot = Bot(bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        with suppress(TelegramAPIError):
+            await runtime.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Відкрити",
+                    web_app=WebAppInfo(url=runtime.webapp_url),
+                )
+            )
         runtime.dispatcher = Dispatcher()
         runtime.dispatcher.include_router(build_bot_router(runtime))
         runtime.polling_task = asyncio.create_task(run_polling(runtime))
@@ -1861,6 +1947,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if runtime.mini_app_notice_task:
+            runtime.mini_app_notice_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await runtime.mini_app_notice_task
         if runtime.polling_task:
             runtime.polling_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -2279,6 +2369,41 @@ async def api_admin_case_delete(case_id: int, auth: AuthContext = Depends(get_au
 @app.get("/api/admin/users")
 async def api_admin_users(offset: int = 0, limit: int = 10, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).list_admin_users(auth, max(0, offset), max(1, min(limit, 50)))
+
+
+@app.get("/api/admin/users/mini-app-notice")
+async def api_admin_mini_app_notice_status(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    return runtime.mini_app_notice_status or {
+        "state": "idle",
+        "total": 0,
+        "processed": 0,
+        "sent": 0,
+        "blocked": 0,
+        "failed": 0,
+    }
+
+
+@app.post("/api/admin/users/mini-app-notice")
+async def api_admin_start_mini_app_notice(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    if not runtime.bot:
+        require_http(503, "bot_unavailable", "Telegram-бот зараз недоступний.")
+    if runtime.mini_app_notice_task and not runtime.mini_app_notice_task.done():
+        require_http(409, "notice_in_progress", "Повідомлення користувачам уже надсилаються.")
+
+    runtime.mini_app_notice_status = {
+        "state": "running",
+        "total": 0,
+        "processed": 0,
+        "sent": 0,
+        "blocked": 0,
+        "failed": 0,
+    }
+    runtime.mini_app_notice_task = asyncio.create_task(run_mini_app_notice(runtime))
+    return runtime.mini_app_notice_status
 
 
 @app.get("/api/admin/users/{user_id}")
