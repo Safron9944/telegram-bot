@@ -10,7 +10,7 @@ SYSTEM_SECTIONS = (
     {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "content_screen": "admin-questions", "content_label": "Банк питань"},
     {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
     {"key": "customs_code", "title": "Митний кодекс", "screen": "customs-code", "icon": "scale", "price": 0},
-    {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "content_screen": "admin-test-questions", "content_label": "Питання"},
+    {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "visible": False, "content_screen": "admin-test-questions", "content_label": "Питання"},
     {"key": "question_search", "title": "Пошук питань", "screen": "question-search", "icon": "search", "price": 250},
     {"key": "support", "title": "Підтримка", "screen": "help", "icon": "support", "price": 0},
 )

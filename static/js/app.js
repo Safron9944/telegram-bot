@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260812-sections-01";
+} from "./screens/user.js?v=20260812-home-restore-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
