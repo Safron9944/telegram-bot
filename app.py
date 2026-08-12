@@ -373,6 +373,7 @@ class AdminAccessUpdateRequest(BaseModel):
 class MiniAppNoticeRequest(BaseModel):
     audience: Literal["all", "selected"] = "all"
     user_ids: list[int] = Field(default_factory=list, max_length=100_000)
+    text: str | None = Field(default=None, max_length=4_000)
 
 
 class QuestionPatchRequest(BaseModel):
@@ -1740,6 +1741,11 @@ MINI_APP_MIGRATION_TEXT = (
     "Старі кнопки більше не використовуються. Навчання, тестування, кейси та інші розділи "
     "тепер відкриваються через кнопку нижче."
 )
+MINI_APP_NOTICE_DEFAULT_TEXT = (
+    "Test_Customs оновлено\n\n"
+    "Навчання, тестування, кейси та інші розділи тепер працюють у Mini App.\n\n"
+    "Натисніть кнопку нижче, щоб відкрити застосунок."
+)
 
 
 def mini_app_markup(webapp_url: str) -> InlineKeyboardMarkup:
@@ -1765,7 +1771,7 @@ async def ensure_bot_user(runtime: RuntimeContext, telegram_user: Any) -> None:
     )
 
 
-async def run_mini_app_notice(runtime: RuntimeContext, user_ids: list[int]) -> None:
+async def run_mini_app_notice(runtime: RuntimeContext, user_ids: list[int], message_text: str) -> None:
     status = runtime.mini_app_notice_status
     if status is None or runtime.bot is None:
         return
@@ -1776,7 +1782,8 @@ async def run_mini_app_notice(runtime: RuntimeContext, user_ids: list[int]) -> N
             try:
                 await runtime.bot.send_message(
                     chat_id=user_id,
-                    text=MINI_APP_MIGRATION_TEXT,
+                    text=message_text,
+                    parse_mode=None,
                     reply_markup=mini_app_markup(runtime.webapp_url),
                 )
                 status["sent"] += 1
@@ -2399,6 +2406,9 @@ async def api_admin_start_mini_app_notice(payload: MiniAppNoticeRequest | None =
         require_http(409, "notice_in_progress", "Повідомлення користувачам уже надсилаються.")
 
     payload = payload or MiniAppNoticeRequest()
+    message_text = (payload.text if payload.text is not None else MINI_APP_NOTICE_DEFAULT_TEXT).strip()
+    if not message_text:
+        require_http(400, "notice_text_required", "Введіть текст повідомлення.")
     registered_ids = await runtime.store.list_user_ids()
     if payload.audience == "selected":
         allowed_ids = set(registered_ids)
@@ -2418,7 +2428,7 @@ async def api_admin_start_mini_app_notice(payload: MiniAppNoticeRequest | None =
         "blocked": 0,
         "failed": 0,
     }
-    runtime.mini_app_notice_task = asyncio.create_task(run_mini_app_notice(runtime, recipient_ids))
+    runtime.mini_app_notice_task = asyncio.create_task(run_mini_app_notice(runtime, recipient_ids, message_text))
     return runtime.mini_app_notice_status
 
 
