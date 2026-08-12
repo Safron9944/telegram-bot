@@ -152,10 +152,17 @@ export function setChrome({ showBack = false } = {}) {
   if (refs.subtitleNode) refs.subtitleNode.textContent = "";
 }
 
+let messageDismissTimer = null;
+
 /**
- * Show a status message at the top of the screen.
+ * Show a status message inside the visible Mini App area.
  */
 export function setMessage(kind, text) {
+  if (messageDismissTimer) {
+    clearTimeout(messageDismissTimer);
+    messageDismissTimer = null;
+  }
+
   if (!text) {
     refs.messagesPanel.hidden = true;
     refs.messagesPanel.innerHTML = "";
@@ -172,7 +179,7 @@ export function setMessage(kind, text) {
   document.querySelector("#dismiss-message")?.addEventListener("click", () => setMessage("", ""));
   // auto-dismiss success messages
   if (kind === "success") {
-    setTimeout(() => setMessage("", ""), 2400);
+    messageDismissTimer = setTimeout(() => setMessage("", ""), 2400);
   }
 }
 
