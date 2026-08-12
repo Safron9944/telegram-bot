@@ -14,7 +14,7 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         self.assertIn("bootstrap.sections", user)
         self.assertIn("data-section-key", user)
         self.assertIn("selectedAttestationBankSlug", state)
-        self.assertIn('screen: "attestation-bank"', user)
+        self.assertIn("screen: section.screen", user)
         self.assertIn('case "attestation-bank"', app)
         self.assertIn("/api/attestation/${bank.slug}/start", user)
         self.assertIn("section.blocks", user)

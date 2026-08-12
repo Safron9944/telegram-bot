@@ -53,6 +53,18 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         keys = [item["key"] for item in items]
         self.assertLess(keys.index("attestation:7"), keys.index("support"))
 
+    async def test_default_order_matches_home_groups_and_move_stays_in_group(self):
+        store = FakeStore()
+        items = await build_sections(store, {}, is_admin=True)
+        self.assertEqual(
+            ["attestation:7", "customs", "cases", "customs_code", "test_questions", "question_search", "support"],
+            [item["key"] for item in items],
+        )
+        self.assertTrue(await move_section(store, "customs", "up"))
+        moved = await build_sections(store, {}, is_admin=True)
+        self.assertEqual(["customs", "attestation:7"], [item["key"] for item in moved if item["group"] == "primary"])
+        self.assertEqual(["cases", "customs_code", "test_questions", "question_search"], [item["key"] for item in moved if item["group"] == "materials"])
+
 
 if __name__ == "__main__":
     unittest.main()

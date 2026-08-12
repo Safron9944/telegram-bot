@@ -14,6 +14,8 @@ class HomeLayoutTests(unittest.TestCase):
         self.assertIn('header: "Допомога"', home)
         self.assertNotIn('header: "Розділи"', home)
         self.assertIn("Митні компетенції, атестація та робота з матеріалами", home)
+        self.assertIn("sections.forEach((section)", home)
+        self.assertIn('section.group === "primary"', home)
 
 
 if __name__ == "__main__":

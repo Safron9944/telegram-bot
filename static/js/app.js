@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260812-sections-01";
+import { state } from "./core/state.js?v=20260812-order-sync-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260812-no-haptics-01";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -13,7 +13,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260812-no-haptics-01";
+} from "./core/ui.js?v=20260812-order-sync-01";
 import {
   loadCaseDetail,
   loadCases,
@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260812-home-restore-01";
+} from "./screens/user.js?v=20260812-order-sync-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -62,7 +62,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260812-sections-01";
+} from "./screens/admin.js?v=20260812-order-sync-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,
@@ -81,7 +81,7 @@ import {
   renderAdminSectionSettings,
   renderAdminSectionTopics,
   renderAdminSectionTopicEdit,
-} from "./admin_sections.js?v=20260812-sections-01";
+} from "./admin_sections.js?v=20260812-order-sync-01";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",
