@@ -5,9 +5,10 @@ export function renderAdminHub(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Адмін</h1>
-      <p class="page-subtitle">Сервісні інструменти.</p>
+      <p class="page-subtitle">Керування застосунком і контентом.</p>
 
       ${ctx.group({
+        header: "Основне",
         children: [
           ctx.cell({
             title: "Користувачі",
@@ -17,25 +18,18 @@ export function renderAdminHub(ctx) {
             screen: "admin-users",
           }),
           ctx.cell({
-            title: "Банк питань",
-            subtitle: "Пошук і редагування",
-            iconName: "edit",
-            tint: "purple",
-            screen: "admin-questions",
-          }),
-          ctx.cell({
-            title: "Питання з APK",
-            subtitle: "Витягнути та створити новий розділ",
-            icon: "APK",
-            tint: "green",
-            screen: "admin-apk-import",
-          }),
-          ctx.cell({
-            title: "Розділи атестації",
-            subtitle: "Видимість, порядок і видалення",
+            title: "Атестації",
+            subtitle: "Імпорт APK, розділи та питання",
             iconName: "document",
             tint: "purple",
             screen: "admin-attestation-banks",
+          }),
+          ctx.cell({
+            title: "Банк питань",
+            subtitle: "Пошук і редагування загальних питань",
+            iconName: "edit",
+            tint: "purple",
+            screen: "admin-questions",
           }),
           ctx.cell({
             title: "Кейси",
@@ -51,9 +45,15 @@ export function renderAdminHub(ctx) {
             tint: "orange",
             screen: "admin-test-questions",
           }),
+        ].join(""),
+      })}
+
+      ${ctx.group({
+        header: "Система",
+        children: [
           ctx.cell({
             title: "Налаштування",
-            subtitle: "Головний екран і тарифи",
+            subtitle: "Інші пункти, тарифи та контакти",
             iconName: "settings",
             tint: "teal",
             screen: "admin-settings",
@@ -77,48 +77,114 @@ export function renderAdminHub(ctx) {
 export function renderAdminAttestationBanks(ctx) {
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
-      <h1 class="page-title">Розділи атестації</h1>
-      <p class="page-subtitle">Усі розділи можна видаляти. Додані розділи також можна впорядковувати й приховувати.</p>
+    <section class="screen-content admin-attestation-overview">
+      <h1 class="page-title">Атестації</h1>
+      <p class="page-subtitle">Усе керування атестаціями в одному місці.</p>
+
       <div class="group">
+        <div class="group__label">Публікація</div>
+        <div class="group__list">
+          <div class="cell admin-setting-row">
+            <span class="cell__body">
+              <span class="cell__title">Показувати на головному екрані</span>
+              <span class="cell__subtitle">Головна картка атестації для користувачів</span>
+            </span>
+            <label class="switch">
+              <input id="admin-attestation-home-visible" type="checkbox" disabled />
+              <span class="switch__track"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      ${ctx.group({
+        header: "Додавання",
+        children: ctx.cell({
+          title: "Створити розділ з APK",
+          subtitle: "Витягнути, перевірити та опублікувати питання",
+          icon: "APK",
+          tint: "green",
+          screen: "admin-apk-import",
+        }),
+      })}
+
+      <div class="group">
+        <div class="group__label">Розділи</div>
         <div class="group__list" id="admin-attestation-list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
         </div>
+        <div class="group__footer">Відкрийте розділ, щоб змінити назву, питання, видимість або порядок.</div>
       </div>
     </section>
   `;
+  ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
 
 export async function loadAdminAttestationBanks(ctx) {
   if (ctx.state.currentScreen !== "admin-attestation-banks") return;
   const list = document.querySelector("#admin-attestation-list");
   try {
-    const payload = await ctx.api("/api/admin/attestation-banks");
+    const [payload, settings] = await Promise.all([
+      ctx.api("/api/admin/attestation-banks"),
+      ctx.api("/api/admin/settings"),
+    ]);
     if (!list || ctx.state.currentScreen !== "admin-attestation-banks") return;
-    list.innerHTML = "";
-    payload.items.forEach((bank, index) => {
-      const row = document.createElement("div");
-      row.className = "admin-attestation-row";
-      row.innerHTML = `
-        <div class="admin-attestation-row__info">
-          <strong>${ctx.escapeHtml(bank.title)}</strong>
-          <span>${ctx.escapeHtml(bank.questions_count || 0)} питань · ${bank.system ? "системний розділ" : `позиція ${index}`}</span>
-        </div>
-        <div class="admin-attestation-row__actions"></div>
-      `;
-      const actions = row.querySelector(".admin-attestation-row__actions");
-      const remove = ctx.actionButton("Видалити", async () => {
-        if (!window.confirm(`Видалити «${bank.title}» разом із питаннями?`)) return;
+
+    const homeVisible = document.querySelector("#admin-attestation-home-visible");
+    if (homeVisible) {
+      homeVisible.checked = settings.home_visibility?.attestation !== false;
+      homeVisible.disabled = false;
+      homeVisible.onchange = async () => {
+        const visible = homeVisible.checked;
+        homeVisible.disabled = true;
         try {
-          await ctx.api(`/api/admin/attestation-banks/${bank.id}`, { method: "DELETE" });
-          await loadAdminAttestationBanks(ctx);
-        } catch (error) { ctx.setMessage("error", error.message); }
-      }, "sm");
-      remove.classList.add("btn--danger");
+          await ctx.api("/api/admin/settings", {
+            method: "POST",
+            body: { home_visibility: { attestation: visible } },
+          });
+          ctx.state.bootstrap.home_visibility = {
+            ...ctx.state.bootstrap.home_visibility,
+            attestation: visible,
+          };
+          ctx.setMessage("success", visible ? "Атестацію показано на головному екрані." : "Атестацію приховано з головного екрана.");
+        } catch (error) {
+          homeVisible.checked = !visible;
+          ctx.setMessage("error", error.message);
+        } finally {
+          homeVisible.disabled = false;
+        }
+      };
+    }
+
+    list.innerHTML = "";
+    if (!payload.items.length) {
+      list.innerHTML = '<div class="empty empty--inline"><h2>Розділів ще немає</h2><p>Створіть перший розділ із APK.</p></div>';
+      return;
+    }
+    payload.items.forEach((bank, index) => {
+      const row = document.createElement(bank.system ? "div" : "button");
+      if (!bank.system) row.type = "button";
+      row.className = "cell admin-attestation-bank-cell";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--purple">A${index + 1}</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(bank.title)}</span>
+          <span class="cell__subtitle">${ctx.escapeHtml(bank.questions_count || 0)} питань · ${bank.visible ? "показується" : "приховано"}${bank.system ? " · системний" : ""}</span>
+        </span>
+        ${bank.system ? '<span class="admin-attestation-system-actions"></span>' : '<span class="cell__chevron" aria-hidden="true"></span>'}
+      `;
       if (bank.system) {
-        actions.append(remove);
+        const remove = ctx.actionButton("Видалити", async () => {
+          if (!window.confirm(`Видалити «${bank.title}» разом із питаннями?`)) return;
+          try {
+            await ctx.api(`/api/admin/attestation-banks/${bank.id}`, { method: "DELETE" });
+            await loadAdminAttestationBanks(ctx);
+          } catch (error) { ctx.setMessage("error", error.message); }
+        }, "sm");
+        remove.classList.add("btn--destructive");
+        row.querySelector(".admin-attestation-system-actions").append(remove);
       } else {
-        const manage = ctx.actionButton("Керувати питаннями", async () => {
+        row.addEventListener("click", () => {
           ctx.state.selectedAttestationAdminBankId = Number(bank.id);
           ctx.state.selectedAttestationAdminBank = bank;
           ctx.state.selectedAttestationAdminQuestionId = null;
@@ -126,32 +192,7 @@ export async function loadAdminAttestationBanks(ctx) {
           ctx.state.attestationAdminQuery = "";
           ctx.state.attestationAdminOffset = 0;
           ctx.navigate("admin-attestation-bank");
-        }, "sm");
-        const visibility = document.createElement("label");
-        visibility.className = "admin-attestation-visibility";
-        visibility.innerHTML = `<input type="checkbox" ${bank.visible ? "checked" : ""}><span>Показувати</span>`;
-        visibility.querySelector("input").addEventListener("change", async (event) => {
-          try {
-            await ctx.api(`/api/admin/attestation-banks/${bank.id}/visibility`, {
-              method: "PATCH", body: { visible: event.currentTarget.checked },
-            });
-            await loadAdminAttestationBanks(ctx);
-          } catch (error) { event.currentTarget.checked = !event.currentTarget.checked; ctx.setMessage("error", error.message); }
         });
-        const move = (label, direction) => {
-          const button = ctx.actionButton(label, async () => {
-            try {
-              await ctx.api(`/api/admin/attestation-banks/${bank.id}/move`, { method: "POST", body: { direction } });
-              await loadAdminAttestationBanks(ctx);
-            } catch (error) { ctx.setMessage("error", error.message); }
-          }, "sm");
-          return button;
-        };
-        const up = move("↑ Вище", "up");
-        up.dataset.direction = "up"; // direction: "up"
-        const down = move("↓ Нижче", "down");
-        down.dataset.direction = "down"; // direction: "down"
-        actions.append(manage, visibility, up, down, remove);
       }
       list.append(row);
     });
@@ -856,14 +897,14 @@ export function renderAdminSettings(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Налаштування</h1>
-      <p class="page-subtitle">Головний екран, тарифи та загальні параметри застосунку.</p>
+      <p class="page-subtitle">Загальні параметри застосунку.</p>
 
       <div class="group">
-        <div class="group__label">Головний екран для всіх користувачів</div>
+        <div class="group__label">Інші пункти головного екрана</div>
         <div class="group__list" id="home-visibility-list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
         </div>
-        <div class="group__footer">Приховування прибирає пункт із головного екрана, але не видаляє дані розділу.</div>
+        <div class="group__footer">Атестації та їх видимість керуються в окремому розділі «Атестації».</div>
       </div>
 
       <div class="group" style="margin-top: 16px;">
@@ -924,7 +965,6 @@ export async function loadAdminSettings(ctx) {
 
     if (homeVisibilityList) {
       const definitions = [
-        ["attestation", "Атестація посадових осіб", "Основна картка першого етапу атестації"],
         ["customs", "Митні компетенції", "Основна картка навчання і тестування"],
         ["cases", "Кейси", "Пункт у блоці матеріалів"],
         ["customs_code", "Митний кодекс", "Пункт у блоці матеріалів"],

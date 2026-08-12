@@ -62,6 +62,27 @@ export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestati
         <button class="btn btn--primary" type="submit">Зберегти назву</button>
       </form>
 
+      <div class="group attestation-bank-controls">
+        <div class="group__label">Керування розділом</div>
+        <div class="group__list">
+          <div class="cell admin-setting-row">
+            <span class="cell__body">
+              <span class="cell__title">Показувати користувачам</span>
+              <span class="cell__subtitle">Прихований розділ залишається в базі</span>
+            </span>
+            <label class="switch">
+              <input id="attestation-bank-visible" type="checkbox" ${payload.bank.status === "published" ? "checked" : ""} />
+              <span class="switch__track"></span>
+            </label>
+          </div>
+        </div>
+        <div class="attestation-bank-order-actions">
+          <button class="btn" id="attestation-bank-move-up" type="button">↑ Вище</button>
+          <button class="btn" id="attestation-bank-move-down" type="button">↓ Нижче</button>
+        </div>
+        <button class="btn btn--destructive btn--block" id="attestation-bank-delete" type="button">Видалити розділ</button>
+      </div>
+
       <div class="attestation-bank-toolbar">
         <button class="btn btn--primary btn--block" id="attestation-question-add" type="button">Додати питання</button>
         <form class="attestation-bank-filters" id="attestation-bank-filters">
@@ -124,6 +145,47 @@ export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestati
         ctx.state.selectedAttestationAdminBank = saved;
         ctx.setMessage("success", "Назву розділу збережено.");
         await loadAdminAttestationBank(ctx, payload.offset);
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    });
+    root.querySelector("#attestation-bank-visible").addEventListener("change", async (event) => {
+      const checkbox = event.currentTarget;
+      const visible = checkbox.checked;
+      checkbox.disabled = true;
+      try {
+        const saved = await ctx.api(`${base}/visibility`, {
+          method: "PATCH",
+          body: { visible },
+        });
+        ctx.state.selectedAttestationAdminBank = saved;
+        ctx.setMessage("success", visible ? "Розділ показано користувачам." : "Розділ приховано від користувачів.");
+      } catch (error) {
+        checkbox.checked = !visible;
+        ctx.setMessage("error", error.message);
+      } finally {
+        checkbox.disabled = false;
+      }
+    });
+    const moveBank = async (direction) => {
+      try {
+        await ctx.api(`${base}/move`, { method: "POST", body: { direction } });
+        ctx.setMessage("success", direction === "up" ? "Розділ переміщено вище." : "Розділ переміщено нижче.");
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    };
+    root.querySelector("#attestation-bank-move-up").addEventListener("click", () => void moveBank("up"));
+    root.querySelector("#attestation-bank-move-down").addEventListener("click", () => void moveBank("down"));
+    root.querySelector("#attestation-bank-delete").addEventListener("click", async () => {
+      if (!window.confirm(`Видалити «${payload.bank.title}» разом із усіма питаннями?`)) return;
+      try {
+        await ctx.api(base, { method: "DELETE" });
+        ctx.state.selectedAttestationAdminBankId = null;
+        ctx.state.selectedAttestationAdminBank = null;
+        ctx.state.selectedAttestationAdminQuestionId = null;
+        await ctx.goBack();
+        ctx.setMessage("success", "Розділ видалено.");
       } catch (error) {
         ctx.setMessage("error", error.message);
       }

@@ -14,7 +14,8 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn('"admin-attestation-bank"', app)
         self.assertIn('"admin-attestation-question"', app)
         self.assertIn("renderAdminAttestationQuestion", app)
-        self.assertIn("Керувати питаннями", admin)
+        self.assertIn('title: "Атестації"', admin)
+        self.assertIn("Усе керування атестаціями в одному місці", admin)
         self.assertIn("selectedAttestationAdminQuestionId", state)
 
     def test_cms_supports_search_and_full_question_crud(self):
@@ -26,6 +27,9 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn("Зберегти зміни", module)
         self.assertIn("Видалити питання", module)
         self.assertIn("Додати варіант", module)
+        self.assertIn("Показувати користувачам", module)
+        self.assertIn("Видалити розділ", module)
+        self.assertIn("attestation-bank-move-up", module)
         self.assertIn("attestation-managed-question-form", styles)
         self.assertIn("attestation-bank-filters", styles)
 
