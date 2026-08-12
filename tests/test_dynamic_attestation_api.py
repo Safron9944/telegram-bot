@@ -78,6 +78,29 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual("attestation_access_required", raised.exception.detail["code"])
 
+    async def test_unpaid_user_can_start_only_first_50_as_preview(self):
+        preview_bank = QuestionBank("unused.json")
+        preview_bank.register_attestation_bank(
+            "apk-bank",
+            "APK Bank",
+            [question(index, index) for index in range(1, 81)],
+            db_id=7,
+        )
+        service = MiniAppService(SimpleNamespace(qb=preview_bank, store=self.store))
+        unpaid = AuthContext({}, {"section_access": []}, 79, False)
+
+        result = await service.start_attestation(
+            unpaid, "apk-bank", StartAttestationRequest(section="", block="preview")
+        )
+
+        self.assertEqual(50, result["progress"]["total"])
+        self.assertTrue(self.store.states[79]["meta"]["preview"])
+        with self.assertRaises(HTTPException) as raised:
+            await service.start_attestation(
+                unpaid, "apk-bank", StartAttestationRequest(section="Topic", block="51-80")
+            )
+        self.assertEqual("attestation_access_required", raised.exception.detail["code"])
+
     async def test_missing_runtime_bank_reloads_from_database_and_retries(self):
         store = ReloadingStateStore()
         service = MiniAppService(SimpleNamespace(qb=QuestionBank("unused.json"), store=store))
