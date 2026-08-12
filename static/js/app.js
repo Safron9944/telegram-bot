@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260812-global-search-01";
+import { state } from "./core/state.js?v=20260812-selective-notice-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260812-no-haptics-01";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -60,7 +60,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260812-bot-entry-01";
+} from "./screens/admin.js?v=20260812-selective-notice-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,

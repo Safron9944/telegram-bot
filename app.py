@@ -370,6 +370,11 @@ class AdminAccessUpdateRequest(BaseModel):
     access: Literal["trial", "cases", "full", "none"]
 
 
+class MiniAppNoticeRequest(BaseModel):
+    audience: Literal["all", "selected"] = "all"
+    user_ids: list[int] = Field(default_factory=list, max_length=100_000)
+
+
 class QuestionPatchRequest(BaseModel):
     question: str | None = None
     choices: list[str] | None = None
@@ -1760,13 +1765,12 @@ async def ensure_bot_user(runtime: RuntimeContext, telegram_user: Any) -> None:
     )
 
 
-async def run_mini_app_notice(runtime: RuntimeContext) -> None:
+async def run_mini_app_notice(runtime: RuntimeContext, user_ids: list[int]) -> None:
     status = runtime.mini_app_notice_status
     if status is None or runtime.bot is None:
         return
 
     try:
-        user_ids = await runtime.store.list_user_ids()
         status.update(total=len(user_ids), processed=0)
         for user_id in user_ids:
             try:
@@ -2386,7 +2390,7 @@ async def api_admin_mini_app_notice_status(auth: AuthContext = Depends(get_auth_
 
 
 @app.post("/api/admin/users/mini-app-notice")
-async def api_admin_start_mini_app_notice(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+async def api_admin_start_mini_app_notice(payload: MiniAppNoticeRequest | None = None, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     if not auth.is_admin:
         require_http(403, "forbidden", "Потрібні права адміністратора.")
     if not runtime.bot:
@@ -2394,15 +2398,27 @@ async def api_admin_start_mini_app_notice(auth: AuthContext = Depends(get_auth_c
     if runtime.mini_app_notice_task and not runtime.mini_app_notice_task.done():
         require_http(409, "notice_in_progress", "Повідомлення користувачам уже надсилаються.")
 
+    payload = payload or MiniAppNoticeRequest()
+    registered_ids = await runtime.store.list_user_ids()
+    if payload.audience == "selected":
+        allowed_ids = set(registered_ids)
+        requested_ids = dict.fromkeys(int(user_id) for user_id in payload.user_ids if int(user_id) > 0)
+        recipient_ids = [user_id for user_id in requested_ids if user_id in allowed_ids]
+        if not recipient_ids:
+            require_http(400, "notice_users_required", "Оберіть хоча б одного користувача.")
+    else:
+        recipient_ids = registered_ids
+
     runtime.mini_app_notice_status = {
         "state": "running",
-        "total": 0,
+        "audience": payload.audience,
+        "total": len(recipient_ids),
         "processed": 0,
         "sent": 0,
         "blocked": 0,
         "failed": 0,
     }
-    runtime.mini_app_notice_task = asyncio.create_task(run_mini_app_notice(runtime))
+    runtime.mini_app_notice_task = asyncio.create_task(run_mini_app_notice(runtime, recipient_ids))
     return runtime.mini_app_notice_status
 
 

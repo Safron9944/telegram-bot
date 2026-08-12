@@ -217,14 +217,18 @@ export function renderAdminUsers(ctx) {
       <div class="group">
         <div class="group__label">Повідомлення</div>
         <div class="group__list">
-          <button class="cell" id="admin-mini-app-notice" type="button">
-            <span class="cell__icon cell__icon--blue">${ctx.lineIcon("support")}</span>
-            <span class="cell__body">
-              <span class="cell__title">Повідомити про Mini App</span>
-              <span class="cell__subtitle" id="admin-mini-app-notice-status">Надіслати користувачам актуальну кнопку входу</span>
-            </span>
-            <span class="cell__chevron" aria-hidden="true"></span>
-          </button>
+          <div class="admin-notice-controls">
+            <div class="segmented" role="group" aria-label="Кому надіслати повідомлення">
+              <button class="segmented__btn" id="admin-notice-all" type="button">Усім</button>
+              <button class="segmented__btn" id="admin-notice-selected" type="button">Вибраним</button>
+            </div>
+            <div class="admin-notice-scope-row">
+              <span id="admin-mini-app-notice-scope"></span>
+              <button class="admin-notice-clear" id="admin-notice-clear" type="button">Очистити</button>
+            </div>
+            <button class="btn btn--primary btn--block" id="admin-mini-app-notice" type="button">Надіслати повідомлення</button>
+            <div class="admin-notice-result" id="admin-mini-app-notice-status" aria-live="polite"></div>
+          </div>
         </div>
       </div>
 
@@ -240,12 +244,42 @@ export function renderAdminUsers(ctx) {
     </section>
   `;
 
+  document.querySelector("#admin-notice-all")?.addEventListener("click", () => {
+    ctx.state.adminNoticeAudience = "all";
+    updateMiniAppNoticeControls(ctx);
+    void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+  });
+  document.querySelector("#admin-notice-selected")?.addEventListener("click", () => {
+    ctx.state.adminNoticeAudience = "selected";
+    updateMiniAppNoticeControls(ctx);
+    void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+  });
+  document.querySelector("#admin-notice-clear")?.addEventListener("click", () => {
+    ctx.state.adminNoticeUserIds = [];
+    updateMiniAppNoticeControls(ctx);
+    void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+  });
+
   document.querySelector("#admin-mini-app-notice")?.addEventListener("click", async (event) => {
-    if (!window.confirm("Надіслати всім користувачам повідомлення з кнопкою входу в Mini App?")) return;
+    const selectedIds = [...new Set(ctx.state.adminNoticeUserIds || [])];
+    const isSelected = ctx.state.adminNoticeAudience === "selected";
+    const recipientCount = isSelected ? selectedIds.length : Number(ctx.state.adminUsersTotal || 0);
+    if (!recipientCount) {
+      ctx.setMessage("error", isSelected ? "Спочатку оберіть користувачів." : "Користувачів ще немає.");
+      return;
+    }
+    const recipientLabel = isSelected ? `вибраним користувачам (${recipientCount})` : `усім користувачам (${recipientCount})`;
+    if (!window.confirm(`Надіслати повідомлення ${recipientLabel}?`)) return;
     const button = event.currentTarget;
     button.disabled = true;
     try {
-      await ctx.api("/api/admin/users/mini-app-notice", { method: "POST" });
+      await ctx.api("/api/admin/users/mini-app-notice", {
+        method: "POST",
+        body: {
+          audience: ctx.state.adminNoticeAudience,
+          user_ids: selectedIds,
+        },
+      });
       await pollMiniAppNotice(ctx);
     } catch (error) {
       ctx.setMessage("error", error.message);
@@ -253,6 +287,24 @@ export function renderAdminUsers(ctx) {
       button.disabled = false;
     }
   });
+  updateMiniAppNoticeControls(ctx);
+}
+
+function updateMiniAppNoticeControls(ctx) {
+  const isSelected = ctx.state.adminNoticeAudience === "selected";
+  const selectedCount = new Set(ctx.state.adminNoticeUserIds || []).size;
+  document.querySelector("#admin-notice-all")?.classList.toggle("is-active", !isSelected);
+  document.querySelector("#admin-notice-selected")?.classList.toggle("is-active", isSelected);
+  const scope = document.querySelector("#admin-mini-app-notice-scope");
+  if (scope) {
+    scope.textContent = isSelected
+      ? `Обрано: ${selectedCount}. Натискайте на користувачів нижче.`
+      : `Отримають усі користувачі: ${ctx.state.adminUsersTotal || "…"}`;
+  }
+  const clear = document.querySelector("#admin-notice-clear");
+  if (clear) clear.hidden = !isSelected || !selectedCount;
+  const send = document.querySelector("#admin-mini-app-notice");
+  if (send) send.disabled = isSelected && !selectedCount;
 }
 
 function renderMiniAppNoticeStatus(payload) {
@@ -265,7 +317,7 @@ function renderMiniAppNoticeStatus(payload) {
   } else if (payload.state === "failed") {
     target.textContent = `Зупинено через помилку · надіслано: ${payload.sent}`;
   } else {
-    target.textContent = "Надіслати користувачам актуальну кнопку входу";
+    target.textContent = "";
   }
 }
 
@@ -287,6 +339,8 @@ export async function loadAdminUsers(ctx, offset = 0) {
     if (ctx.state.currentScreen !== "admin-users") return;
 
     ctx.state.adminUsersOffset = payload.offset;
+    ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.trial) + Number(payload.counts.expired);
+    updateMiniAppNoticeControls(ctx);
 
     const summary = document.querySelector("#admin-users-summary");
     if (summary) {
@@ -312,7 +366,9 @@ export async function loadAdminUsers(ctx, offset = 0) {
     } else {
       list.innerHTML = "";
       payload.items.forEach((item) => {
-        const isSelected = ctx.state.selectedAdminUserId === item.user_id;
+        const selectingRecipients = ctx.state.adminNoticeAudience === "selected";
+        const selectedRecipientIds = new Set(ctx.state.adminNoticeUserIds || []);
+        const isSelected = selectingRecipients && selectedRecipientIds.has(item.user_id);
         const status = adminUserStatus(item.access, item.is_admin);
 
         const row = document.createElement("button");
@@ -324,11 +380,24 @@ export async function loadAdminUsers(ctx, offset = 0) {
             <span class="cell__title">${ctx.escapeHtml(item.display_name)}</span>
             <span class="cell__subtitle">ID ${item.user_id} · ${ctx.escapeHtml(item.access.label)}</span>
           </span>
-          <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
-          <span class="cell__chevron" aria-hidden="true"></span>
+          ${selectingRecipients
+            ? `<span class="admin-notice-check${isSelected ? " is-selected" : ""}" aria-hidden="true">${isSelected ? "✓" : ""}</span>`
+            : `<span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span><span class="cell__chevron" aria-hidden="true"></span>`}
         `;
-        if (isSelected) row.style.background = "var(--bg-fill-soft)";
+        row.classList.toggle("is-notice-selected", isSelected);
         row.addEventListener("click", () => {
+          if (ctx.state.adminNoticeAudience === "selected") {
+            const ids = new Set(ctx.state.adminNoticeUserIds || []);
+            if (ids.has(item.user_id)) ids.delete(item.user_id);
+            else ids.add(item.user_id);
+            ctx.state.adminNoticeUserIds = [...ids];
+            row.classList.toggle("is-notice-selected", ids.has(item.user_id));
+            const check = row.querySelector(".admin-notice-check");
+            check?.classList.toggle("is-selected", ids.has(item.user_id));
+            if (check) check.textContent = ids.has(item.user_id) ? "✓" : "";
+            updateMiniAppNoticeControls(ctx);
+            return;
+          }
           ctx.state.selectedAdminUserId = item.user_id;
           ctx.state.adminUserDetail = null;
           ctx.navigate("admin-user-detail");

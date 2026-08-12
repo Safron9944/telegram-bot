@@ -414,6 +414,64 @@ body.ui-prototype {
   color: #667085;
 }
 
+.ui-prototype .admin-notice-controls {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.ui-prototype .admin-notice-scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ui-prototype .admin-notice-clear {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--navy);
+  font: inherit;
+  font-weight: 750;
+}
+
+.ui-prototype .admin-notice-result {
+  min-height: 18px;
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ui-prototype .admin-notice-result:empty {
+  display: none;
+}
+
+.ui-prototype .admin-notice-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--separator);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.ui-prototype .admin-notice-check.is-selected {
+  border-color: var(--navy);
+  background: var(--navy);
+}
+
+.ui-prototype .cell--admin-user.is-notice-selected {
+  background: var(--bg-fill-soft);
+}
+
 .ui-prototype .admin-user-profile {
   display: flex;
   align-items: center;
