@@ -26,6 +26,12 @@ def make_zip(entries, *, stored=False):
 
 
 class ApkArchiveInspectionTests(unittest.TestCase):
+    def test_default_limits_accept_packages_up_to_100_mib(self):
+        limits = ArchiveLimits()
+
+        self.assertEqual(100 * 1024 * 1024, limits.upload_bytes)
+        self.assertEqual(300 * 1024 * 1024, limits.expanded_bytes)
+
     def test_finds_all_enc_banks_in_direct_apk(self):
         payload = make_zip(
             [

@@ -22,6 +22,7 @@ class AdminApkImportAssetsTests(unittest.TestCase):
             self.assertIn(fragment, module)
         for label in ("Вибрати файл", "Оберіть банк", "Пошук питань", "Правильна відповідь"):
             self.assertIn(label, module)
+        self.assertIn("до 100 MiB", module)
 
     def test_importer_has_touch_friendly_mobile_layout_and_busy_state(self):
         css = (ROOT / "static" / "styles" / "components.css").read_text(encoding="utf-8")

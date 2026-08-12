@@ -104,7 +104,7 @@ async def _read_bounded(file: UploadFile) -> bytes:
         chunks.append(chunk)
         total += len(chunk)
         if total > _LIMIT:
-            _error(413, "upload_size_limit", "APK перевищує 50 MiB.")
+            _error(413, "upload_size_limit", "APK перевищує 100 MiB.")
 
 
 def register_apk_import_routes(

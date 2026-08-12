@@ -18,9 +18,9 @@ class ArchiveInspectionError(ValueError):
 
 @dataclass(frozen=True)
 class ArchiveLimits:
-    upload_bytes: int = 50 * 1024 * 1024
+    upload_bytes: int = 100 * 1024 * 1024
     entries: int = 2000
-    expanded_bytes: int = 150 * 1024 * 1024
+    expanded_bytes: int = 300 * 1024 * 1024
     bank_bytes: int = 10 * 1024 * 1024
     compression_ratio: int = 200
 
@@ -98,7 +98,7 @@ def inspect_package(
 ) -> InspectedPackage:
     raw = bytes(payload)
     if len(raw) > limits.upload_bytes:
-        _fail("upload_size_limit", "Завантажений пакет перевищує 50 MiB.")
+        _fail("upload_size_limit", "Завантажений пакет перевищує 100 MiB.")
 
     suffix = PurePosixPath(filename.replace("\\", "/")).suffix.casefold()
     if suffix not in {".apk", ".xapk", ".apks"}:

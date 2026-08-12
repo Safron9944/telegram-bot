@@ -22,7 +22,7 @@ export function renderAdminApkImport(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content apk-import-screen">
       <h1 class="page-title">Питання з APK</h1>
-      <p class="page-subtitle">APK, XAPK або APKS · до 50 MiB</p>
+      <p class="page-subtitle">APK, XAPK або APKS · до 100 MiB</p>
       <div class="apk-import-content"></div>
       <div class="apk-import-message" role="status" aria-live="polite"></div>
     </section>
@@ -57,7 +57,7 @@ function renderUpload() {
             <span class="cell__chevron" aria-hidden="true"></span>
           </label>
         </div>
-        <div class="group__footer">Максимальний розмір файлу — 50 MiB.</div>
+        <div class="group__footer">Максимальний розмір файлу — 100 MiB.</div>
       </div>
       <input class="apk-file-input" id="apk-file" type="file" accept=".apk,.xapk,.apks" required aria-label="Вибрати APK">
       <button class="btn btn--primary btn--block" type="submit" disabled>Перевірити файл</button>
