@@ -226,6 +226,11 @@ export function renderAdminUsers(ctx) {
               <span id="admin-mini-app-notice-scope"></span>
               <button class="admin-notice-clear" id="admin-notice-clear" type="button">Очистити</button>
             </div>
+            <label class="field" for="admin-notice-text">
+              <span class="field__label">Текст повідомлення</span>
+              <textarea class="textarea admin-notice-textarea" id="admin-notice-text" maxlength="4000">${ctx.escapeHtml(ctx.state.adminNoticeText || "")}</textarea>
+              <span class="admin-notice-counter" id="admin-notice-counter"></span>
+            </label>
             <button class="btn btn--primary btn--block" id="admin-mini-app-notice" type="button">Надіслати повідомлення</button>
             <div class="admin-notice-result" id="admin-mini-app-notice-status" aria-live="polite"></div>
           </div>
@@ -259,6 +264,10 @@ export function renderAdminUsers(ctx) {
     updateMiniAppNoticeControls(ctx);
     void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
   });
+  document.querySelector("#admin-notice-text")?.addEventListener("input", (event) => {
+    ctx.state.adminNoticeText = event.currentTarget.value;
+    updateMiniAppNoticeControls(ctx);
+  });
 
   document.querySelector("#admin-mini-app-notice")?.addEventListener("click", async (event) => {
     const selectedIds = [...new Set(ctx.state.adminNoticeUserIds || [])];
@@ -266,6 +275,11 @@ export function renderAdminUsers(ctx) {
     const recipientCount = isSelected ? selectedIds.length : Number(ctx.state.adminUsersTotal || 0);
     if (!recipientCount) {
       ctx.setMessage("error", isSelected ? "Спочатку оберіть користувачів." : "Користувачів ще немає.");
+      return;
+    }
+    const messageText = String(ctx.state.adminNoticeText || "").trim();
+    if (!messageText) {
+      ctx.setMessage("error", "Введіть текст повідомлення.");
       return;
     }
     const recipientLabel = isSelected ? `вибраним користувачам (${recipientCount})` : `усім користувачам (${recipientCount})`;
@@ -278,6 +292,7 @@ export function renderAdminUsers(ctx) {
         body: {
           audience: ctx.state.adminNoticeAudience,
           user_ids: selectedIds,
+          text: messageText,
         },
       });
       await pollMiniAppNotice(ctx);
@@ -304,7 +319,10 @@ function updateMiniAppNoticeControls(ctx) {
   const clear = document.querySelector("#admin-notice-clear");
   if (clear) clear.hidden = !isSelected || !selectedCount;
   const send = document.querySelector("#admin-mini-app-notice");
-  if (send) send.disabled = isSelected && !selectedCount;
+  const textLength = String(ctx.state.adminNoticeText || "").length;
+  const counter = document.querySelector("#admin-notice-counter");
+  if (counter) counter.textContent = `${textLength} / 4000`;
+  if (send) send.disabled = (isSelected && !selectedCount) || !String(ctx.state.adminNoticeText || "").trim();
 }
 
 function renderMiniAppNoticeStatus(payload) {

@@ -450,6 +450,19 @@ body.ui-prototype {
   display: none;
 }
 
+.ui-prototype .admin-notice-textarea {
+  min-height: 120px;
+  max-height: 280px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.ui-prototype .admin-notice-counter {
+  align-self: flex-end;
+  color: var(--label-tertiary);
+  font-size: 12px;
+}
+
 .ui-prototype .admin-notice-check {
   display: grid;
   place-items: center;

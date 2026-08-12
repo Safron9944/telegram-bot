@@ -18,6 +18,7 @@ export const state = {
   adminNoticeAudience: "all",
   adminNoticeUserIds: [],
   adminUsersTotal: 0,
+  adminNoticeText: "Test_Customs оновлено\n\nНавчання, тестування, кейси та інші розділи тепер працюють у Mini App.\n\nНатисніть кнопку нижче, щоб відкрити застосунок.",
   adminQuestionsPage: 0,
   selectedAdminUserId: null,
   adminUserDetail: null,
