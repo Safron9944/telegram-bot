@@ -45,7 +45,7 @@ export function renderAdminAttestationBanks(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-attestation-overview">
       <h1 class="page-title">Розділи</h1>
-      <p class="page-subtitle">Відкрийте потрібний розділ — кожна дія має окремий екран.</p>
+      <p class="page-subtitle">Затисніть ручку справа і перетягніть розділ на потрібне місце.</p>
 
       <div id="admin-attestation-list">
         <div class="group"><div class="group__list">
@@ -56,6 +56,76 @@ export function renderAdminAttestationBanks(ctx) {
     </section>
   `;
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+}
+
+function enableSectionDrag(ctx, groupList, groupName) {
+  let dragged = null;
+  let initialOrder = "";
+  let pointerId = null;
+
+  const finish = async (cancelled = false) => {
+    if (!dragged) return;
+    const row = dragged;
+    dragged = null;
+    row.classList.remove("admin-section-dragging");
+    document.body.classList.remove("admin-section-drag-active");
+    const keys = Array.from(groupList.querySelectorAll("[data-section-key]")).map((item) => item.dataset.sectionKey);
+    const nextOrder = keys.join("|");
+    pointerId = null;
+    if (cancelled) {
+      await loadAdminAttestationBanks(ctx);
+      return;
+    }
+    if (nextOrder === initialOrder) return;
+    try {
+      const payload = await ctx.api("/api/admin/sections/order", {
+        method: "POST",
+        body: { group: groupName, keys },
+      });
+      ctx.state.bootstrap.sections = payload.items || ctx.state.bootstrap.sections;
+      ctx.setMessage("success", "Новий порядок збережено і застосовано на головній.");
+    } catch (error) {
+      ctx.setMessage("error", error.message);
+      await loadAdminAttestationBanks(ctx);
+    }
+  };
+
+  groupList.querySelectorAll(".admin-section-drag-handle").forEach((handle) => {
+    handle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    handle.addEventListener("pointerdown", (event) => {
+      if (dragged || (event.pointerType === "mouse" && event.button !== 0)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragged = handle.closest("[data-section-key]");
+      pointerId = event.pointerId;
+      initialOrder = Array.from(groupList.querySelectorAll("[data-section-key]")).map((item) => item.dataset.sectionKey).join("|");
+      handle.setPointerCapture?.(pointerId);
+      dragged.classList.add("admin-section-dragging");
+      document.body.classList.add("admin-section-drag-active");
+    });
+
+    handle.addEventListener("pointermove", (event) => {
+      if (!dragged || event.pointerId !== pointerId) return;
+      event.preventDefault();
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-section-key]");
+      if (target && target !== dragged && target.parentElement === groupList) {
+        const rect = target.getBoundingClientRect();
+        groupList.insertBefore(dragged, event.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+      }
+      const edge = 80;
+      if (event.clientY < edge) window.scrollBy(0, -12);
+      if (event.clientY > window.innerHeight - edge) window.scrollBy(0, 12);
+    });
+    handle.addEventListener("pointerup", (event) => {
+      if (event.pointerId === pointerId) void finish();
+    });
+    handle.addEventListener("pointercancel", (event) => {
+      if (event.pointerId === pointerId) void finish(true);
+    });
+  });
 }
 
 export async function loadAdminAttestationBanks(ctx) {
@@ -83,13 +153,14 @@ export async function loadAdminAttestationBanks(ctx) {
       const row = document.createElement("button");
       row.type = "button";
       row.className = "cell admin-attestation-bank-cell";
+      row.dataset.sectionKey = bank.key;
       row.innerHTML = `
         <span class="cell__icon cell__icon--purple">${ctx.lineIcon(bank.icon || "document")}</span>
         <span class="cell__body">
           <span class="cell__title">${ctx.escapeHtml(bank.title)}</span>
           <span class="cell__subtitle">${bank.questions_count == null ? "Системний розділ" : `${ctx.escapeHtml(bank.questions_count)} питань`} · ${bank.visible ? "показується" : "приховано"} · ${ctx.escapeHtml(bank.price)} ⭐</span>
         </span>
-        <span class="cell__chevron" aria-hidden="true"></span>
+        <span class="admin-section-drag-handle" aria-hidden="true" title="Перетягнути">⠿</span>
       `;
       row.addEventListener("click", () => {
           ctx.state.selectedAdminSection = bank;
@@ -103,6 +174,7 @@ export async function loadAdminAttestationBanks(ctx) {
       });
       groupLists.get(bank.group).append(row);
     });
+    groupLists.forEach((groupList, groupName) => enableSectionDrag(ctx, groupList, groupName));
   } catch (error) {
     if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;
   }
