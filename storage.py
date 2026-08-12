@@ -485,6 +485,10 @@ class Storage:
         """, limit, offset)
         return [dict(r) for r in rows]
 
+    async def list_user_ids(self) -> list[int]:
+        rows = await self._fetch("SELECT user_id FROM users ORDER BY user_id")
+        return [int(row["user_id"]) for row in rows]
+
     async def users_access_counts(self) -> dict[str, int]:
         row = await self._fetchrow("""
             SELECT
