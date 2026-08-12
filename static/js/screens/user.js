@@ -37,9 +37,9 @@ function menuIcon(name) {
   return MENU_ICONS[name] || MENU_ICONS.document;
 }
 
-function prototypeMenuCell(ctx, { title, icon, screen, detail = "" }) {
+function prototypeMenuCell(ctx, { title, icon, screen, detail = "", sectionKey = "" }) {
   return `
-    <button class="cell menu-cell" type="button" data-screen-target="${ctx.escapeHtml(screen)}">
+    <button class="cell menu-cell" type="button" data-screen-target="${ctx.escapeHtml(screen)}"${sectionKey ? ` data-section-key="${ctx.escapeHtml(sectionKey)}"` : ""}>
       <span class="cell__icon menu-cell__icon">${menuIcon(icon)}</span>
       <span class="cell__body">
         <span class="cell__title">${ctx.escapeHtml(title)}</span>
@@ -50,9 +50,9 @@ function prototypeMenuCell(ctx, { title, icon, screen, detail = "" }) {
   `;
 }
 
-function prototypeFeature(ctx, { title, icon, screen, action, bankSlug = "" }) {
+function prototypeFeature(ctx, { title, icon, screen, action, bankSlug = "", sectionKey = "" }) {
   return `
-    <button class="feature-card" type="button" data-screen-target="${ctx.escapeHtml(screen)}"${bankSlug ? ` data-attestation-bank="${ctx.escapeHtml(bankSlug)}"` : ""}>
+    <button class="feature-card" type="button" data-screen-target="${ctx.escapeHtml(screen)}"${bankSlug ? ` data-attestation-bank="${ctx.escapeHtml(bankSlug)}"` : ""}${sectionKey ? ` data-section-key="${ctx.escapeHtml(sectionKey)}"` : ""}>
       <span class="feature-card__topline">
         <span class="feature-card__icon">${menuIcon(icon)}</span>
         <span class="feature-card__copy">
@@ -97,41 +97,92 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 
 /* ===================== HOME ===================== */
 export function renderHome(ctx) {
-  const { user } = ctx.state.bootstrap;
-  const sections = (ctx.state.bootstrap.sections || []).filter((item) => item.visible);
-  const sectionRows = sections.map((item) => `
-    <button class="cell menu-cell" type="button" data-home-section="${ctx.escapeHtml(item.key)}">
-      <span class="cell__icon menu-cell__icon">${menuIcon(item.icon)}</span>
-      <span class="cell__body">
-        <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-        ${!item.has_access ? `<span class="cell__subtitle">Відкрити назавжди · ${ctx.escapeHtml(item.price)} ⭐</span>` : ""}
-      </span>
-      ${!item.has_access ? `<span class="cell__detail">${ctx.escapeHtml(item.price)} ⭐</span>` : ""}
-      <span class="cell__chevron" aria-hidden="true"></span>
-    </button>`).join("");
+  const { user, catalog } = ctx.state.bootstrap;
+  const sections = ctx.state.bootstrap.sections || [];
+  const byKey = new Map(sections.map((item) => [item.key, item]));
+  const dynamicBySlug = new Map(
+    sections.filter((item) => item.bank_slug).map((item) => [item.bank_slug, item]),
+  );
+  const primaryItems = [];
+  const materialItems = [];
+  const helpItems = [];
+
+  (catalog.attestation_banks || []).forEach((bank) => {
+    const section = dynamicBySlug.get(bank.slug);
+    if (section && !section.visible) return;
+    primaryItems.push(prototypeFeature(ctx, {
+      title: section?.title || bank.title,
+      icon: "document",
+      screen: "attestation-bank",
+      action: "Перейти до тестування",
+      bankSlug: bank.slug,
+      sectionKey: section?.key || "",
+    }));
+  });
+
+  const addFeature = (key, fallbackTitle, icon, screen, action) => {
+    const section = byKey.get(key);
+    if (section?.visible === false) return;
+    primaryItems.push(prototypeFeature(ctx, {
+      title: section?.title || fallbackTitle, icon, screen, action, sectionKey: key,
+    }));
+  };
+  const addMaterial = (key, fallbackTitle, icon, screen) => {
+    const section = byKey.get(key);
+    if (section?.visible === false) return;
+    materialItems.push(prototypeMenuCell(ctx, {
+      title: section?.title || fallbackTitle, icon, screen, sectionKey: key,
+    }));
+  };
+
+  addFeature("customs", "Митні компетенції", "graduation", "customs", "Відкрити розділ");
+  addMaterial("cases", "Кейси", "folder", "cases");
+  addMaterial("customs_code", "Митний кодекс", "scale", "customs-code");
+  addMaterial("test_questions", "Тестові питання", "clipboard", "test-exam-questions");
+  const questionSearch = byKey.get("question_search");
+  if (user.is_admin || questionSearch?.has_access) {
+    addMaterial("question_search", "Пошук питань", "search", "question-search");
+  }
+
+  const support = byKey.get("support");
+  if (support?.visible !== false) {
+    helpItems.push(prototypeMenuCell(ctx, {
+      title: support?.title || "Підтримка", icon: "support", screen: "help", sectionKey: "support",
+    }));
+  }
+  if (user.is_admin) {
+    helpItems.push(prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }));
+  }
 
   ctx.setChrome({ showBack: false });
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content screen-content--home">
       <h1 class="page-title">Головна</h1>
-      <p class="page-subtitle">Усі доступні матеріали в одному впорядкованому списку.</p>
-      ${sections.length ? ctx.group({ header: "Розділи", children: sectionRows }) : '<div class="empty empty--inline"><h2>Розділів поки немає</h2></div>'}
-      ${user.is_admin ? ctx.group({ header: "Керування", children: prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }) }) : ""}
+      <p class="page-subtitle">Митні компетенції, атестація та робота з матеріалами — в одному середовищі.</p>
+
+      ${primaryItems.length ? `<div class="home-primary">${primaryItems.join("")}</div>` : ""}
+
+      ${materialItems.length ? ctx.group({ header: "Матеріали", children: materialItems.join("") }) : ""}
+
+      ${helpItems.length ? ctx.group({ header: "Допомога", children: helpItems.join("") }) : ""}
     </section>
   `;
 
-  ctx.refs.mainPanel.querySelectorAll("[data-home-section]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const section = sections.find((item) => item.key === button.dataset.homeSection);
-      if (!section) return;
+  ctx.refs.mainPanel.querySelectorAll("[data-section-key]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const section = byKey.get(button.dataset.sectionKey);
       if (!section.has_access) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
         void ctx.openPayment({ section_key: section.key });
-        return;
       }
-      ctx.state.selectedAttestationBankSlug = section.bank_slug || null;
+    });
+  });
+  ctx.refs.mainPanel.querySelectorAll("[data-attestation-bank]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ctx.state.selectedAttestationBankSlug = button.dataset.attestationBank;
       ctx.state.selectedAttestationSection = null;
-      ctx.navigate(section.screen);
     });
   });
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });

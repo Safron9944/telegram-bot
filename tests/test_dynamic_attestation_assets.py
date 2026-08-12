@@ -12,9 +12,9 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         state = (ROOT / "static" / "js" / "core" / "state.js").read_text(encoding="utf-8")
 
         self.assertIn("bootstrap.sections", user)
-        self.assertIn("data-home-section", user)
+        self.assertIn("data-section-key", user)
         self.assertIn("selectedAttestationBankSlug", state)
-        self.assertIn("section.screen", user)
+        self.assertIn('screen: "attestation-bank"', user)
         self.assertIn('case "attestation-bank"', app)
         self.assertIn("/api/attestation/${bank.slug}/start", user)
         self.assertIn("section.blocks", user)
