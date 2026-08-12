@@ -485,6 +485,19 @@ body.ui-prototype {
   background: var(--bg-fill-soft);
 }
 
+.ui-prototype .attestation-preview-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ui-prototype .attestation-preview-card p {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .ui-prototype .admin-user-profile {
   display: flex;
   align-items: center;
