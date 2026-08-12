@@ -47,20 +47,29 @@ class MiniAppNoticeTests(unittest.IsolatedAsyncioTestCase):
             "failed": 0,
         }
         runtime = SimpleNamespace(
-            store=SimpleNamespace(list_user_ids=AsyncMock(return_value=[101, 202])),
+            store=SimpleNamespace(),
             bot=SimpleNamespace(send_message=AsyncMock()),
             webapp_url="https://example.test/app",
             mini_app_notice_status=status,
         )
 
         with patch("app.asyncio.sleep", new=AsyncMock()):
-            await run_mini_app_notice(runtime)
+            await run_mini_app_notice(runtime, [101, 202])
 
         self.assertEqual("completed", status["state"])
         self.assertEqual(2, status["total"])
         self.assertEqual(2, status["processed"])
         self.assertEqual(2, status["sent"])
         self.assertEqual([101, 202], [call.kwargs["chat_id"] for call in runtime.bot.send_message.await_args_list])
+
+    def test_admin_notice_supports_all_or_selected_users(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+
+        self.assertIn('audience: Literal["all", "selected"]', app)
+        self.assertIn('payload.audience == "selected"', app)
+        self.assertIn('audience: ctx.state.adminNoticeAudience', admin)
+        self.assertIn('user_ids: selectedIds', admin)
 
 
 if __name__ == "__main__":
