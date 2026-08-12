@@ -40,6 +40,9 @@ const CELL_ICONS = {
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/>',
   folder: '<path d="M3 5h6l2 2h10v12H3Z"/>',
   document: '<path d="M6 2h9l5 5v15H6Z"/><path d="M14 2v6h6M9 13h8M9 17h8"/>',
+  graduation: '<path d="m2 9 10-5 10 5-10 5Z"/><path d="M6 11.5V16c3 3 9 3 12 0v-4.5M22 9v6"/>',
+  scale: '<path d="M12 3v18M5 6h14M7 6l-4 7h8L7 6ZM17 6l-4 7h8l-4-7ZM7 21h10"/>',
+  clipboard: '<path d="M9 4h6l1 3H8l1-3Z"/><path d="M8 5H5v17h14V5h-3M8 12h8M8 16h8"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
 };

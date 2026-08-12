@@ -100,56 +100,36 @@ export function renderHome(ctx) {
   const { user, catalog } = ctx.state.bootstrap;
   const sections = ctx.state.bootstrap.sections || [];
   const byKey = new Map(sections.map((item) => [item.key, item]));
-  const dynamicBySlug = new Map(
-    sections.filter((item) => item.bank_slug).map((item) => [item.bank_slug, item]),
-  );
   const primaryItems = [];
   const materialItems = [];
   const helpItems = [];
 
-  (catalog.attestation_banks || []).forEach((bank) => {
-    const section = dynamicBySlug.get(bank.slug);
-    if (section && !section.visible) return;
-    primaryItems.push(prototypeFeature(ctx, {
-      title: section?.title || bank.title,
-      icon: "document",
-      screen: "attestation-bank",
-      action: "Перейти до тестування",
-      bankSlug: bank.slug,
-      sectionKey: section?.key || "",
-    }));
+  const catalogBySlug = new Map((catalog.attestation_banks || []).map((bank) => [bank.slug, bank]));
+  sections.forEach((section) => {
+    if (!section.visible) return;
+    if (section.key === "question_search" && !user.is_admin && !section.has_access) return;
+    if (section.group === "primary") {
+      const bank = section.bank_slug ? catalogBySlug.get(section.bank_slug) : null;
+      if (section.kind === "attestation" && !bank) return;
+      primaryItems.push(prototypeFeature(ctx, {
+        title: section.title,
+        icon: section.icon,
+        screen: section.screen,
+        action: section.kind === "attestation" ? "Перейти до тестування" : "Відкрити розділ",
+        bankSlug: section.bank_slug || "",
+        sectionKey: section.key,
+      }));
+      return;
+    }
+    const cell = prototypeMenuCell(ctx, {
+      title: section.title,
+      icon: section.icon,
+      screen: section.screen,
+      sectionKey: section.key,
+    });
+    if (section.group === "materials") materialItems.push(cell);
+    if (section.group === "help") helpItems.push(cell);
   });
-
-  const addFeature = (key, fallbackTitle, icon, screen, action) => {
-    const section = byKey.get(key);
-    if (section?.visible === false) return;
-    primaryItems.push(prototypeFeature(ctx, {
-      title: section?.title || fallbackTitle, icon, screen, action, sectionKey: key,
-    }));
-  };
-  const addMaterial = (key, fallbackTitle, icon, screen) => {
-    const section = byKey.get(key);
-    if (section?.visible === false) return;
-    materialItems.push(prototypeMenuCell(ctx, {
-      title: section?.title || fallbackTitle, icon, screen, sectionKey: key,
-    }));
-  };
-
-  addFeature("customs", "Митні компетенції", "graduation", "customs", "Відкрити розділ");
-  addMaterial("cases", "Кейси", "folder", "cases");
-  addMaterial("customs_code", "Митний кодекс", "scale", "customs-code");
-  addMaterial("test_questions", "Тестові питання", "clipboard", "test-exam-questions");
-  const questionSearch = byKey.get("question_search");
-  if (user.is_admin || questionSearch?.has_access) {
-    addMaterial("question_search", "Пошук питань", "search", "question-search");
-  }
-
-  const support = byKey.get("support");
-  if (support?.visible !== false) {
-    helpItems.push(prototypeMenuCell(ctx, {
-      title: support?.title || "Підтримка", icon: "support", screen: "help", sectionKey: "support",
-    }));
-  }
   if (user.is_admin) {
     helpItems.push(prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }));
   }

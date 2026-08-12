@@ -47,13 +47,12 @@ export function renderAdminAttestationBanks(ctx) {
       <h1 class="page-title">Розділи</h1>
       <p class="page-subtitle">Відкрийте потрібний розділ — кожна дія має окремий екран.</p>
 
-      <div class="group">
-        <div class="group__label">Усі розділи</div>
-        <div class="group__list" id="admin-attestation-list">
+      <div id="admin-attestation-list">
+        <div class="group"><div class="group__list">
           <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
-        </div>
-        <div class="group__footer">0 ⭐ означає безкоштовний доступ.</div>
+        </div></div>
       </div>
+      <div class="group__footer">Порядок у цих групах повторюється на головному екрані. 0 ⭐ — безкоштовно.</div>
     </section>
   `;
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
@@ -71,12 +70,21 @@ export async function loadAdminAttestationBanks(ctx) {
       list.innerHTML = '<div class="empty empty--inline"><h2>Розділів ще немає</h2><p>Створіть перший розділ із APK.</p></div>';
       return;
     }
-    payload.items.forEach((bank, index) => {
+    const groupLabels = { primary: "Основні", materials: "Матеріали", help: "Допомога" };
+    const groupLists = new Map();
+    payload.items.forEach((bank) => {
+      if (!groupLists.has(bank.group)) {
+        const group = document.createElement("section");
+        group.className = "group";
+        group.innerHTML = `<div class="group__label">${ctx.escapeHtml(groupLabels[bank.group] || "Інші")}</div><div class="group__list"></div>`;
+        list.append(group);
+        groupLists.set(bank.group, group.querySelector(".group__list"));
+      }
       const row = document.createElement("button");
       row.type = "button";
       row.className = "cell admin-attestation-bank-cell";
       row.innerHTML = `
-        <span class="cell__icon cell__icon--purple">A${index + 1}</span>
+        <span class="cell__icon cell__icon--purple">${ctx.lineIcon(bank.icon || "document")}</span>
         <span class="cell__body">
           <span class="cell__title">${ctx.escapeHtml(bank.title)}</span>
           <span class="cell__subtitle">${bank.questions_count == null ? "Системний розділ" : `${ctx.escapeHtml(bank.questions_count)} питань`} · ${bank.visible ? "показується" : "приховано"} · ${ctx.escapeHtml(bank.price)} ⭐</span>
@@ -93,7 +101,7 @@ export async function loadAdminAttestationBanks(ctx) {
           ctx.state.attestationAdminOffset = 0;
           ctx.navigate("admin-section");
       });
-      list.append(row);
+      groupLists.get(bank.group).append(row);
     });
   } catch (error) {
     if (list) list.innerHTML = `<div class="empty empty--inline"><h2>Помилка</h2><p>${ctx.escapeHtml(error.message)}</p></div>`;

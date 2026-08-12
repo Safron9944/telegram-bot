@@ -110,6 +110,7 @@ export function renderAdminSectionOrder(ctx) {
   ctx.refs.mainPanel.querySelectorAll("[data-direction]").forEach((button) => button.addEventListener("click", async () => {
     try {
       await ctx.api(sectionUrl(ctx, "/move"), { method: "POST", body: { direction: button.dataset.direction } });
+      await ctx.loadBootstrap();
       ctx.setMessage("success", button.dataset.direction === "up" ? "Розділ переміщено вище." : "Розділ переміщено нижче.");
     } catch (error) { ctx.setMessage("error", error.message); }
   }));

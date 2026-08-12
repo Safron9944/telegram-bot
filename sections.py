@@ -7,12 +7,12 @@ from access import access_tier
 
 
 SYSTEM_SECTIONS = (
-    {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "content_screen": "admin-questions", "content_label": "Банк питань"},
-    {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
-    {"key": "customs_code", "title": "Митний кодекс", "screen": "customs-code", "icon": "scale", "price": 0},
-    {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "visible": False, "content_screen": "admin-test-questions", "content_label": "Питання"},
-    {"key": "question_search", "title": "Пошук питань", "screen": "question-search", "icon": "search", "price": 250},
-    {"key": "support", "title": "Підтримка", "screen": "help", "icon": "support", "price": 0},
+    {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "group": "primary", "default_order": 100, "content_screen": "admin-questions", "content_label": "Банк питань"},
+    {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "group": "materials", "default_order": 200, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
+    {"key": "customs_code", "title": "Митний кодекс", "screen": "customs-code", "icon": "scale", "price": 0, "group": "materials", "default_order": 201},
+    {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "visible": False, "group": "materials", "default_order": 202, "content_screen": "admin-test-questions", "content_label": "Питання"},
+    {"key": "question_search", "title": "Пошук питань", "screen": "question-search", "icon": "search", "price": 250, "group": "materials", "default_order": 203},
+    {"key": "support", "title": "Підтримка", "screen": "help", "icon": "support", "price": 0, "group": "help", "default_order": 300},
 )
 
 
@@ -63,14 +63,12 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
 async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin: bool = False) -> list[dict[str, Any]]:
     config = await section_config(store)
     items: list[dict[str, Any]] = []
-    for index, definition in enumerate(SYSTEM_SECTIONS):
+    for definition in SYSTEM_SECTIONS:
         row = dict(definition)
         row.update({"kind": "system", "deletable": False, "questions_count": None})
-        row["default_order"] = index
         items.append(row)
 
     dynamic = await store.list_attestation_banks_for_admin()
-    start = len(items)
     for index, bank in enumerate(dynamic):
         if bank.get("slug") == "stage-1" or bank.get("source_id") == "bundled-stage-1":
             continue
@@ -86,9 +84,10 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
             "visible": bank.get("status") == "published",
             "questions_count": int(bank.get("questions_count") or 0),
             "deletable": True,
+            "group": "primary",
             "content_screen": "admin-section-questions",
             "content_label": "Питання",
-            "default_order": start + index,
+            "default_order": index,
         })
 
     result = []
@@ -124,13 +123,18 @@ async def update_section(store, key: str, changes: dict[str, Any]) -> dict[str, 
 
 async def move_section(store, key: str, direction: str) -> bool:
     items = await build_sections(store, is_admin=True)
+    current = next((item for item in items if item["key"] == key), None)
+    if not current:
+        return False
+    items = [item for item in items if item["group"] == current["group"]]
     index = next((i for i, item in enumerate(items) if item["key"] == key), -1)
     target = index - 1 if direction == "up" else index + 1
     if index < 0 or target < 0 or target >= len(items):
-        return index >= 0
+        return True
     items[index], items[target] = items[target], items[index]
     config = await section_config(store)
-    for order, item in enumerate(items):
-        config.setdefault(item["key"], {})["order"] = order
+    group_base = min(int(item["order"]) for item in items)
+    for offset, item in enumerate(items):
+        config.setdefault(item["key"], {})["order"] = group_base + offset
     await save_section_config(store, config)
     return True
