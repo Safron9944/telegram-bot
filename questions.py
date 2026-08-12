@@ -40,6 +40,7 @@ class AttestationBank:
     qids: List[int]
     source_id: str = ""
     published: bool = True
+    db_id: int | None = None
 
 
 class QuestionBank:
@@ -162,6 +163,7 @@ class QuestionBank:
                 questions,
                 source_id=row.get("source_id") or "",
                 published=True,
+                db_id=int(row["id"]) if row.get("id") is not None else None,
             )
 
     def load_attestation_stage_1(self, path: str) -> None:
@@ -291,6 +293,7 @@ class QuestionBank:
         *,
         source_id: str = "",
         published: bool = True,
+        db_id: int | None = None,
     ) -> AttestationBank:
         slug = (slug or "").strip()
         if not slug:
@@ -306,7 +309,7 @@ class QuestionBank:
                 raise ValueError(f"Duplicate attestation question id: {question.id}")
             self.by_id[question.id] = question
             qids.append(question.id)
-        bank = AttestationBank(slug, title.strip() or slug, qids, source_id, published)
+        bank = AttestationBank(slug, title.strip() or slug, qids, source_id, published, db_id)
         self.attestation_banks[slug] = bank
         return bank
 

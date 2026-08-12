@@ -42,6 +42,16 @@ class Storage:
             await con.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS sub_tier TEXT;")
 
             await con.execute("""
+                CREATE TABLE IF NOT EXISTS user_section_access (
+                    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    section_key TEXT NOT NULL,
+                    purchased_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    telegram_charge_id TEXT,
+                    PRIMARY KEY (user_id, section_key)
+                );
+            """)
+
+            await con.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -297,7 +307,33 @@ class Storage:
         d = dict(r)
         d["ok_modules"] = json.loads(d.get("ok_modules_json") or "[]")
         d["ok_last_levels"] = json.loads(d.get("ok_last_levels_json") or "{}")
+        d["section_access"] = [
+            str(row["section_key"])
+            for row in await self._fetch(
+                "SELECT section_key FROM user_section_access WHERE user_id=$1 ORDER BY section_key",
+                user_id,
+            )
+        ]
         return d
+
+    async def grant_section_access(
+        self,
+        user_id: int,
+        section_key: str,
+        *,
+        telegram_charge_id: str | None = None,
+    ) -> None:
+        await self._exec(
+            """
+            INSERT INTO user_section_access(user_id, section_key, telegram_charge_id)
+            VALUES($1, $2, $3)
+            ON CONFLICT(user_id, section_key) DO UPDATE SET
+                telegram_charge_id=COALESCE(EXCLUDED.telegram_charge_id, user_section_access.telegram_charge_id)
+            """,
+            user_id,
+            section_key,
+            telegram_charge_id,
+        )
 
     async def start_trial_if_needed(self, user_id: int, *, days: int = 3, first_name: Optional[str] = None, last_name: Optional[str] = None):
         from datetime import timedelta
@@ -918,6 +954,26 @@ class Storage:
                 int(bank_id), title,
             )
             return dict(row) if row else None
+
+    async def rename_attestation_topic(self, bank_id: int, old_topic: str, new_topic: str) -> int | None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval(
+                    "SELECT 1 FROM attestation_banks WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'",
+                    int(bank_id),
+                )
+                if not exists:
+                    return None
+                result = await con.execute(
+                    """
+                    UPDATE published_attestation_questions
+                    SET topic=$3, managed_manually=TRUE, updated_at=now()
+                    WHERE bank_id=$1 AND topic=$2
+                    """,
+                    int(bank_id), old_topic, new_topic,
+                )
+                return int(result.rsplit(" ", 1)[-1])
 
     async def list_attestation_questions_for_admin(
         self,

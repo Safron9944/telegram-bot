@@ -29,7 +29,8 @@ from customs_code import repository as customs_code_repository
 
 from questions import QuestionBank
 from storage import Storage
-from access import access_status, access_tier, create_stars_invoice_link, has_attestation_access
+from access import access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access
+from sections import build_sections, free_section_keys, get_section, move_section, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -451,6 +452,7 @@ async def get_auth_context(
         last_name=telegram_user.get("last_name"),
     )
     user = await runtime.store.get_user(user_id)
+    user["free_sections"] = await free_section_keys(runtime.store)
 
     return AuthContext(
         telegram_user=telegram_user,
@@ -482,33 +484,48 @@ class MiniAppService:
     def ensure_access(self, auth: AuthContext) -> None:
         """Full access: навчання, тести (trial included)."""
         tier = access_tier(auth.user)
-        if tier in ("full", "trial_full"):
+        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        if tier in ("full", "trial_full") or "customs" in allowed:
             return
         require_http(403, "access_expired", "Потрібна підписка на повний доступ (250 ⭐).")
+
+    def ensure_section_access(self, auth: AuthContext, section_key: str) -> None:
+        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        if auth.is_admin or access_tier(auth.user) == "full" or section_key in allowed:
+            return
+        require_http(403, "section_access_required", "Потрібно придбати доступ до цього розділу.")
 
     def ensure_cases_access(self, auth: AuthContext) -> None:
         """Cases access: тільки за підпискою, без тріалу."""
         tier = access_tier(auth.user)
-        if tier in ("cases", "full"):
+        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        if tier in ("cases", "full") or "cases" in allowed:
             return
         require_http(403, "cases_access_required", "Кейси доступні тільки за підпискою (100 ⭐ або 250 ⭐).")
 
-    def ensure_attestation_access(self, auth: AuthContext) -> None:
+    def ensure_attestation_access(self, auth: AuthContext, bank_slug: str = "") -> None:
         """Attestation access: 100-star tier or full paid access, without trial."""
-        if has_attestation_access(auth.user):
+        purchased = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        dynamic_key = ""
+        if bank_slug:
+            bank = self.qb.attestation_banks.get(bank_slug)
+            if bank and getattr(bank, "db_id", None):
+                dynamic_key = f"attestation:{bank.db_id}"
+        if has_attestation_access(auth.user) or (dynamic_key and dynamic_key in purchased):
             return
         require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
 
     def ensure_session_access(self, auth: AuthContext, state: dict[str, Any]) -> None:
         meta = dict(state.get("meta", {}) or {})
         if meta.get("kind") in {"attestation_stage_1", "attestation"}:
-            self.ensure_attestation_access(auth)
+            self.ensure_attestation_access(auth, str(meta.get("bank_slug") or ""))
             return
         self.ensure_access(auth)
 
-    def ensure_full_access(self, auth: AuthContext) -> None:
+    def ensure_full_access(self, auth: AuthContext, section_key: str = "") -> None:
         """Тільки повний оплачений доступ — без тріалу та без cases."""
-        if access_tier(auth.user) == "full":
+        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        if access_tier(auth.user) == "full" or (section_key and section_key in allowed):
             return
         require_http(403, "ok_questions_access_required", "Питання ОК доступні тільки з повним доступом (250 ⭐).")
 
@@ -633,6 +650,7 @@ class MiniAppService:
         include_stage_1 = (await self.store.get_setting("attestation_stage_1_deleted", "0")) != "1"
         db_admin_url = await self.store.get_setting("admin_contact_url", "")
         admin_url = db_admin_url or get_admin_contact_url(self.runtime.admin_ids)
+        sections = await build_sections(self.store, auth.user, is_admin=auth.is_admin)
         return {
             "user": self.serialize_user(auth),
             "links": {
@@ -646,6 +664,7 @@ class MiniAppService:
             "payment_prices": prices,
             "home_visibility": home_visibility,
             "test_questions_visible": tq_visible,
+            "sections": sections,
         }
 
     async def saved_view(self, auth: AuthContext) -> dict[str, Any] | None:
@@ -1094,7 +1113,6 @@ class MiniAppService:
         *,
         legacy: bool = False,
     ) -> dict[str, Any]:
-        self.ensure_attestation_access(auth)
         clean_bank_slug = (bank_slug or "").strip()
         bank = self.qb.attestation_banks.get(clean_bank_slug)
         if (not bank or not bank.published) and clean_bank_slug != "stage-1":
@@ -1105,6 +1123,7 @@ class MiniAppService:
             bank = self.qb.attestation_banks.get(clean_bank_slug)
         if not bank or not bank.published:
             require_http(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
+        self.ensure_attestation_access(auth, clean_bank_slug)
         if not bank.qids:
             require_http(503, "attestation_bank_empty", "У цьому розділі ще немає питань.")
         section = (payload.section or "").strip()
@@ -1293,7 +1312,7 @@ class MiniAppService:
         return self.build_test_result_view(state)
 
     async def search_ok_questions(self, auth: AuthContext, query: str, limit: int = 25, offset: int = 0) -> dict[str, Any]:
-        self.ensure_full_access(auth)
+        self.ensure_full_access(auth, "test_questions")
         limit = clamp(int(limit), 1, 100)
         offset = max(0, int(offset))
         rows = await self.store.search_ok_questions(query, limit=limit + 1, offset=offset)
@@ -1326,6 +1345,7 @@ class MiniAppService:
         }
 
     async def list_cases(self, auth: AuthContext) -> dict[str, Any]:
+        self.ensure_cases_access(auth)
         cases = await self.store.list_case_banks()
         return {"items": [serialize_case_bank(item) for item in cases]}
 
@@ -1352,7 +1372,7 @@ class MiniAppService:
         }
 
     async def user_global_search(self, auth: AuthContext, query: str, limit: int = 15) -> dict[str, Any]:
-        self.ensure_full_access(auth)
+        self.ensure_full_access(auth, "question_search")
         query = (query or "").strip()
         if len(query) < 3:
             require_http(400, "short_query", "Введіть щонайменше 3 символи для пошуку.")
@@ -1728,11 +1748,37 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
 
     @router.pre_checkout_query()
     async def pre_checkout(query: PreCheckoutQuery) -> None:
+        payload = query.invoice_payload or ""
+        if payload.startswith("section:"):
+            section_key = payload.removeprefix("section:")
+            section = await get_section(runtime.store, section_key, is_admin=False)
+            if not section or not section["visible"] or int(section["price"]) != int(query.total_amount):
+                await query.answer(ok=False, error_message="Цей розділ або його ціна вже змінилися. Відкрийте оплату ще раз.")
+                return
+        elif payload in {"cases", "full"}:
+            prices = await get_payment_prices(runtime.store)
+            if int(prices[payload]) != int(query.total_amount):
+                await query.answer(ok=False, error_message="Ціна змінилася. Відкрийте оплату ще раз.")
+                return
+        else:
+            await query.answer(ok=False, error_message="Некоректний платіж.")
+            return
         await query.answer(ok=True)
 
     @router.message(F.successful_payment)
     async def successful_payment(message: Message) -> None:
         tier = message.successful_payment.invoice_payload  # 'cases' or 'full'
+        if tier.startswith("section:"):
+            section_key = tier.removeprefix("section:")
+            await runtime.store.grant_section_access(
+                message.from_user.id,
+                section_key,
+                telegram_charge_id=message.successful_payment.telegram_payment_charge_id,
+            )
+            section = await get_section(runtime.store, section_key, is_admin=True)
+            label = section["title"] if section else "розділу"
+            await message.answer(f"✅ Оплата успішна! Безлімітний доступ до «{label}» активовано.")
+            return
         if tier not in ("cases", "full"):
             return
         user_id = message.from_user.id
@@ -1944,12 +1990,14 @@ async def api_test_review_back(auth: AuthContext = Depends(get_auth_context), ru
 
 
 @app.get("/api/customs-code/status")
-async def api_customs_code_status(auth: AuthContext = Depends(get_auth_context)):
+async def api_customs_code_status(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    MiniAppService(runtime).ensure_section_access(auth, "customs_code")
     return customs_code_repository.status()
 
 
 @app.get("/api/customs-code/sections")
-async def api_customs_code_sections(auth: AuthContext = Depends(get_auth_context)):
+async def api_customs_code_sections(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    MiniAppService(runtime).ensure_section_access(auth, "customs_code")
     try:
         return customs_code_repository.sections()
     except FileNotFoundError:
@@ -1957,7 +2005,8 @@ async def api_customs_code_sections(auth: AuthContext = Depends(get_auth_context
 
 
 @app.get("/api/customs-code/sections/{section_id}")
-async def api_customs_code_section(section_id: int, auth: AuthContext = Depends(get_auth_context)):
+async def api_customs_code_section(section_id: int, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    MiniAppService(runtime).ensure_section_access(auth, "customs_code")
     try:
         payload = customs_code_repository.section_detail(section_id)
     except FileNotFoundError:
@@ -1968,7 +2017,8 @@ async def api_customs_code_section(section_id: int, auth: AuthContext = Depends(
 
 
 @app.get("/api/customs-code/articles/{article_number}")
-async def api_customs_code_article(article_number: str, auth: AuthContext = Depends(get_auth_context)):
+async def api_customs_code_article(article_number: str, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    MiniAppService(runtime).ensure_section_access(auth, "customs_code")
     try:
         payload = customs_code_repository.article(article_number)
     except FileNotFoundError:
@@ -1979,7 +2029,8 @@ async def api_customs_code_article(article_number: str, auth: AuthContext = Depe
 
 
 @app.get("/api/customs-code/search")
-async def api_customs_code_search(q: str = "", limit: int = 25, offset: int = 0, auth: AuthContext = Depends(get_auth_context)):
+async def api_customs_code_search(q: str = "", limit: int = 25, offset: int = 0, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    MiniAppService(runtime).ensure_section_access(auth, "customs_code")
     try:
         return customs_code_repository.search(q, limit=limit, offset=offset)
     except FileNotFoundError:
@@ -2014,6 +2065,22 @@ async def api_case_detail(case_id: int, offset: int = 0, limit: int = 50, q: str
 @app.post("/api/payment/create-link")
 async def api_payment_create_link(request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     body = await request.json()
+    section_key = str(body.get("section_key") or "").strip()
+    if section_key:
+        section = await get_section(runtime.store, section_key, auth.user, is_admin=auth.is_admin)
+        if not section:
+            require_http(404, "section_not_found", "Розділ не знайдено.")
+        if not section["visible"] and not auth.is_admin:
+            require_http(404, "section_not_found", "Розділ не знайдено.")
+        if section["has_access"]:
+            require_http(409, "section_already_available", "Цей розділ уже доступний.")
+        amount = int(section["price"])
+        if amount < 1:
+            require_http(409, "section_is_free", "Цей розділ безкоштовний.")
+        if not runtime.bot:
+            require_http(503, "bot_unavailable", "Бот не підключено.")
+        link = await create_section_invoice_link(runtime.bot, section_key, section["title"], amount)
+        return {"invoice_link": link}
     tier = body.get("tier", "")
     if tier not in ("cases", "full"):
         require_http(400, "invalid_tier", "tier must be 'cases' or 'full'")
@@ -2023,6 +2090,105 @@ async def api_payment_create_link(request: Request, auth: AuthContext = Depends(
     amount = prices.get(tier, DEFAULT_PRICES.get(tier, 100))
     link = await create_stars_invoice_link(runtime.bot, tier, amount)
     return {"invoice_link": link}
+
+
+@app.get("/api/admin/sections")
+async def api_admin_sections(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    return {"items": await build_sections(runtime.store, auth.user, is_admin=True)}
+
+
+@app.get("/api/admin/sections/{section_key}")
+async def api_admin_section(section_key: str, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    section = await get_section(runtime.store, section_key, auth.user, is_admin=True)
+    if not section:
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    return {"section": section}
+
+
+@app.patch("/api/admin/sections/{section_key}")
+async def api_admin_update_section(section_key: str, request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    current = await get_section(runtime.store, section_key, auth.user, is_admin=True)
+    if not current:
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    body = await request.json()
+    changes: dict[str, Any] = {}
+    if "title" in body:
+        title = str(body.get("title") or "").strip()
+        if not title or len(title) > 160:
+            require_http(400, "invalid_title", "Вкажіть назву до 160 символів.")
+        changes["title"] = title
+        if current["kind"] == "attestation":
+            await runtime.store.update_attestation_bank_title(int(current["bank_id"]), title)
+    if "visible" in body:
+        if not isinstance(body["visible"], bool):
+            require_http(400, "invalid_visibility", "Некоректне значення видимості.")
+        changes["visible"] = body["visible"]
+        if current["kind"] == "attestation":
+            await runtime.store.set_attestation_bank_visibility(int(current["bank_id"]), visible=body["visible"])
+    if "price" in body:
+        price = body["price"]
+        if isinstance(price, bool) or not isinstance(price, int) or price < 0 or price > 100000:
+            require_http(400, "invalid_price", "Ціна має бути цілим числом від 0.")
+        changes["price"] = price
+    section = await update_section(runtime.store, section_key, changes)
+    if current["kind"] == "attestation" and ("title" in changes or "visible" in changes):
+        await runtime.qb.load_published_attestation_banks(runtime.store)
+    return {"section": section}
+
+
+@app.post("/api/admin/sections/{section_key}/move")
+async def api_admin_move_section(section_key: str, request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    direction = str((await request.json()).get("direction") or "")
+    if direction not in {"up", "down"}:
+        require_http(400, "invalid_direction", "Оберіть напрямок up або down.")
+    if not await move_section(runtime.store, section_key, direction):
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    return {"ok": True}
+
+
+@app.delete("/api/admin/sections/{section_key}", status_code=204)
+async def api_admin_delete_section(section_key: str, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    section = await get_section(runtime.store, section_key, auth.user, is_admin=True)
+    if not section:
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    if not section["deletable"]:
+        require_http(409, "system_section", "Системний розділ можна приховати, але не видалити.")
+    if not await runtime.store.delete_attestation_bank(int(section["bank_id"])):
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    config = await section_config(runtime.store)
+    config.pop(section_key, None)
+    await save_section_config(runtime.store, config)
+    await runtime.qb.load_published_attestation_banks(runtime.store)
+    return None
+
+
+@app.patch("/api/admin/sections/{section_key}/topics")
+async def api_admin_rename_section_topic(section_key: str, request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    section = await get_section(runtime.store, section_key, auth.user, is_admin=True)
+    if not section or section["kind"] != "attestation":
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    body = await request.json()
+    old_topic = str(body.get("old_topic") or "").strip()
+    new_topic = str(body.get("new_topic") or "").strip()
+    if not old_topic or not new_topic or len(new_topic) > 240:
+        require_http(400, "invalid_topic", "Вкажіть нову назву підрозділу.")
+    changed = await runtime.store.rename_attestation_topic(int(section["bank_id"]), old_topic, new_topic)
+    if changed is None:
+        require_http(404, "section_not_found", "Розділ не знайдено.")
+    await runtime.qb.load_published_attestation_banks(runtime.store)
+    return {"ok": True, "changed": changed}
 
 
 @app.get("/api/admin/settings")
@@ -2176,10 +2342,10 @@ async def api_admin_test_exam_questions(q: str = "", offset: int = 0, limit: int
 @app.get("/api/test-exam-questions")
 async def api_user_test_exam_questions(q: str = "", offset: int = 0, limit: int = 20, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     if not auth.is_admin:
-        tq_visible = (await runtime.store.get_setting("test_questions_visible", "0")) == "1"
-        if not tq_visible:
+        section = await get_section(runtime.store, "test_questions", auth.user)
+        if not section or not section["visible"]:
             require_http(403, "not_available", "Тестові питання ще не опубліковані.")
-        if access_tier(auth.user) != "full":
+        if not section["has_access"]:
             require_http(403, "full_access_required", "Тестові питання доступні лише з повною підпискою.")
     return await runtime.store.search_test_exam_questions(q.strip(), max(1, min(limit, 50)), max(0, offset))
 

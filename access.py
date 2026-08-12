@@ -65,3 +65,17 @@ async def create_stars_invoice_link(bot: "Bot", tier: str, amount: int) -> str:
         prices=[LabeledPrice(label=title, amount=amount)],
     )
     return link
+
+
+async def create_section_invoice_link(bot: "Bot", section_key: str, title: str, amount: int) -> str:
+    """Create a permanent-access invoice for one configurable Mini App section."""
+    from aiogram.types import LabeledPrice
+
+    label = f"Доступ: {title}"[:32]
+    return await bot.create_invoice_link(
+        title=label,
+        description=f"Безлімітний доступ до розділу «{title}»"[:255],
+        payload=f"section:{section_key}",
+        currency="XTR",
+        prices=[LabeledPrice(label=label, amount=int(amount))],
+    )

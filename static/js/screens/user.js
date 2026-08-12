@@ -97,79 +97,41 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 
 /* ===================== HOME ===================== */
 export function renderHome(ctx) {
-  const { user, catalog } = ctx.state.bootstrap;
-  const visibility = ctx.state.bootstrap.home_visibility || {};
-  const isVisible = (key) => visibility[key] !== false;
-  const showTestQuestions =
-    user.is_admin ||
-    ctx.state.bootstrap.test_questions_visible === true;
-  const primaryItems = [];
-  const materialItems = [];
-  const helpItems = [];
-
-  if (isVisible("attestation")) {
-    (catalog.attestation_banks || []).forEach((bank) => {
-      primaryItems.push(prototypeFeature(ctx, {
-        title: bank.title,
-        icon: "document",
-        screen: "attestation-bank",
-        action: "Перейти до тестування",
-        bankSlug: bank.slug,
-      }));
-    });
-  }
-  if (isVisible("customs")) {
-    primaryItems.push(prototypeFeature(ctx, {
-      title: "Митні компетенції",
-      icon: "graduation",
-      screen: "customs",
-      action: "Відкрити розділ",
-    }));
-  }
-  if (isVisible("cases")) {
-    materialItems.push(prototypeMenuCell(ctx, { title: "Кейси", icon: "folder", screen: "cases" }));
-  }
-  if (isVisible("customs_code")) {
-    materialItems.push(prototypeMenuCell(ctx, { title: "Митний кодекс", icon: "scale", screen: "customs-code" }));
-  }
-  if (showTestQuestions) {
-    materialItems.push(prototypeMenuCell(ctx, { title: "Тестові питання", icon: "clipboard", screen: "test-exam-questions" }));
-  }
-  if (isVisible("question_search") && (user.is_admin || user.access?.tier === "full")) {
-    materialItems.push(prototypeMenuCell(ctx, { title: "Пошук питань", icon: "search", screen: "question-search" }));
-  }
-  if (isVisible("support")) {
-    helpItems.push(prototypeMenuCell(ctx, { title: "Підтримка", icon: "support", screen: "help" }));
-  }
-  if (user.is_admin) {
-    helpItems.push(prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }));
-  }
+  const { user } = ctx.state.bootstrap;
+  const sections = (ctx.state.bootstrap.sections || []).filter((item) => item.visible);
+  const sectionRows = sections.map((item) => `
+    <button class="cell menu-cell" type="button" data-home-section="${ctx.escapeHtml(item.key)}">
+      <span class="cell__icon menu-cell__icon">${menuIcon(item.icon)}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
+        ${!item.has_access ? `<span class="cell__subtitle">Відкрити назавжди · ${ctx.escapeHtml(item.price)} ⭐</span>` : ""}
+      </span>
+      ${!item.has_access ? `<span class="cell__detail">${ctx.escapeHtml(item.price)} ⭐</span>` : ""}
+      <span class="cell__chevron" aria-hidden="true"></span>
+    </button>`).join("");
 
   ctx.setChrome({ showBack: false });
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content screen-content--home">
       <h1 class="page-title">Головна</h1>
-      <p class="page-subtitle">Митні компетенції, атестація та робота з матеріалами — в одному середовищі.</p>
-
-      ${primaryItems.length ? `<div class="home-primary">${primaryItems.join("")}</div>` : ""}
-
-      ${materialItems.length ? ctx.group({
-        header: "Матеріали",
-        children: materialItems.join(""),
-      }) : ""}
-
-      ${helpItems.length ? ctx.group({
-        header: "Допомога",
-        children: helpItems.join(""),
-      }) : ""}
+      <p class="page-subtitle">Усі доступні матеріали в одному впорядкованому списку.</p>
+      ${sections.length ? ctx.group({ header: "Розділи", children: sectionRows }) : '<div class="empty empty--inline"><h2>Розділів поки немає</h2></div>'}
+      ${user.is_admin ? ctx.group({ header: "Керування", children: prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }) }) : ""}
     </section>
   `;
 
-  ctx.refs.mainPanel.querySelectorAll("[data-attestation-bank]").forEach((button) => {
+  ctx.refs.mainPanel.querySelectorAll("[data-home-section]").forEach((button) => {
     button.addEventListener("click", () => {
-      ctx.state.selectedAttestationBankSlug = button.dataset.attestationBank;
+      const section = sections.find((item) => item.key === button.dataset.homeSection);
+      if (!section) return;
+      if (!section.has_access) {
+        void ctx.openPayment({ section_key: section.key });
+        return;
+      }
+      ctx.state.selectedAttestationBankSlug = section.bank_slug || null;
       ctx.state.selectedAttestationSection = null;
+      ctx.navigate(section.screen);
     });
   });
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });

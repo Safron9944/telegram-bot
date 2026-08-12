@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260811-attestation-cms-01";
+import { state } from "./core/state.js?v=20260812-sections-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260812-no-haptics-01";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260811-attestation-start-retry-01";
+} from "./screens/user.js?v=20260812-sections-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -62,7 +62,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260812-admin-cleanup-01";
+} from "./screens/admin.js?v=20260812-sections-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,
@@ -73,7 +73,15 @@ import {
   loadAdminAttestationQuestion,
   renderAdminAttestationBank,
   renderAdminAttestationQuestion,
-} from "./admin_attestation_banks.js?v=20260812-admin-cleanup-01";
+} from "./admin_attestation_banks.js?v=20260812-sections-01";
+import {
+  loadAdminSectionTopics,
+  renderAdminSection,
+  renderAdminSectionOrder,
+  renderAdminSectionSettings,
+  renderAdminSectionTopics,
+  renderAdminSectionTopicEdit,
+} from "./admin_sections.js?v=20260812-sections-01";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",
@@ -107,6 +115,12 @@ const PROTOTYPE_SCREENS = new Set([
   "admin-attestation-banks",
   "admin-attestation-bank",
   "admin-attestation-question",
+  "admin-section",
+  "admin-section-settings",
+  "admin-section-order",
+  "admin-section-topics",
+  "admin-section-topic-edit",
+  "admin-section-questions",
   "admin-settings",
   "admin-test-questions",
 ]);
@@ -280,6 +294,8 @@ function ensureScreenData(screen = state.currentScreen) {
   if (screen === "admin-attestation-banks") void loadAdminAttestationBanks(createContext());
   if (screen === "admin-attestation-bank") void loadAdminAttestationBank(createContext(), state.attestationAdminOffset || 0);
   if (screen === "admin-attestation-question") void loadAdminAttestationQuestion(createContext());
+  if (screen === "admin-section-topics") void loadAdminSectionTopics(createContext());
+  if (screen === "admin-section-questions") void loadAdminAttestationBank(createContext(), state.attestationAdminOffset || 0);
   if (screen === "admin-settings") void loadAdminSettings(createContext());
   if (screen === "admin-test-questions") void loadAdminTestQuestions(createContext(), state.testQOffset || 0);
   if (screen === "test-exam-questions") void loadUserTestExamQuestions(createContext(), state.testExamOffset || 0);
@@ -381,6 +397,12 @@ function render() {
     case "admin-attestation-banks": renderAdminAttestationBanks(ctx); break;
     case "admin-attestation-bank": renderAdminAttestationBank(ctx); break;
     case "admin-attestation-question": renderAdminAttestationQuestion(ctx); break;
+    case "admin-section": renderAdminSection(ctx); break;
+    case "admin-section-settings": renderAdminSectionSettings(ctx); break;
+    case "admin-section-order": renderAdminSectionOrder(ctx); break;
+    case "admin-section-topics": renderAdminSectionTopics(ctx); break;
+    case "admin-section-topic-edit": renderAdminSectionTopicEdit(ctx); break;
+    case "admin-section-questions": renderAdminAttestationBank(ctx); break;
     case "admin-settings":      renderAdminSettings(ctx); break;
     case "admin-test-questions": renderAdminTestQuestions(ctx); break;
     default:
@@ -430,11 +452,12 @@ async function startMistakesSession() {
   }
 }
 
-async function openPayment(tier) {
+async function openPayment(target) {
   try {
+    const body = typeof target === "string" ? { tier: target } : target;
     const { invoice_link } = await api("/api/payment/create-link", {
       method: "POST",
-      body: { tier },
+      body,
     });
     if (tg?.openInvoice) {
       tg.openInvoice(invoice_link, async (status) => {

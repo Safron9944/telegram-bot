@@ -23,8 +23,8 @@ export function renderAdminAttestationBank(ctx) {
   const bank = ctx.state.selectedAttestationAdminBank;
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
-      <h1 class="page-title">${ctx.escapeHtml(bank?.title || "Керування розділом")}</h1>
-      <p class="page-subtitle">Назва, пошук, додавання та редагування питань.</p>
+      <h1 class="page-title">Питання</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(bank?.title || "Керування розділом")}</p>
       <div id="attestation-bank-manager">
         <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
       </div>
@@ -33,7 +33,7 @@ export function renderAdminAttestationBank(ctx) {
 }
 
 export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestationAdminOffset || 0) {
-  if (ctx.state.currentScreen !== "admin-attestation-bank") return;
+  if (!["admin-attestation-bank", "admin-section-questions"].includes(ctx.state.currentScreen)) return;
   const base = bankBase(ctx);
   const root = document.querySelector("#attestation-bank-manager");
   if (!base || !root) {
@@ -46,15 +46,13 @@ export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestati
     const payload = await ctx.api(
       `${base}/questions?topic=${encodeURIComponent(topic)}&q=${encodeURIComponent(query)}&offset=${Math.max(0, offset)}&limit=${PAGE_SIZE}`,
     );
-    if (ctx.state.currentScreen !== "admin-attestation-bank") return;
+    if (!["admin-attestation-bank", "admin-section-questions"].includes(ctx.state.currentScreen)) return;
     ctx.state.selectedAttestationAdminBank = payload.bank;
     ctx.state.attestationAdminOffset = payload.offset;
     const topics = payload.topics || [];
-    root.closest(".screen-content")?.querySelector(".page-title")?.replaceChildren(
-      document.createTextNode(payload.bank.title),
-    );
+    const questionsOnly = ctx.state.currentScreen === "admin-section-questions";
     root.innerHTML = `
-      <form class="attestation-bank-title-form" id="attestation-bank-title-form">
+      <form class="attestation-bank-title-form ${questionsOnly ? "admin-section-legacy-controls" : ""}" id="attestation-bank-title-form">
         <label class="field">
           <span class="field__label">Назва розділу</span>
           <input class="input" id="attestation-bank-title" value="${ctx.escapeHtml(payload.bank.title)}" maxlength="160">
@@ -62,7 +60,7 @@ export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestati
         <button class="btn btn--primary" type="submit">Зберегти назву</button>
       </form>
 
-      <div class="group attestation-bank-controls">
+      <div class="group attestation-bank-controls ${questionsOnly ? "admin-section-legacy-controls" : ""}">
         <div class="group__label">Керування розділом</div>
         <div class="group__list">
           <div class="cell admin-setting-row">
