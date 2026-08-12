@@ -215,6 +215,20 @@ export function renderAdminUsers(ctx) {
       <div id="admin-users-summary"></div>
 
       <div class="group">
+        <div class="group__label">Повідомлення</div>
+        <div class="group__list">
+          <button class="cell" id="admin-mini-app-notice" type="button">
+            <span class="cell__icon cell__icon--blue">${ctx.lineIcon("support")}</span>
+            <span class="cell__body">
+              <span class="cell__title">Повідомити про Mini App</span>
+              <span class="cell__subtitle" id="admin-mini-app-notice-status">Надіслати користувачам актуальну кнопку входу</span>
+            </span>
+            <span class="cell__chevron" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="group">
         <div class="group__list" id="admin-users-list">
           <div class="empty empty--inline">
             <h2>Завантажуємо…</h2>
@@ -225,12 +239,50 @@ export function renderAdminUsers(ctx) {
       <div class="row" id="admin-users-pagination" style="justify-content: center; gap: 8px;"></div>
     </section>
   `;
+
+  document.querySelector("#admin-mini-app-notice")?.addEventListener("click", async (event) => {
+    if (!window.confirm("Надіслати всім користувачам повідомлення з кнопкою входу в Mini App?")) return;
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await ctx.api("/api/admin/users/mini-app-notice", { method: "POST" });
+      await pollMiniAppNotice(ctx);
+    } catch (error) {
+      ctx.setMessage("error", error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
+function renderMiniAppNoticeStatus(payload) {
+  const target = document.querySelector("#admin-mini-app-notice-status");
+  if (!target) return;
+  if (payload.state === "running") {
+    target.textContent = `Надсилаємо: ${payload.processed} із ${payload.total || "…"}`;
+  } else if (payload.state === "completed") {
+    target.textContent = `Надіслано: ${payload.sent} · не доставлено: ${payload.blocked + payload.failed}`;
+  } else if (payload.state === "failed") {
+    target.textContent = `Зупинено через помилку · надіслано: ${payload.sent}`;
+  } else {
+    target.textContent = "Надіслати користувачам актуальну кнопку входу";
+  }
+}
+
+async function pollMiniAppNotice(ctx) {
+  while (ctx.state.currentScreen === "admin-users") {
+    const payload = await ctx.api("/api/admin/users/mini-app-notice");
+    renderMiniAppNoticeStatus(payload);
+    if (payload.state !== "running") return;
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
+  }
 }
 
 export async function loadAdminUsers(ctx, offset = 0) {
   if (ctx.state.currentScreen !== "admin-users") return;
 
   try {
+    void pollMiniAppNotice(ctx).catch(() => {});
     const payload = await ctx.api(`/api/admin/users?offset=${offset}&limit=10`);
     if (ctx.state.currentScreen !== "admin-users") return;
 
