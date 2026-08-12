@@ -115,7 +115,9 @@ export function renderHome(ctx) {
         title: section.title,
         icon: section.icon,
         screen: section.screen,
-        action: section.kind === "attestation" ? "Перейти до тестування" : "Відкрити розділ",
+        action: section.kind === "attestation"
+          ? (section.has_access ? "Перейти до тестування" : `Перші ${section.preview_count || 50} питань безкоштовно`)
+          : "Відкрити розділ",
         bankSlug: section.bank_slug || "",
         sectionKey: section.key,
       }));
@@ -152,7 +154,7 @@ export function renderHome(ctx) {
   ctx.refs.mainPanel.querySelectorAll("[data-section-key]").forEach((button) => {
     button.addEventListener("click", (event) => {
       const section = byKey.get(button.dataset.sectionKey);
-      if (!section.has_access) {
+      if (!section.has_access && !section.preview_count) {
         event.preventDefault();
         event.stopImmediatePropagation();
         void ctx.openPayment({ section_key: section.key });
@@ -891,6 +893,9 @@ export function renderAttestationStage1(ctx) {
   const slug = ctx.state.selectedAttestationBankSlug || fallbackSlug;
   const bank = banks.find((item) => item.slug === slug) || banks[0];
   const sections = bank?.sections || [];
+  const managedSection = (ctx.state.bootstrap.sections || []).find((item) => item.bank_slug === bank?.slug);
+  const hasFullBankAccess = bank?.system || Boolean(managedSection?.has_access);
+  const previewCount = Number(bank?.preview_count || managedSection?.preview_count || 0);
   if (bank) ctx.state.selectedAttestationBankSlug = bank.slug;
 
   ctx.setChrome({ showBack: true });
@@ -899,8 +904,20 @@ export function renderAttestationStage1(ctx) {
       <h1 class="page-title">${ctx.escapeHtml(bank?.title || "Тестування")}</h1>
       <p class="page-subtitle">${ctx.escapeHtml(bank?.count || 0)} питань · повноцінний режим тестування.</p>
 
+      ${!hasFullBankAccess && previewCount ? `
+        <div class="group">
+          <div class="group__label">Безкоштовне ознайомлення</div>
+          <div class="group__list">
+            <div class="attestation-preview-card">
+              <p>Пройдіть перші ${ctx.escapeHtml(previewCount)} питань без покупки.</p>
+              <button class="btn btn--primary btn--block" id="attestation-preview-start" type="button">Почати перші ${ctx.escapeHtml(previewCount)} питань</button>
+            </div>
+          </div>
+        </div>
+      ` : ""}
+
       ${ctx.group({
-        header: "Оберіть розділ",
+        header: hasFullBankAccess ? "Оберіть розділ" : `Повний доступ · ${ctx.escapeHtml(managedSection?.price || 0)} ⭐`,
         children: sections.map((item, index) => `
           <button class="cell" type="button" data-attestation-section="${index}">
             <span class="cell__icon cell__icon--purple">${index + 1}</span>
@@ -915,8 +932,16 @@ export function renderAttestationStage1(ctx) {
     </section>
   `;
 
+  ctx.refs.mainPanel.querySelector("#attestation-preview-start")?.addEventListener("click", () => {
+    void startAttestationBlock(ctx, "", "preview");
+  });
+
   ctx.refs.mainPanel.querySelectorAll("[data-attestation-section]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!hasFullBankAccess && managedSection) {
+        void ctx.openPayment({ section_key: managedSection.key });
+        return;
+      }
       const item = sections[Number(button.dataset.attestationSection)];
       if (!item) return;
       ctx.impact("light");
@@ -933,9 +958,9 @@ async function startAttestationBlock(ctx, section, block) {
     errorPanel.textContent = "";
   }
   ctx.setMessage("", "");
+  const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
+  const bank = banks.find((item) => item.slug === ctx.state.selectedAttestationBankSlug);
   try {
-    const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
-    const bank = banks.find((item) => item.slug === ctx.state.selectedAttestationBankSlug);
     if (!bank) throw new Error("Розділ тестування не знайдено.");
     ctx.state.currentView = await ctx.api(`/api/attestation/${bank.slug}/start`, {
       method: "POST",
@@ -945,6 +970,11 @@ async function startAttestationBlock(ctx, section, block) {
     ctx.render();
   } catch (error) {
     if (error.code === "attestation_access_required" || error.code === "access_expired") {
+      const managedSection = (ctx.state.bootstrap.sections || []).find((item) => item.bank_slug === bank?.slug);
+      if (managedSection) {
+        void ctx.openPayment({ section_key: managedSection.key });
+        return;
+      }
       ctx.queueTransition("forward");
       renderPaywall(ctx, error.code);
       return;

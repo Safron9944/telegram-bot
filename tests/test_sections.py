@@ -34,6 +34,7 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("Другий етап", dynamic["title"])
         self.assertTrue(dynamic["deletable"])
         self.assertFalse(dynamic["has_access"])
+        self.assertEqual(50, dynamic["preview_count"])
 
     async def test_zero_price_is_free_and_full_access_unlocks_everything(self):
         store = FakeStore()

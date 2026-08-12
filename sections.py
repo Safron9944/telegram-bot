@@ -81,6 +81,7 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
             "screen": "attestation-bank",
             "icon": "document",
             "price": 100,
+            "preview_count": min(50, int(bank.get("questions_count") or 0)),
             "visible": bank.get("status") == "published",
             "questions_count": int(bank.get("questions_count") or 0),
             "deletable": True,

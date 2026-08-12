@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260812-order-sync-01";
+} from "./screens/user.js?v=20260812-apk-preview-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
