@@ -21,6 +21,7 @@ export const state = {
   selectedQuestionId: null,
   searchResults: null,
   questionSearchQuery: "",
+  adminQuestionViewItem: null,
   learningTab: "law", // "law" | "ok" | "mistakes"
   cases: [],
   selectedCase: null,

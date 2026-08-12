@@ -33,7 +33,7 @@ export function renderAdminAttestationBank(ctx) {
 }
 
 export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestationAdminOffset || 0) {
-  if (!["admin-attestation-bank", "admin-section-questions"].includes(ctx.state.currentScreen)) return;
+  if (ctx.state.currentScreen !== "admin-section-questions") return;
   const base = bankBase(ctx);
   const root = document.querySelector("#attestation-bank-manager");
   if (!base || !root) {
@@ -46,41 +46,11 @@ export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestati
     const payload = await ctx.api(
       `${base}/questions?topic=${encodeURIComponent(topic)}&q=${encodeURIComponent(query)}&offset=${Math.max(0, offset)}&limit=${PAGE_SIZE}`,
     );
-    if (!["admin-attestation-bank", "admin-section-questions"].includes(ctx.state.currentScreen)) return;
+    if (ctx.state.currentScreen !== "admin-section-questions") return;
     ctx.state.selectedAttestationAdminBank = payload.bank;
     ctx.state.attestationAdminOffset = payload.offset;
     const topics = payload.topics || [];
-    const questionsOnly = ctx.state.currentScreen === "admin-section-questions";
     root.innerHTML = `
-      <form class="attestation-bank-title-form ${questionsOnly ? "admin-section-legacy-controls" : ""}" id="attestation-bank-title-form">
-        <label class="field">
-          <span class="field__label">Назва розділу</span>
-          <input class="input" id="attestation-bank-title" value="${ctx.escapeHtml(payload.bank.title)}" maxlength="160">
-        </label>
-        <button class="btn btn--primary" type="submit">Зберегти назву</button>
-      </form>
-
-      <div class="group attestation-bank-controls ${questionsOnly ? "admin-section-legacy-controls" : ""}">
-        <div class="group__label">Керування розділом</div>
-        <div class="group__list">
-          <div class="cell admin-setting-row">
-            <span class="cell__body">
-              <span class="cell__title">Показувати користувачам</span>
-              <span class="cell__subtitle">Прихований розділ залишається в базі</span>
-            </span>
-            <label class="switch">
-              <input id="attestation-bank-visible" type="checkbox" ${payload.bank.status === "published" ? "checked" : ""} />
-              <span class="switch__track"></span>
-            </label>
-          </div>
-        </div>
-        <div class="attestation-bank-order-actions">
-          <button class="btn" id="attestation-bank-move-up" type="button">↑ Вище</button>
-          <button class="btn" id="attestation-bank-move-down" type="button">↓ Нижче</button>
-        </div>
-        <button class="btn btn--destructive btn--block" id="attestation-bank-delete" type="button">Видалити розділ</button>
-      </div>
-
       <div class="attestation-bank-toolbar">
         <button class="btn btn--primary btn--block" id="attestation-question-add" type="button">Додати питання</button>
         <form class="attestation-bank-filters" id="attestation-bank-filters">
@@ -134,60 +104,6 @@ export async function loadAdminAttestationBank(ctx, offset = ctx.state.attestati
       });
     }
 
-    root.querySelector("#attestation-bank-title-form").addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const title = root.querySelector("#attestation-bank-title").value.trim();
-      if (!title) return ctx.setMessage("error", "Вкажіть назву розділу.");
-      try {
-        const saved = await ctx.api(base, { method: "PATCH", body: { title } });
-        ctx.state.selectedAttestationAdminBank = saved;
-        ctx.setMessage("success", "Назву розділу збережено.");
-        await loadAdminAttestationBank(ctx, payload.offset);
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    });
-    root.querySelector("#attestation-bank-visible").addEventListener("change", async (event) => {
-      const checkbox = event.currentTarget;
-      const visible = checkbox.checked;
-      checkbox.disabled = true;
-      try {
-        const saved = await ctx.api(`${base}/visibility`, {
-          method: "PATCH",
-          body: { visible },
-        });
-        ctx.state.selectedAttestationAdminBank = saved;
-        ctx.setMessage("success", visible ? "Розділ показано користувачам." : "Розділ приховано від користувачів.");
-      } catch (error) {
-        checkbox.checked = !visible;
-        ctx.setMessage("error", error.message);
-      } finally {
-        checkbox.disabled = false;
-      }
-    });
-    const moveBank = async (direction) => {
-      try {
-        await ctx.api(`${base}/move`, { method: "POST", body: { direction } });
-        ctx.setMessage("success", direction === "up" ? "Розділ переміщено вище." : "Розділ переміщено нижче.");
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    };
-    root.querySelector("#attestation-bank-move-up").addEventListener("click", () => void moveBank("up"));
-    root.querySelector("#attestation-bank-move-down").addEventListener("click", () => void moveBank("down"));
-    root.querySelector("#attestation-bank-delete").addEventListener("click", async () => {
-      if (!window.confirm(`Видалити «${payload.bank.title}» разом із усіма питаннями?`)) return;
-      try {
-        await ctx.api(base, { method: "DELETE" });
-        ctx.state.selectedAttestationAdminBankId = null;
-        ctx.state.selectedAttestationAdminBank = null;
-        ctx.state.selectedAttestationAdminQuestionId = null;
-        await ctx.goBack();
-        ctx.setMessage("success", "Розділ видалено.");
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    });
     root.querySelector("#attestation-question-add").addEventListener("click", () => {
       ctx.state.selectedAttestationAdminQuestionId = null;
       ctx.navigate("admin-attestation-question");

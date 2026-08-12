@@ -11,16 +11,18 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
         state = (ROOT / "static/js/core/state.js").read_text(encoding="utf-8")
 
-        self.assertIn('"admin-attestation-bank"', app)
+        self.assertNotIn('"admin-attestation-bank"', app)
+        self.assertIn('"admin-section-questions"', app)
         self.assertIn('"admin-attestation-question"', app)
         self.assertIn("renderAdminAttestationQuestion", app)
         self.assertIn('title: "Розділи"', admin)
-        self.assertIn("кожна дія має окремий екран", admin)
+        self.assertIn("Оберіть, що саме потрібно змінити.", (ROOT / "static" / "js" / "admin_sections.js").read_text(encoding="utf-8"))
         self.assertIn('"admin-section-questions"', app)
         self.assertIn("selectedAttestationAdminQuestionId", state)
 
     def test_cms_supports_search_and_full_question_crud(self):
         module = (ROOT / "static/js/admin_attestation_banks.js").read_text(encoding="utf-8")
+        sections = (ROOT / "static/js/admin_sections.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles/components.css").read_text(encoding="utf-8")
 
         self.assertIn("/questions?topic=", module)
@@ -28,9 +30,9 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn("Зберегти зміни", module)
         self.assertIn("Видалити питання", module)
         self.assertIn("Додати варіант", module)
-        self.assertIn("Показувати користувачам", module)
-        self.assertIn("Видалити розділ", module)
-        self.assertIn("attestation-bank-move-up", module)
+        self.assertIn("Показувати користувачам", sections)
+        self.assertIn("Видалити розділ", sections)
+        self.assertIn("admin-section-order", sections)
         self.assertIn("attestation-managed-question-form", styles)
         self.assertIn("attestation-bank-filters", styles)
 

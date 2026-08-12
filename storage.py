@@ -1044,6 +1044,34 @@ class Storage:
                 "limit": int(limit),
             }
 
+    async def search_attestation_questions_all(self, query: str, limit: int = 20) -> list[dict]:
+        """Search every dynamic attestation bank, including hidden banks."""
+        assert self.pool
+        clean_query = (query or "").strip()
+        if not clean_query:
+            return []
+        pattern = f"%{clean_query}%"
+        async with self.pool.acquire() as con:
+            rows = await con.fetch(
+                """
+                SELECT q.id, q.bank_id, q.qnum, q.topic, q.question,
+                       b.slug AS bank_slug, b.title AS bank_title, b.status AS bank_status
+                FROM published_attestation_questions q
+                JOIN attestation_banks b ON b.id=q.bank_id
+                WHERE b.slug <> 'stage-1'
+                  AND b.source_id <> 'bundled-stage-1'
+                  AND (
+                    q.question ILIKE $1 OR q.topic ILIKE $1
+                    OR COALESCE(q.qnum::TEXT, '') ILIKE $1
+                    OR b.title ILIKE $1
+                  )
+                ORDER BY b.display_order, q.topic, q.qnum NULLS LAST, q.id
+                LIMIT $2
+                """,
+                pattern, max(1, int(limit)),
+            )
+            return [dict(row) for row in rows]
+
     async def get_attestation_question_for_admin(self, bank_id: int, question_id: int) -> dict | None:
         assert self.pool
         async with self.pool.acquire() as con:
