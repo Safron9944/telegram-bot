@@ -12,16 +12,31 @@
 
 /* ===================== MESSAGES ===================== */
 .messages {
-  position: sticky;
-  top: env(safe-area-inset-top);
-  z-index: 30;
-  padding: 8px 16px 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(16px + var(--content-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  z-index: 100;
+  width: min(calc(100% - 32px), 398px);
+  margin: 0 auto;
+  padding: 0;
   display: grid;
   gap: 6px;
+  pointer-events: none;
 }
 
 .messages[hidden] {
   display: none;
+}
+
+.messages .message {
+  pointer-events: auto;
+  animation: message-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes message-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ===================== SCREEN ===================== */
