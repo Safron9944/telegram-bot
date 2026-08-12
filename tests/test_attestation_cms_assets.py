@@ -14,8 +14,9 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn('"admin-attestation-bank"', app)
         self.assertIn('"admin-attestation-question"', app)
         self.assertIn("renderAdminAttestationQuestion", app)
-        self.assertIn('title: "Атестації"', admin)
-        self.assertIn("Усе керування атестаціями в одному місці", admin)
+        self.assertIn('title: "Розділи"', admin)
+        self.assertIn("кожна дія має окремий екран", admin)
+        self.assertIn('"admin-section-questions"', app)
         self.assertIn("selectedAttestationAdminQuestionId", state)
 
     def test_cms_supports_search_and_full_question_crud(self):

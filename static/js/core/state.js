@@ -9,6 +9,8 @@ export const state = {
   selectedAttestationAdminBankId: null,
   selectedAttestationAdminBank: null,
   selectedAttestationAdminQuestionId: null,
+  selectedAdminSection: null,
+  selectedAdminSectionTopic: null,
   attestationAdminTopic: "",
   attestationAdminQuery: "",
   attestationAdminOffset: 0,

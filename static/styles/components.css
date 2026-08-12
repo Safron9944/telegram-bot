@@ -1452,3 +1452,11 @@
   .attestation-bank-filters .btn { width: 100%; }
   .admin-attestation-system-actions .btn { min-height: 40px; }
 }
+.admin-section-legacy-controls {
+  display: none !important;
+}
+
+.admin-section-form {
+  display: grid;
+  gap: 18px;
+}
