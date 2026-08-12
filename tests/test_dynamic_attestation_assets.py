@@ -23,18 +23,24 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         styles = (ROOT / "static" / "styles" / "components.css").read_text(encoding="utf-8")
         self.assertIn(".attestation-start-error[hidden]", styles)
 
-    def test_admin_can_manage_dynamic_banks_but_stage_1_is_protected(self):
+    def test_admin_has_one_consolidated_attestation_area(self):
         admin = (ROOT / "static" / "js" / "screens" / "admin.js").read_text(encoding="utf-8")
         app = (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+        detail = (ROOT / "static" / "js" / "admin_attestation_banks.js").read_text(encoding="utf-8")
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('screen: "admin-attestation-banks"', admin)
+        self.assertIn('screen: "admin-apk-import"', admin)
         self.assertIn('case "admin-attestation-banks"', app)
         self.assertIn('/api/admin/attestation-banks', admin)
-        self.assertIn('method: "DELETE"', admin)
-        self.assertIn('direction: "up"', admin)
-        self.assertIn('direction: "down"', admin)
+        self.assertIn('body: { home_visibility: { attestation: visible } }', admin)
+        self.assertIn('method: "DELETE"', detail)
+        self.assertIn('moveBank("up")', detail)
+        self.assertIn('moveBank("down")', detail)
         self.assertIn('bank.system', admin)
         self.assertNotIn("Захищено", admin)
+        self.assertNotIn("admin_attestation_stage1.js", html)
+        self.assertNotIn("Атестація посадових осіб — 1 етап", admin)
 
 
 if __name__ == "__main__":

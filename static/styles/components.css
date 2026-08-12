@@ -1341,24 +1341,15 @@
   .apk-pagination .btn { min-height: 44px; }
 }
 
-.admin-attestation-row {
-  display: grid;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--separator);
+.admin-attestation-bank-cell .cell__subtitle {
+  display: block;
+  margin-top: 3px;
+  white-space: normal;
 }
-.admin-attestation-row:last-child { border-bottom: 0; }
-.admin-attestation-row__info { display: grid; gap: 4px; min-width: 0; }
-.admin-attestation-row__info strong,
-.admin-attestation-row__info span { overflow-wrap: anywhere; }
-.admin-attestation-row__info span { color: var(--text-secondary); font-size: 13px; }
-.admin-attestation-row__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.admin-attestation-visibility { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; padding: 0 8px; }
-.admin-attestation-visibility input { width: 20px; height: 20px; }
-@media (max-width: 560px) {
-  .admin-attestation-row__actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .admin-attestation-row__actions .btn { width: 100%; min-height: 44px; }
-  .admin-attestation-visibility { grid-column: 1 / -1; }
+
+.admin-attestation-system-actions {
+  flex: 0 0 auto;
+  margin-left: 8px;
 }
 
 /* ===================== ATTESTATION CMS ===================== */
@@ -1376,6 +1367,22 @@
   border: 1px solid var(--separator);
   border-radius: var(--radius-card);
   background: var(--bg-grouped);
+}
+
+.attestation-bank-controls {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.attestation-bank-order-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.attestation-bank-order-actions .btn {
+  min-height: 48px;
 }
 
 .attestation-bank-filters {
@@ -1443,4 +1450,5 @@
   .attestation-bank-filters,
   .attestation-managed-meta { grid-template-columns: 1fr; }
   .attestation-bank-filters .btn { width: 100%; }
+  .admin-attestation-system-actions .btn { min-height: 40px; }
 }

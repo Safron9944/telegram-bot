@@ -62,7 +62,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260811-attestation-cms-01";
+} from "./screens/admin.js?v=20260812-admin-cleanup-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,
@@ -73,7 +73,7 @@ import {
   loadAdminAttestationQuestion,
   renderAdminAttestationBank,
   renderAdminAttestationQuestion,
-} from "./admin_attestation_banks.js?v=20260811-attestation-cms-01";
+} from "./admin_attestation_banks.js?v=20260812-admin-cleanup-01";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",
