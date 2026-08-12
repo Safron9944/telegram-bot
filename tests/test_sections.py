@@ -1,6 +1,6 @@
 import unittest
 
-from sections import build_sections, free_section_keys, move_section, update_section
+from sections import build_sections, free_section_keys, move_section, reorder_section_group, update_section
 
 
 class FakeStore:
@@ -64,6 +64,16 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         moved = await build_sections(store, {}, is_admin=True)
         self.assertEqual(["customs", "attestation:7"], [item["key"] for item in moved if item["group"] == "primary"])
         self.assertEqual(["cases", "customs_code", "test_questions", "question_search"], [item["key"] for item in moved if item["group"] == "materials"])
+
+    async def test_drag_order_reorders_exact_group_and_rejects_incomplete_list(self):
+        store = FakeStore()
+        self.assertTrue(await reorder_section_group(store, "materials", ["question_search", "cases", "customs_code", "test_questions"]))
+        items = await build_sections(store, {}, is_admin=True)
+        self.assertEqual(
+            ["question_search", "cases", "customs_code", "test_questions"],
+            [item["key"] for item in items if item["group"] == "materials"],
+        )
+        self.assertFalse(await reorder_section_group(store, "materials", ["cases"]))
 
 
 if __name__ == "__main__":

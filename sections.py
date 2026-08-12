@@ -138,3 +138,19 @@ async def move_section(store, key: str, direction: str) -> bool:
         config.setdefault(item["key"], {})["order"] = group_base + offset
     await save_section_config(store, config)
     return True
+
+
+async def reorder_section_group(store, group: str, ordered_keys: list[str]) -> bool:
+    """Persist an exact drag-and-drop order for one home-screen group."""
+    items = [item for item in await build_sections(store, is_admin=True) if item["group"] == group]
+    current_keys = [str(item["key"]) for item in items]
+    clean_keys = [str(key) for key in ordered_keys]
+    if not items or len(clean_keys) != len(set(clean_keys)) or set(clean_keys) != set(current_keys):
+        return False
+    by_key = {str(item["key"]): item for item in items}
+    group_base = min(int(item["order"]) for item in items)
+    config = await section_config(store)
+    for offset, key in enumerate(clean_keys):
+        config.setdefault(key, {})["order"] = group_base + offset
+    await save_section_config(store, config)
+    return all(key in by_key for key in clean_keys)

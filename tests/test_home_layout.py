@@ -17,6 +17,14 @@ class HomeLayoutTests(unittest.TestCase):
         self.assertIn("sections.forEach((section)", home)
         self.assertIn('section.group === "primary"', home)
 
+    def test_admin_sections_support_touch_drag_and_persist_the_order(self):
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static/styles/components.css").read_text(encoding="utf-8")
+        self.assertIn("admin-section-drag-handle", admin)
+        self.assertIn('addEventListener("pointermove"', admin)
+        self.assertIn('ctx.api("/api/admin/sections/order"', admin)
+        self.assertIn("touch-action: none", styles)
+
 
 if __name__ == "__main__":
     unittest.main()

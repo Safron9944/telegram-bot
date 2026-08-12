@@ -30,7 +30,7 @@ from customs_code import repository as customs_code_repository
 from questions import QuestionBank
 from storage import Storage
 from access import access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access
-from sections import build_sections, free_section_keys, get_section, move_section, section_config, save_section_config, update_section
+from sections import build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -2152,6 +2152,20 @@ async def api_admin_move_section(section_key: str, request: Request, auth: AuthC
     if not await move_section(runtime.store, section_key, direction):
         require_http(404, "section_not_found", "Розділ не знайдено.")
     return {"ok": True}
+
+
+@app.post("/api/admin/sections/order")
+async def api_admin_reorder_sections(request: Request, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    if not auth.is_admin:
+        require_http(403, "forbidden", "Потрібні права адміністратора.")
+    body = await request.json()
+    group = str(body.get("group") or "")
+    keys = body.get("keys")
+    if group not in {"primary", "materials", "help"} or not isinstance(keys, list):
+        require_http(400, "invalid_section_order", "Некоректний порядок розділів.")
+    if not await reorder_section_group(runtime.store, group, keys):
+        require_http(400, "invalid_section_order", "Список розділів змінився. Оновіть сторінку і спробуйте ще раз.")
+    return {"ok": True, "items": await build_sections(runtime.store, auth.user, is_admin=True)}
 
 
 @app.delete("/api/admin/sections/{section_key}", status_code=204)
