@@ -1,7 +1,7 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { state } from "./core/state.js?v=20260811-attestation-cms-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260810-ios-fullscreen-02";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260812-no-haptics-01";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
 import {
   actionButton,
@@ -13,7 +13,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260809-unified-ui-02";
+} from "./core/ui.js?v=20260812-no-haptics-01";
 import {
   loadCaseDetail,
   loadCases,
@@ -67,7 +67,7 @@ import { renderCurrentView } from "./screens/session.js?v=20260810-result-naviga
 import {
   cleanupAdminApkImport,
   renderAdminApkImport,
-} from "./admin_apk_import.js?v=20260811-apk-screen-01";
+} from "./admin_apk_import.js?v=20260812-no-haptics-01";
 import {
   loadAdminAttestationBank,
   loadAdminAttestationQuestion,

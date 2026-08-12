@@ -34,9 +34,7 @@ export function initializeTelegram(onBack) {
   }
 }
 
-export function impact(style = "light") {
-  tg?.HapticFeedback?.impactOccurred?.(style);
-}
+export function impact() {}
 
 export function setTelegramBackButton(showBack) {
   if (showBack) {
