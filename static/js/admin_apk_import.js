@@ -84,7 +84,6 @@ async function upload(event) {
     token = session.token;
     renderBanks(session.banks);
     message("");
-    tg?.HapticFeedback?.notificationOccurred?.("success");
   } catch (error) { message(error.message, true); }
 }
 
@@ -150,7 +149,6 @@ async function createSection() {
       window.location.reload();
     });
     message("Розділ створено.");
-    tg?.HapticFeedback?.notificationOccurred?.("success");
   } catch (error) {
     publishing = false;
     if (button) { button.disabled = false; button.textContent = "Створити розділ"; }
