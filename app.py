@@ -52,17 +52,14 @@ from utils import (
     ok_sort_key,
 )
 from aiogram.types import PreCheckoutQuery
+from cache_policy import HTML_NO_CACHE_HEADERS, cache_headers
 
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 INDEX_FILE = STATIC_DIR / "index.html"
-STATIC_NO_CACHE_HEADERS = {
-    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-    "Pragma": "no-cache",
-    "Expires": "0",
-}
+STATIC_NO_CACHE_HEADERS = HTML_NO_CACHE_HEADERS
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -1988,10 +1985,14 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.middleware("http")
-async def add_static_cache_headers(request: Request, call_next):
+async def add_cache_headers(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path == "/" or request.url.path.startswith("/static/"):
-        response.headers.update(STATIC_NO_CACHE_HEADERS)
+    response.headers.update(
+        cache_headers(
+            request.url.path,
+            versioned=bool(request.query_params.get("v")),
+        )
+    )
     return response
 
 
