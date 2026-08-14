@@ -32,6 +32,37 @@ class AccessTierTests(unittest.TestCase):
         self.assertEqual("none", access_tier(user))
         self.assertEqual((False, "expired"), access_status(user))
 
+    def test_new_full_subscription_does_not_unlock_protected_materials(self):
+        service = MiniAppService(SimpleNamespace())
+        auth = AuthContext(
+            telegram_user={"id": 42},
+            user={"sub_infinite": True, "sub_tier": "full", "section_access": []},
+            user_id=42,
+            is_admin=False,
+        )
+
+        with self.assertRaises(HTTPException) as cases_error:
+            service.ensure_cases_access(auth)
+        with self.assertRaises(HTTPException) as search_error:
+            service.ensure_full_access(auth, "question_search")
+
+        self.assertEqual("protected_materials_required", cases_error.exception.detail["code"])
+        self.assertEqual("protected_materials_required", search_error.exception.detail["code"])
+
+    def test_explicit_grant_unlocks_protected_materials(self):
+        service = MiniAppService(SimpleNamespace())
+        auth = AuthContext(
+            telegram_user={"id": 42},
+            user={
+                "section_access": ["cases", "test_questions", "question_search"],
+            },
+            user_id=42,
+            is_admin=False,
+        )
+
+        service.ensure_cases_access(auth)
+        service.ensure_full_access(auth, "question_search")
+
 
 class SavedAttestationAccessTests(unittest.IsolatedAsyncioTestCase):
     async def test_expired_subscription_cannot_restore_attestation_session(self):

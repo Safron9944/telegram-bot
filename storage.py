@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import asyncpg
 
 from utils import normalize_postgres_dsn, now, case_bank_sort_key
+from sections import PROTECTED_SECTION_KEYS
 
 
 class Storage:
@@ -57,6 +58,32 @@ class Storage:
                     value TEXT NOT NULL
                 );
             """)
+            await con.execute(
+                """
+                WITH migration_guard AS (
+                    INSERT INTO settings(key, value)
+                    VALUES('protected_materials_access_v1', 'done')
+                    ON CONFLICT(key) DO NOTHING
+                    RETURNING key
+                ), grants AS (
+                    SELECT unnest($1::text[]) AS section_key
+                )
+                INSERT INTO user_section_access(user_id, section_key, purchased_at)
+                SELECT users.user_id, grants.section_key, now()
+                FROM users
+                CROSS JOIN grants
+                CROSS JOIN migration_guard
+                WHERE
+                    (users.sub_infinite = 1 OR users.sub_end >= now())
+                    AND (
+                        users.sub_tier = 'full'
+                        OR (users.sub_infinite = 1 AND users.sub_tier IS NULL)
+                        OR (users.sub_tier = 'cases' AND grants.section_key = 'cases')
+                    )
+                ON CONFLICT(user_id, section_key) DO NOTHING
+                """,
+                sorted(PROTECTED_SECTION_KEYS),
+            )
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS ui_state (
                     user_id BIGINT PRIMARY KEY,
@@ -334,6 +361,31 @@ class Storage:
             section_key,
             telegram_charge_id,
         )
+
+    async def set_protected_materials_access(self, user_id: int, enabled: bool) -> bool:
+        assert self.pool
+        keys = sorted(PROTECTED_SECTION_KEYS)
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                if enabled:
+                    await con.executemany(
+                        """
+                        INSERT INTO user_section_access(user_id, section_key)
+                        VALUES($1, $2)
+                        ON CONFLICT(user_id, section_key) DO NOTHING
+                        """,
+                        [(user_id, key) for key in keys],
+                    )
+                else:
+                    await con.execute(
+                        "DELETE FROM user_section_access WHERE user_id=$1 AND section_key=ANY($2::text[])",
+                        user_id,
+                        keys,
+                    )
+        return True
 
     async def start_trial_if_needed(self, user_id: int, *, days: int = 3, first_name: Optional[str] = None, last_name: Optional[str] = None):
         from datetime import timedelta

@@ -38,7 +38,7 @@ from customs_code import repository as customs_code_repository
 from questions import QuestionBank
 from storage import Storage
 from access import access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access
-from sections import build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
+from sections import PROTECTED_SECTION_KEYS, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -166,7 +166,7 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     elif state == "sub_full":
         label = f"Повний доступ до {sub_end}" if sub_end else "Повний доступ активний"
     elif state == "sub_cases":
-        label = f"Кейси й атестація до {sub_end}" if sub_end else "Доступ до кейсів і атестації активний"
+        label = f"Атестація до {sub_end}" if sub_end else "Доступ до атестації активний"
     elif state == "not_registered":
         label = "Користувача ще не зареєстровано"
     else:
@@ -367,6 +367,10 @@ class AdminAccessUpdateRequest(BaseModel):
     access: Literal["trial", "cases", "full", "none"]
 
 
+class AdminProtectedMaterialsUpdateRequest(BaseModel):
+    enabled: bool
+
+
 class MiniAppNoticeRequest(BaseModel):
     audience: Literal["all", "selected"] = "all"
     user_ids: list[int] = Field(default_factory=list, max_length=100_000)
@@ -503,18 +507,21 @@ class MiniAppService:
         require_http(403, "access_expired", "Потрібна підписка на повний доступ (250 ⭐).")
 
     def ensure_section_access(self, auth: AuthContext, section_key: str) -> None:
-        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        explicit = set(auth.user.get("section_access", []) or [])
+        if section_key in PROTECTED_SECTION_KEYS:
+            if auth.is_admin or section_key in explicit:
+                return
+            require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
+        allowed = explicit | set(auth.user.get("free_sections", []) or [])
         if auth.is_admin or access_tier(auth.user) == "full" or section_key in allowed:
             return
         require_http(403, "section_access_required", "Потрібно придбати доступ до цього розділу.")
 
     def ensure_cases_access(self, auth: AuthContext) -> None:
-        """Cases access: тільки за підпискою, без тріалу."""
-        tier = access_tier(auth.user)
-        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
-        if tier in ("cases", "full") or "cases" in allowed:
+        """Cases are available only through an explicit protected-materials grant."""
+        if auth.is_admin or "cases" in set(auth.user.get("section_access", []) or []):
             return
-        require_http(403, "cases_access_required", "Кейси доступні тільки за підпискою (100 ⭐ або 250 ⭐).")
+        require_http(403, "protected_materials_required", "Кейси відкриває адміністратор.")
 
     def ensure_attestation_access(self, auth: AuthContext, bank_slug: str = "") -> None:
         """Attestation access: 100-star tier or full paid access, without trial."""
@@ -539,7 +546,12 @@ class MiniAppService:
 
     def ensure_full_access(self, auth: AuthContext, section_key: str = "") -> None:
         """Тільки повний оплачений доступ — без тріалу та без cases."""
-        allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
+        explicit = set(auth.user.get("section_access", []) or [])
+        if section_key in PROTECTED_SECTION_KEYS:
+            if auth.is_admin or section_key in explicit:
+                return
+            require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
+        allowed = explicit | set(auth.user.get("free_sections", []) or [])
         if access_tier(auth.user) == "full" or (section_key and section_key in allowed):
             return
         require_http(403, "ok_questions_access_required", "Питання ОК доступні тільки з повним доступом (250 ⭐).")
@@ -1615,12 +1627,21 @@ class MiniAppService:
             "stats": self.serialize_stats(stats),
             "ok_modules": list(user.get("ok_modules", []) or []),
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
+            "protected_materials_access": PROTECTED_SECTION_KEYS.issubset(set(user.get("section_access", []) or [])),
+            "protected_materials_sections": sorted(PROTECTED_SECTION_KEYS & set(user.get("section_access", []) or [])),
         }
 
     async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         await self.store.set_admin_access(target_id, access, trial_days=3)
+        return await self.admin_user_detail(auth, target_id)
+
+    async def admin_set_protected_materials(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        if not await self.store.set_protected_materials_access(target_id, enabled):
+            require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_delete_user(self, auth: AuthContext, target_id: int) -> dict[str, Any]:
@@ -1856,7 +1877,7 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
             return
         user_id = message.from_user.id
         await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
-        label = "кейсів та атестації" if tier == "cases" else "повного доступу"
+        label = "атестації" if tier == "cases" else "повного доступу"
         await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 
     @router.callback_query()
@@ -2185,6 +2206,8 @@ async def api_payment_create_link(request: Request, auth: AuthContext = Depends(
             require_http(404, "section_not_found", "Розділ не знайдено.")
         if not section["visible"] and not auth.is_admin:
             require_http(404, "section_not_found", "Розділ не знайдено.")
+        if section.get("manual_grant_only") and not auth.is_admin:
+            require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
         if section["has_access"]:
             require_http(409, "section_already_available", "Цей розділ уже доступний.")
         amount = int(section["price"])
@@ -2452,6 +2475,11 @@ async def api_admin_user_detail(user_id: int, auth: AuthContext = Depends(get_au
 @app.post("/api/admin/users/{user_id}/access")
 async def api_admin_user_access(user_id: int, payload: AdminAccessUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_set_access(auth, user_id, payload.access)
+
+
+@app.post("/api/admin/users/{user_id}/protected-materials")
+async def api_admin_user_protected_materials(user_id: int, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_set_protected_materials(auth, user_id, payload.enabled)
 
 
 @app.delete("/api/admin/users/{user_id}")

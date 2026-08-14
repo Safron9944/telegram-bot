@@ -1,6 +1,6 @@
 import unittest
 
-from sections import build_sections, free_section_keys, move_section, reorder_section_group, update_section
+from sections import PROTECTED_SECTION_KEYS, build_sections, free_section_keys, move_section, reorder_section_group, update_section
 
 
 class FakeStore:
@@ -36,14 +36,31 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(dynamic["has_access"])
         self.assertEqual(50, dynamic["preview_count"])
 
-    async def test_zero_price_is_free_and_full_access_unlocks_everything(self):
+    async def test_full_access_does_not_unlock_protected_materials(self):
         store = FakeStore()
         await update_section(store, "attestation:7", {"price": 0})
         self.assertIn("attestation:7", await free_section_keys(store))
         free = await build_sections(store, {"section_access": []})
         self.assertTrue(next(item for item in free if item["key"] == "attestation:7")["has_access"])
         full = await build_sections(store, {"sub_infinite": 1, "sub_tier": "full"})
-        self.assertTrue(all(item["has_access"] for item in full))
+        protected = [item for item in full if item["key"] in PROTECTED_SECTION_KEYS]
+        self.assertTrue(protected)
+        self.assertTrue(all(not item["has_access"] for item in protected))
+        self.assertTrue(all(item["has_access"] for item in full if item["key"] not in PROTECTED_SECTION_KEYS))
+
+        granted = await build_sections(store, {
+            "sub_infinite": 1,
+            "sub_tier": "full",
+            "section_access": sorted(PROTECTED_SECTION_KEYS),
+        })
+        self.assertTrue(all(item["has_access"] for item in granted if item["key"] in PROTECTED_SECTION_KEYS))
+
+    async def test_protected_materials_cannot_be_made_free_globally(self):
+        store = FakeStore()
+        await update_section(store, "cases", {"price": 0})
+        self.assertNotIn("cases", await free_section_keys(store))
+        items = await build_sections(store, {"section_access": []})
+        self.assertFalse(next(item for item in items if item["key"] == "cases")["has_access"])
 
     async def test_title_visibility_price_and_order_are_persistent(self):
         store = FakeStore()
