@@ -35,6 +35,9 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(dynamic["deletable"])
         self.assertFalse(dynamic["has_access"])
         self.assertEqual(50, dynamic["preview_count"])
+        customs = next(item for item in items if item["key"] == "customs")
+        self.assertFalse(customs["has_access"])
+        self.assertEqual(50, customs["preview_count"])
 
     async def test_full_access_does_not_unlock_protected_materials(self):
         store = FakeStore()
@@ -61,6 +64,17 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("cases", await free_section_keys(store))
         items = await build_sections(store, {"section_access": []})
         self.assertFalse(next(item for item in items if item["key"] == "cases")["has_access"])
+
+    async def test_customs_code_and_support_are_always_free(self):
+        store = FakeStore()
+        await update_section(store, "customs_code", {"price": 999})
+        await update_section(store, "support", {"price": 999})
+        self.assertEqual({"customs_code", "support"}, set(await free_section_keys(store)))
+        items = await build_sections(store, {})
+        for key in ("customs_code", "support"):
+            section = next(item for item in items if item["key"] == key)
+            self.assertEqual(0, section["price"])
+            self.assertTrue(section["has_access"])
 
     async def test_title_visibility_price_and_order_are_persistent(self):
         store = FakeStore()

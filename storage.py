@@ -85,6 +85,17 @@ class Storage:
                 sorted(PROTECTED_SECTION_KEYS),
             )
             await con.execute("""
+                WITH migration_guard AS (
+                    INSERT INTO settings(key, value)
+                    VALUES('trial_removed_v1', 'done')
+                    ON CONFLICT(key) DO NOTHING
+                    RETURNING key
+                )
+                UPDATE users
+                SET trial_start=NULL, trial_end=NULL
+                FROM migration_guard
+            """)
+            await con.execute("""
                 CREATE TABLE IF NOT EXISTS ui_state (
                     user_id BIGINT PRIMARY KEY,
                     chat_id BIGINT,
@@ -387,31 +398,6 @@ class Storage:
                     )
         return True
 
-    async def start_trial_if_needed(self, user_id: int, *, days: int = 3, first_name: Optional[str] = None, last_name: Optional[str] = None):
-        from datetime import timedelta
-        r = await self._fetchrow(
-            "SELECT trial_start, trial_end, sub_end, sub_infinite FROM users WHERE user_id=$1", user_id)
-        if not r:
-            return
-        if r.get("trial_start") or r.get("trial_end"):
-            return
-        if r.get("sub_end") is not None or bool(r.get("sub_infinite")):
-            return
-        ts = now()
-        te = ts + timedelta(days=int(days))
-        fn = (first_name or "").strip() or None
-        ln = (last_name or "").strip() or None
-        await self._exec(
-            """
-            UPDATE users
-            SET trial_start=$1, trial_end=$2,
-                first_name=COALESCE($3, first_name),
-                last_name=COALESCE($4, last_name)
-            WHERE user_id=$5
-            """,
-            ts, te, fn, ln, user_id
-        )
-
     async def set_ok_modules(self, user_id: int, modules: list[str]):
         await self._exec("""
             UPDATE users SET ok_modules_json=$1 WHERE user_id=$2
@@ -430,18 +416,7 @@ class Storage:
             UPDATE users SET sub_end=$1, sub_infinite=$2, sub_tier=$3 WHERE user_id=$4
         """, sub_end, 1 if infinite else 0, tier, user_id)
 
-    async def set_admin_access(self, user_id: int, access: str, *, trial_days: int = 3):
-        from datetime import timedelta
-
-        ts = now()
-        if access == "trial":
-            await self._exec("""
-                UPDATE users
-                SET trial_start=$1, trial_end=$2,
-                    sub_end=NULL, sub_infinite=0, sub_tier=NULL
-                WHERE user_id=$3
-            """, ts, ts + timedelta(days=int(trial_days)), user_id)
-            return
+    async def set_admin_access(self, user_id: int, access: str):
         if access in ("cases", "full"):
             await self._exec("""
                 UPDATE users
@@ -451,11 +426,8 @@ class Storage:
             return
         if access == "none":
             await self._exec("""
-                UPDATE users
-                SET trial_start=COALESCE(trial_start, $1), trial_end=$1,
-                    sub_end=NULL, sub_infinite=0, sub_tier=NULL
-                WHERE user_id=$2
-            """, ts, user_id)
+                UPDATE users SET sub_end=NULL, sub_infinite=0, sub_tier=NULL WHERE user_id=$1
+            """, user_id)
             return
         raise ValueError(f"Unknown access type: {access}")
 
@@ -549,17 +521,11 @@ class Storage:
                 ) AS active,
                 COUNT(*) FILTER (
                     WHERE NOT (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
-                      AND trial_end IS NOT NULL AND trial_end >= NOW()
-                ) AS trial,
-                COUNT(*) FILTER (
-                    WHERE NOT (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
-                      AND (trial_end IS NULL OR trial_end < NOW())
                 ) AS expired
             FROM users
         """)
         return {
             "active": int(row["active"] or 0) if row else 0,
-            "trial": int(row["trial"] or 0) if row else 0,
             "expired": int(row["expired"] or 0) if row else 0,
         }
 

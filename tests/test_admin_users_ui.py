@@ -22,9 +22,9 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn(".admin-access-actions--grid", styles)
         self.assertIn(".ui-prototype .admin-account-card", prototype)
 
-    def test_admin_screen_keeps_its_cache_version(self):
+    def test_admin_screen_has_current_cache_version(self):
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("screens/admin.js?v=20260814-admin-users-01", module)
+        self.assertIn("screens/admin.js?v=20260814-no-trial-preview-01", module)
 
 
 if __name__ == "__main__":

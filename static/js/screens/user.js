@@ -99,7 +99,6 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 export function renderHome(ctx) {
   const { user, catalog } = ctx.state.bootstrap;
   const sections = ctx.state.bootstrap.sections || [];
-  const trialActive = !user.is_admin && user.access?.tier === "trial_full";
   const byKey = new Map(sections.map((item) => [item.key, item]));
   const primaryItems = [];
   const materialItems = [];
@@ -116,9 +115,9 @@ export function renderHome(ctx) {
         title: section.title,
         icon: section.icon,
         screen: section.screen,
-        action: section.kind === "attestation"
-          ? (section.has_access ? "Перейти до тестування" : `Перші ${section.preview_count || 50} питань безкоштовно`)
-          : "Відкрити розділ",
+        action: section.has_access
+          ? (section.kind === "attestation" ? "Перейти до тестування" : "Відкрити розділ")
+          : (section.preview_count ? `Перші ${section.preview_count} питань безкоштовно` : "Відкрити розділ"),
         bankSlug: section.bank_slug || "",
         sectionKey: section.key,
       }));
@@ -143,16 +142,6 @@ export function renderHome(ctx) {
     <section class="screen-content screen-content--home">
       <h1 class="page-title">Головна</h1>
       <p class="page-subtitle">Митні компетенції, атестація та робота з матеріалами — в одному середовищі.</p>
-
-      ${trialActive ? `
-        <section class="trial-notice" role="status" aria-live="polite">
-          <span class="trial-notice__badge" aria-hidden="true">3</span>
-          <span class="trial-notice__body">
-            <strong class="trial-notice__title">Безкоштовний тріал на 3 дні</strong>
-            <span class="trial-notice__text">${ctx.escapeHtml(user.access.label)}. Після завершення доступ можна буде придбати.</span>
-          </span>
-        </section>
-      ` : ""}
 
       ${primaryItems.length ? `<div class="home-primary">${primaryItems.join("")}</div>` : ""}
 
@@ -184,6 +173,8 @@ export function renderHome(ctx) {
 /* ===================== CUSTOMS ===================== */
 export function renderCustoms(ctx) {
   const { stats } = ctx.state.bootstrap;
+  const customsSection = (ctx.state.bootstrap.sections || []).find((section) => section.key === "customs");
+  const hasFullAccess = Boolean(ctx.state.bootstrap.user.is_admin || customsSection?.has_access);
   const last = stats.last;
 
   ctx.setChrome({ showBack: true });
@@ -191,18 +182,39 @@ export function renderCustoms(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Митні компетенції</h1>
-      <p class="page-subtitle">Навчання, тестування та ваші результати.</p>
+      <p class="page-subtitle">${hasFullAccess ? "Навчання, тестування та ваші результати." : "Ознайомтеся з першими 50 питаннями безкоштовно."}</p>
 
-      ${ctx.group({
+      ${hasFullAccess ? ctx.group({
         children: [
           prototypeMenuCell(ctx, { title: "Навчання", icon: "books", screen: "learning" }),
           prototypeMenuCell(ctx, { title: "Тестування", icon: "flask", screen: "testing" }),
           prototypeMenuCell(ctx, { title: "Статистика", icon: "chart", screen: "stats", detail: last ? percentLabel(last.percent) : "" }),
         ].join(""),
-      })}
+      }) : `
+        <div class="group">
+          <div class="group__list">
+            <div class="attestation-preview-card customs-preview-card">
+              <div>
+                <strong>Перші 50 питань безкоштовно</strong>
+                <p>Пройдіть ознайомчий блок. Повне навчання і тестування відкриваються після покупки.</p>
+              </div>
+              <div id="customs-preview-start"></div>
+              <div id="customs-preview-buy"></div>
+            </div>
+          </div>
+        </div>
+      `}
     </section>
   `;
 
+  if (!hasFullAccess) {
+    ctx.refs.mainPanel.querySelector("#customs-preview-start")?.append(
+      ctx.actionButton("Розпочати перші 50 питань", ctx.startCustomsPreview, "block"),
+    );
+    ctx.refs.mainPanel.querySelector("#customs-preview-buy")?.append(
+      ctx.actionButton("Відкрити повний доступ", () => void ctx.openPayment("full"), "block-ghost"),
+    );
+  }
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
 

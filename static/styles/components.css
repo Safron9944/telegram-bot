@@ -365,11 +365,6 @@
   color: var(--accent);
 }
 
-.btn--admin-trial {
-  background: var(--warning);
-  color: #ffffff;
-}
-
 .btn--admin-cases {
   background: #7c3aed;
   color: #ffffff;
@@ -1209,6 +1204,7 @@
 }
 
 .admin-access-actions .admin-access-choice--remove {
+  grid-column: 1 / -1;
   color: var(--destructive);
 }
 

@@ -10,20 +10,17 @@ from utils import now
 
 
 def access_tier(user: Dict[str, Any]) -> str:
-    """Return the effective access tier: 'none' | 'trial_full' | 'cases' | 'full'."""
+    """Return the effective paid access tier: 'none' | 'cases' | 'full'."""
     if not user:
         return "none"
     inf: bool = bool(user.get("sub_infinite"))
     tier: Optional[str] = user.get("sub_tier")
     s_end: Optional[datetime] = user.get("sub_end")
-    t_end: Optional[datetime] = user.get("trial_end")
     n = now()
     if inf:
         return tier if tier in ("cases", "full") else "full"
     if tier in ("cases", "full") and s_end and n <= s_end:
         return tier
-    if t_end and n <= t_end:
-        return "trial_full"  # навчання+тест, але НЕ кейси
     return "none"
 
 
@@ -35,8 +32,6 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
         return True, "sub_full"
     if tier == "cases":
         return True, "sub_cases"
-    if tier == "trial_full":
-        return True, "trial"
     if not user:
         return False, "not_registered"
     return False, "expired"

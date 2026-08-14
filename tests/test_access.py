@@ -22,9 +22,10 @@ class AccessTierTests(unittest.TestCase):
         self.assertEqual("full", access_tier(user))
         self.assertEqual((True, "sub_infinite"), access_status(user))
 
-    def test_trial_does_not_include_attestation(self):
+    def test_legacy_trial_is_ignored(self):
         user = {"trial_end": now() + timedelta(days=3)}
-        self.assertEqual("trial_full", access_tier(user))
+        self.assertEqual("none", access_tier(user))
+        self.assertEqual((False, "expired"), access_status(user))
         self.assertFalse(has_attestation_access(user))
 
     def test_expired_user_has_no_access(self):
