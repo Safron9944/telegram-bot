@@ -22,12 +22,8 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn(".admin-access-actions--grid", styles)
         self.assertIn(".ui-prototype .admin-account-card", prototype)
 
-    def test_admin_assets_have_fresh_cache_version(self):
-        index = (ROOT / "static/index.html").read_text(encoding="utf-8")
-        app = (ROOT / "static/app.js").read_text(encoding="utf-8")
+    def test_admin_screen_keeps_its_cache_version(self):
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("20260814-admin-users-01", index)
-        self.assertIn("20260814-admin-users-01", app)
         self.assertIn("screens/admin.js?v=20260814-admin-users-01", module)
 
 

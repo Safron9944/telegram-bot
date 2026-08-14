@@ -99,6 +99,7 @@ function renderCorrectAnswer(ctx, value, correctCount = 0) {
 export function renderHome(ctx) {
   const { user, catalog } = ctx.state.bootstrap;
   const sections = ctx.state.bootstrap.sections || [];
+  const trialActive = !user.is_admin && user.access?.tier === "trial_full";
   const byKey = new Map(sections.map((item) => [item.key, item]));
   const primaryItems = [];
   const materialItems = [];
@@ -142,6 +143,16 @@ export function renderHome(ctx) {
     <section class="screen-content screen-content--home">
       <h1 class="page-title">Головна</h1>
       <p class="page-subtitle">Митні компетенції, атестація та робота з матеріалами — в одному середовищі.</p>
+
+      ${trialActive ? `
+        <section class="trial-notice" role="status" aria-live="polite">
+          <span class="trial-notice__badge" aria-hidden="true">3</span>
+          <span class="trial-notice__body">
+            <strong class="trial-notice__title">Безкоштовний тріал на 3 дні</strong>
+            <span class="trial-notice__text">${ctx.escapeHtml(user.access.label)}. Після завершення доступ можна буде придбати.</span>
+          </span>
+        </section>
+      ` : ""}
 
       ${primaryItems.length ? `<div class="home-primary">${primaryItems.join("")}</div>` : ""}
 
