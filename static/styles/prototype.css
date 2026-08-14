@@ -414,6 +414,83 @@ body.ui-prototype {
   color: #667085;
 }
 
+.ui-prototype .admin-users-screen {
+  gap: 16px;
+}
+
+.ui-prototype .admin-notice-panel {
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(16, 35, 63, 0.04);
+}
+
+.ui-prototype .admin-notice-panel__summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 12px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ui-prototype .admin-notice-panel__summary::-webkit-details-marker {
+  display: none;
+}
+
+.ui-prototype .admin-notice-panel__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: #eef3f8;
+  color: var(--navy);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.ui-prototype .admin-notice-panel__body {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ui-prototype .admin-notice-panel__title {
+  color: var(--label);
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.ui-prototype .admin-notice-panel__subtitle {
+  overflow: hidden;
+  color: var(--label-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-prototype .admin-notice-panel__chevron {
+  width: 9px;
+  height: 9px;
+  margin-left: auto;
+  border-right: 2px solid #98a2b3;
+  border-bottom: 2px solid #98a2b3;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms ease;
+}
+
+.ui-prototype .admin-notice-panel[open] .admin-notice-panel__chevron {
+  transform: rotate(225deg) translate(-2px, -2px);
+}
+
+.ui-prototype .admin-notice-panel__content {
+  border-top: 1px solid var(--separator);
+}
+
 .ui-prototype .admin-notice-controls {
   display: grid;
   gap: 12px;
@@ -483,6 +560,18 @@ body.ui-prototype {
 
 .ui-prototype .cell--admin-user.is-notice-selected {
   background: var(--bg-fill-soft);
+}
+
+.ui-prototype .cell--admin-user,
+.ui-prototype .cell--admin-user .cell__body {
+  min-width: 0;
+}
+
+.ui-prototype .cell--admin-user .cell__title,
+.ui-prototype .cell--admin-user .cell__subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ui-prototype .attestation-preview-card {
@@ -560,17 +649,69 @@ body.ui-prototype {
   margin: 0;
 }
 
+.ui-prototype .admin-account-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  background: #fff;
+}
+
+.ui-prototype .admin-account-card__item {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  gap: 5px;
+  padding: 15px;
+}
+
+.ui-prototype .admin-account-card__item + .admin-account-card__item {
+  border-left: 1px solid var(--separator);
+}
+
+.ui-prototype .admin-account-card__item--wide {
+  grid-column: 1 / -1;
+  border-bottom: 1px solid var(--separator);
+}
+
+.ui-prototype .admin-account-card__item--wide + .admin-account-card__item {
+  border-left: 0;
+}
+
+.ui-prototype .admin-account-card__label {
+  color: var(--label-secondary);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ui-prototype .admin-account-card strong {
+  overflow-wrap: anywhere;
+  color: var(--label);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
 .ui-prototype .admin-danger-zone {
-  padding: 16px;
+  padding: 0;
   border: 1px solid #f1c5c5;
   border-radius: 20px;
   background: #fff8f8;
 }
 
 .ui-prototype .admin-danger-zone__title {
+  padding: 15px 16px;
   color: #9b1c1c;
   font-size: 15px;
   font-weight: 800;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.ui-prototype .admin-danger-zone__content {
+  padding: 0 16px 16px;
 }
 
 .ui-prototype .admin-danger-zone p,
