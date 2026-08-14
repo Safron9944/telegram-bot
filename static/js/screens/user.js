@@ -107,7 +107,7 @@ export function renderHome(ctx) {
   const catalogBySlug = new Map((catalog.attestation_banks || []).map((bank) => [bank.slug, bank]));
   sections.forEach((section) => {
     if (!section.visible) return;
-    if (section.key === "question_search" && !user.is_admin && !section.has_access) return;
+    if (section.manual_grant_only && !user.is_admin && !section.has_access) return;
     if (section.group === "primary") {
       const bank = section.bank_slug ? catalogBySlug.get(section.bank_slug) : null;
       if (section.kind === "attestation" && !bank) return;
@@ -1286,9 +1286,9 @@ export function renderPaywall(ctx, errorCode) {
 
       ${!fullOnly ? `
       <div class="group">
-        <div class="group__label">Кейси та атестація — ${prices.cases} ⭐</div>
+        <div class="group__label">Атестація — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до всіх кейсів та 800 питань першого етапу атестації.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до 800 питань першого етапу атестації.</p>
           <div id="pay-cases-wrap"></div>
         </div>
       </div>
@@ -1297,7 +1297,7 @@ export function renderPaywall(ctx, errorCode) {
       <div class="group">
         <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести, кейси, атестація та тестові питання.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести та атестація. Додаткові матеріали відкриває адміністратор.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
@@ -1306,7 +1306,7 @@ export function renderPaywall(ctx, errorCode) {
 
   if (!fullOnly) {
     ctx.refs.mainPanel.querySelector("#pay-cases-wrap")?.append(
-      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — кейси й атестація`, () => void ctx.openPayment("cases"), "block"),
+      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — атестація`, () => void ctx.openPayment("cases"), "block"),
     );
   }
   ctx.refs.mainPanel.querySelector("#pay-full-wrap")?.append(
@@ -1434,7 +1434,7 @@ async function loadCasesSearch(ctx, offset = 0) {
       }
     }
   } catch (error) {
-    if (error.code === "cases_access_required" || error.code === "access_expired") {
+    if (error.code === "cases_access_required" || error.code === "protected_materials_required" || error.code === "access_expired") {
       renderPaywall(ctx, error.code);
       return;
     }
@@ -1689,7 +1689,7 @@ export async function loadCaseDetail(ctx, offset = ctx.state.caseOffset || 0) {
       }
     }
   } catch (error) {
-    if (error.code === "cases_access_required" || error.code === "access_expired") {
+    if (error.code === "cases_access_required" || error.code === "protected_materials_required" || error.code === "access_expired") {
       renderPaywall(ctx, error.code);
       return;
     }
@@ -1800,7 +1800,7 @@ export async function loadUserTestExamQuestions(ctx, offset = ctx.state.testExam
       }
     }
   } catch (error) {
-    if (error.code === "full_access_required") {
+    if (error.code === "full_access_required" || error.code === "protected_materials_required") {
       renderPaywall(ctx, "full_access_required");
       return;
     }
@@ -1900,7 +1900,7 @@ async function loadQuestionSearch(ctx) {
       payload.cases.forEach((q) => results.append(buildCaseCard(ctx, q)));
     }
   } catch (error) {
-    if (error.code === "full_access_required" || error.code === "ok_questions_access_required") {
+    if (error.code === "full_access_required" || error.code === "ok_questions_access_required" || error.code === "protected_materials_required") {
       ctx.navigate("home", { replace: true });
       renderPaywall(ctx, "access_expired");
       return;

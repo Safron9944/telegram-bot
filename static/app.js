@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260812-apk-preview-01";
+import "/static/js/app.js?v=20260814-protected-materials-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

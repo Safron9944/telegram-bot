@@ -52,11 +52,11 @@ async def create_stars_invoice_link(bot: "Bot", tier: str, amount: int) -> str:
     from aiogram.types import LabeledPrice
 
     if tier == "cases":
-        title = "Кейси та атестація"
-        description = "Безлімітний доступ до кейсів і першого етапу атестації"
+        title = "Атестація"
+        description = "Безлімітний доступ до першого етапу атестації"
     else:
         title = "Повний доступ"
-        description = "Безлімітний повний доступ: навчання, тести, кейси та атестація"
+        description = "Безлімітний доступ: навчання, тести та атестація"
     link = await bot.create_invoice_link(
         title=title,
         description=description,

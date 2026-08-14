@@ -528,6 +528,14 @@ export function renderAdminUserDetail(ctx) {
         <div id="admin-user-actions" class="admin-access-actions"></div>
       </section>
 
+      <section class="admin-access-controls">
+        <div class="admin-access-controls__header">
+          <span class="admin-access-controls__title">Додаткові матеріали</span>
+          <span class="admin-access-controls__hint">Кейси, тестові питання та пошук питань</span>
+        </div>
+        <div id="admin-protected-materials-actions" class="admin-access-actions"></div>
+      </section>
+
       <section class="admin-danger-zone">
         <div class="admin-danger-zone__title">Видалення користувача</div>
         <p>Буде видалено профіль, підписку, прогрес, помилки, результати тестів і збережену сесію.</p>
@@ -554,15 +562,37 @@ export function renderAdminUserDetail(ctx) {
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
   const trialButton = ctx.actionButton("⏳ Тріал на 3 дні", () => updateAccess("trial", "Тріал активовано на 3 дні."), "block");
   trialButton.classList.add("btn--admin-trial");
-  const casesButton = ctx.actionButton("⭐ Кейси й атестація", () => updateAccess("cases", "Доступ до кейсів і атестації активовано."), "block");
+  const casesButton = ctx.actionButton("⭐ Атестація", () => updateAccess("cases", "Доступ до атестації активовано."), "block");
   casesButton.classList.add("btn--admin-cases");
   const fullButton = ctx.actionButton("✓ Повний доступ", () => updateAccess("full", "Повний доступ активовано."), "block");
-  const removeButton = ctx.actionButton("✕ Забрати доступ", async () => {
-    if (!window.confirm("Забрати у користувача тріал і всі види доступу?")) return;
-    await updateAccess("none", "Доступ скасовано.");
+  const removeButton = ctx.actionButton("✕ Забрати підписку", async () => {
+    if (!window.confirm("Забрати у користувача тріал і підписку?")) return;
+    await updateAccess("none", "Підписку скасовано.");
   }, "block");
   removeButton.classList.add("btn--admin-remove");
   actions?.append(trialButton, casesButton, fullButton, removeButton);
+
+  const protectedActions = ctx.refs.mainPanel.querySelector("#admin-protected-materials-actions");
+  const protectedEnabled = Boolean(payload.protected_materials_access);
+  const protectedButton = ctx.actionButton(
+    protectedEnabled ? "✕ Забрати додаткові матеріали" : "✓ Показати додаткові матеріали",
+    async () => {
+      try {
+        ctx.state.adminUserDetail = await ctx.api(`/api/admin/users/${payload.user_id}/protected-materials`, {
+          method: "POST",
+          body: { enabled: !protectedEnabled },
+        });
+        ctx.impact("medium");
+        ctx.setMessage("success", protectedEnabled ? "Додаткові матеріали приховано." : "Додаткові матеріали відкрито.");
+        ctx.render();
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    },
+    "block",
+  );
+  if (protectedEnabled) protectedButton.classList.add("btn--admin-remove");
+  protectedActions?.append(protectedButton);
 
   const deleteWrap = ctx.refs.mainPanel.querySelector("#admin-user-delete-wrap");
   if (deleteWrap && !protectedAccount) {

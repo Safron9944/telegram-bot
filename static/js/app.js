@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260812-apk-preview-01";
+} from "./screens/user.js?v=20260814-protected-materials-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -60,7 +60,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260812-editable-notice-01";
+} from "./screens/admin.js?v=20260814-protected-materials-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,
@@ -423,7 +423,7 @@ async function startLearning(payload) {
     queueTransition("forward");
     render();
   } catch (error) {
-    if (error.code === "access_expired" || error.code === "cases_access_required") {
+    if (error.code === "access_expired" || error.code === "cases_access_required" || error.code === "protected_materials_required") {
       queueTransition("forward");
       renderPaywall(createContext(), error.code);
       return;
