@@ -24,7 +24,7 @@ function ensureStyles() {
   style.id = "test-question-manager-styles";
   style.textContent = `
     .test-q-manager-actions {
-      display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0 16px;
+      display:grid; grid-template-columns:1fr; gap:10px; margin:12px 0 16px;
     }
     .test-q-manager-actions .btn { min-height:48px; }
     #test-q-list.test-q-manager-list { gap:10px; }
@@ -41,12 +41,19 @@ function ensureStyles() {
     .test-q-manager-edit-note { margin-top:8px; font-size:12px; opacity:.55; font-weight:650; }
 
     .test-q-manager-overlay {
-      position:fixed; inset:0; z-index:30000; background:var(--bg,#f4f5f7);
-      overflow-y:auto; overscroll-behavior:contain;
+      position:fixed; inset:0; z-index:30000; display:grid; place-items:center;
+      padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom));
+      background:rgba(15,23,42,.48); backdrop-filter:blur(4px);
+      overflow:hidden; overscroll-behavior:contain;
     }
-    .test-q-manager-shell { width:min(760px,100%); min-height:100%; margin:0 auto; }
+    .test-q-manager-shell {
+      width:min(720px,100%); max-height:min(86dvh,900px); min-height:0; margin:0;
+      display:flex; flex-direction:column; overflow:hidden;
+      background:var(--bg,#f4f5f7); border:1px solid var(--separator,rgba(128,128,128,.22));
+      border-radius:24px; box-shadow:0 24px 70px rgba(15,23,42,.28);
+    }
     .test-q-manager-bar {
-      position:sticky; top:0; z-index:3; display:flex; align-items:center; gap:12px;
+      flex:0 0 auto; z-index:3; display:flex; align-items:center; gap:12px;
       padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
       background:var(--bg,#f4f5f7); border-bottom:1px solid var(--separator,rgba(128,128,128,.18));
     }
@@ -56,7 +63,10 @@ function ensureStyles() {
     }
     .test-q-manager-title { font-size:20px; font-weight:800; line-height:1.15; }
     .test-q-manager-subtitle { margin-top:2px; font-size:12px; opacity:.62; }
-    .test-q-manager-body { padding:16px 14px calc(28px + env(safe-area-inset-bottom)); display:grid; gap:14px; }
+    .test-q-manager-body {
+      flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+      padding:16px 14px calc(20px + env(safe-area-inset-bottom)); display:grid; gap:14px;
+    }
     .test-q-manager-card {
       background:var(--bg-elevated,#fff); border:1px solid var(--separator,rgba(128,128,128,.18));
       border-radius:18px; padding:14px; display:grid; gap:12px;
@@ -89,11 +99,21 @@ function ensureStyles() {
     .test-q-import-radio { display:flex; gap:8px; align-items:flex-start; font-size:13px; line-height:1.35; }
     .test-q-import-confirm { display:flex; gap:10px; align-items:flex-start; font-size:14px; line-height:1.4; }
     .test-q-manager-file { font-size:13px; opacity:.7; overflow-wrap:anywhere; }
+    .test-q-manager-file-input {
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+      overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+    }
+    .test-q-manager-file-label { cursor:pointer; }
 
     @media (max-width:560px) {
+      .test-q-manager-overlay { place-items:end center; padding:18px 0 0; }
+      .test-q-manager-shell {
+        width:100%; max-height:84dvh; border-width:1px 0 0;
+        border-radius:22px 22px 0 0;
+      }
+      .test-q-manager-bar { padding-top:10px; }
       .test-q-manager-grid { grid-template-columns:1fr; }
-      .test-q-manager-actions { grid-template-columns:1fr 1fr; }
-      .test-q-manager-actions .btn { padding-left:8px; padding-right:8px; font-size:14px; }
+      .test-q-manager-actions { grid-template-columns:1fr; }
     }
   `;
   document.head.append(style);
@@ -120,6 +140,9 @@ function openOverlay(title, subtitle = "") {
   document.body.style.overflow = "hidden";
   overlay = document.createElement("section");
   overlay.className = "test-q-manager-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", title);
   overlay.innerHTML = `
     <div class="test-q-manager-shell">
       <div class="test-q-manager-bar">
@@ -133,15 +156,26 @@ function openOverlay(title, subtitle = "") {
     </div>
   `;
   document.body.append(overlay);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay && !importBusy) closeOverlay();
+  });
+  document.addEventListener("keydown", handleOverlayKeydown);
   const backButton = overlay.querySelector("#test-q-manager-back");
   if (backButton) backButton.onclick = closeOverlay;
+  window.requestAnimationFrame(() => backButton?.focus());
   return overlay.querySelector("#test-q-manager-body");
 }
 
 function closeOverlay() {
+  document.removeEventListener("keydown", handleOverlayKeydown);
   overlay?.remove();
   overlay = null;
   document.body.style.overflow = savedOverflow;
+  savedOverflow = "";
+}
+
+function handleOverlayKeydown(event) {
+  if (event.key === "Escape" && overlay && !importBusy) closeOverlay();
 }
 
 function refreshList() {
@@ -424,13 +458,12 @@ function renderImportHome() {
       <section class="test-q-manager-card">
         <div style="font-weight:750;">Виберіть JSON-файл</div>
         <div class="test-q-manager-file">Дублікати не додаються. Нові питання ви побачите тут перед імпортом і зможете відредагувати.</div>
-        <input id="tqi-file" type="file" accept="application/json,.json" hidden />
-        <button class="btn btn--primary btn--block" id="tqi-pick" type="button">Вибрати JSON-файл</button>
+        <input class="test-q-manager-file-input" id="tqi-file" type="file" accept="application/json,.json" />
+        <label class="btn btn--primary btn--block test-q-manager-file-label" for="tqi-file">Вибрати JSON-файл</label>
         <div class="test-q-manager-status" id="test-q-overlay-status"></div>
       </section>
     `;
     const input = body.querySelector("#tqi-file");
-    body.querySelector("#tqi-pick")?.addEventListener("click", () => input?.click());
     input?.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) return;
@@ -576,12 +609,10 @@ function injectToolbar() {
     box.id = "test-q-manager-actions";
     box.className = "test-q-manager-actions";
     box.innerHTML = `
-      <button class="btn btn--primary" id="test-q-manager-add" type="button">＋ Додати</button>
-      <button class="btn" id="test-q-manager-import" type="button">Імпорт JSON</button>
+      <button class="btn btn--primary btn--block" id="test-q-manager-import" type="button">Імпортувати питання з JSON</button>
       <div class="test-q-manager-status" id="test-q-manager-inline-status" style="grid-column:1/-1"></div>
     `;
     search.insertAdjacentElement("afterend", box);
-    box.querySelector("#test-q-manager-add")?.addEventListener("click", () => renderQuestionEditor(null));
     box.querySelector("#test-q-manager-import")?.addEventListener("click", openImport);
   }
 }
