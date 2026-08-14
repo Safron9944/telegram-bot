@@ -156,12 +156,9 @@ async def get_home_visibility(store: "Storage") -> dict[str, bool]:
 def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     has_access, state = access_status(user)
     tier = access_tier(user)
-    trial_end = format_dt(user.get("trial_end"))
     sub_end = format_dt(user.get("sub_end"))
 
-    if state == "trial":
-        label = f"Тріал до {trial_end}" if trial_end else "Тріал активний"
-    elif state == "sub_infinite":
+    if state == "sub_infinite":
         label = "Підписка активна безстроково"
     elif state == "sub_full":
         label = f"Повний доступ до {sub_end}" if sub_end else "Повний доступ активний"
@@ -170,14 +167,13 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     elif state == "not_registered":
         label = "Користувача ще не зареєстровано"
     else:
-        label = "Доступ завершився"
+        label = "Без доступу"
 
     return {
         "has_access": has_access,
-        "tier": tier,          # 'none' | 'trial_full' | 'cases' | 'full'
+        "tier": tier,          # 'none' | 'cases' | 'full'
         "state": state,
         "label": label,
-        "trial_end": dt_to_iso(user.get("trial_end")),
         "sub_end": dt_to_iso(user.get("sub_end")),
         "sub_infinite": bool(user.get("sub_infinite")),
     }
@@ -364,7 +360,7 @@ class ReviewIndexRequest(BaseModel):
 
 
 class AdminAccessUpdateRequest(BaseModel):
-    access: Literal["trial", "cases", "full", "none"]
+    access: Literal["cases", "full", "none"]
 
 
 class AdminProtectedMaterialsUpdateRequest(BaseModel):
@@ -463,11 +459,6 @@ async def get_auth_context(
         first_name=telegram_user.get("first_name"),
         last_name=telegram_user.get("last_name"),
     )
-    await runtime.store.start_trial_if_needed(
-        user_id,
-        first_name=telegram_user.get("first_name"),
-        last_name=telegram_user.get("last_name"),
-    )
     user = await runtime.store.get_user(user_id)
     user["free_sections"] = await free_section_keys(runtime.store)
 
@@ -499,10 +490,10 @@ class MiniAppService:
         await self.store.set_state(user_id, state)
 
     def ensure_access(self, auth: AuthContext) -> None:
-        """Full access: навчання, тести (trial included)."""
+        """Paid access to the complete competencies section."""
         tier = access_tier(auth.user)
         allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
-        if tier in ("full", "trial_full") or "customs" in allowed:
+        if auth.is_admin or tier == "full" or "customs" in allowed:
             return
         require_http(403, "access_expired", "Потрібна підписка на повний доступ (250 ⭐).")
 
@@ -537,6 +528,8 @@ class MiniAppService:
 
     def ensure_session_access(self, auth: AuthContext, state: dict[str, Any]) -> None:
         meta = dict(state.get("meta", {}) or {})
+        if meta.get("kind") == "customs_preview" and meta.get("preview") is True:
+            return
         if meta.get("kind") in {"attestation_stage_1", "attestation"}:
             if meta.get("preview") is True:
                 return
@@ -545,7 +538,7 @@ class MiniAppService:
         self.ensure_access(auth)
 
     def ensure_full_access(self, auth: AuthContext, section_key: str = "") -> None:
-        """Тільки повний оплачений доступ — без тріалу та без cases."""
+        """Тільки повний оплачений доступ — без тарифу атестації."""
         explicit = set(auth.user.get("section_access", []) or [])
         if section_key in PROTECTED_SECTION_KEYS:
             if auth.is_admin or section_key in explicit:
@@ -671,7 +664,13 @@ class MiniAppService:
 
     async def bootstrap(self, auth: AuthContext) -> dict[str, Any]:
         stats = await self.store.stats(auth.user_id)
-        saved_view = await self.saved_view(auth)
+        try:
+            saved_view = await self.saved_view(auth)
+        except HTTPException as error:
+            if error.status_code != 403:
+                raise
+            await self.set_state(auth.user_id, {})
+            saved_view = None
         prices = await get_payment_prices(self.store)
         home_visibility = await get_home_visibility(self.store)
         tq_visible = (await self.store.get_setting("test_questions_visible", "0")) == "1"
@@ -1033,6 +1032,22 @@ class MiniAppService:
 
         await self.start_pretest(auth.user_id, qids, f"{ok_full_label(module)} • Рівень {level}", {"kind": "ok", "module": module, "level": level})
         return self.build_pretest_view(await self.get_state(auth.user_id), auth.is_admin)
+
+    async def start_customs_preview(self, auth: AuthContext) -> dict[str, Any]:
+        candidates = list(self.qb.law or [])
+        for module in sorted(self.qb.ok_modules.keys(), key=ok_sort_key):
+            for level in sorted((self.qb.ok_modules.get(module, {}) or {}).keys()):
+                candidates.extend((self.qb.ok_modules.get(module, {}) or {}).get(level, []) or [])
+        qids = list(dict.fromkeys(int(qid) for qid in candidates))[:50]
+        if not qids:
+            require_http(503, "customs_preview_empty", "Ознайомчі питання поки недоступні.")
+        await self.start_learning_session(
+            auth.user_id,
+            qids,
+            "Митні компетенції • Перші 50 питань",
+            {"kind": "customs_preview", "preview": True},
+        )
+        return await self.build_session_view(auth)
 
     async def set_ok_modules(self, auth: AuthContext, payload: OkModulesUpdate) -> dict[str, Any]:
         available = set(self.qb.ok_modules.keys())
@@ -1634,7 +1649,7 @@ class MiniAppService:
     async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        await self.store.set_admin_access(target_id, access, trial_days=3)
+        await self.store.set_admin_access(target_id, access)
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_protected_materials(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
@@ -1790,11 +1805,6 @@ async def ensure_bot_user(runtime: RuntimeContext, telegram_user: Any) -> None:
     await runtime.store.ensure_user(
         user_id,
         is_admin=user_id in runtime.admin_ids,
-        first_name=telegram_user.first_name,
-        last_name=telegram_user.last_name,
-    )
-    await runtime.store.start_trial_if_needed(
-        user_id,
         first_name=telegram_user.first_name,
         last_name=telegram_user.last_name,
     )
@@ -2040,6 +2050,11 @@ async def api_set_ok_modules(payload: OkModulesUpdate, auth: AuthContext = Depen
 @app.post("/api/learning/start")
 async def api_learning_start(payload: StartLearningRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).start_learning_flow(auth, payload)
+
+
+@app.post("/api/learning/preview/start")
+async def api_learning_preview_start(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).start_customs_preview(auth)
 
 
 @app.post("/api/mistakes/start")

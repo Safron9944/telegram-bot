@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260814-trial-notice-01";
+} from "./screens/user.js?v=20260814-no-trial-preview-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -60,7 +60,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260814-admin-users-01";
+} from "./screens/admin.js?v=20260814-no-trial-preview-01";
 import { renderCurrentView } from "./screens/session.js?v=20260810-result-navigation-01";
 import {
   cleanupAdminApkImport,
@@ -158,6 +158,7 @@ function createContext() {
     render,
     loadBootstrap,
     startLearning,
+    startCustomsPreview,
     startMistakesSession,
     leaveCurrentView,
     openPayment,
@@ -428,6 +429,17 @@ async function startLearning(payload) {
       renderPaywall(createContext(), error.code);
       return;
     }
+    setMessage("error", error.message);
+  }
+}
+
+async function startCustomsPreview() {
+  try {
+    state.currentView = await api("/api/learning/preview/start", { method: "POST" });
+    impact("medium");
+    queueTransition("forward");
+    render();
+  } catch (error) {
     setMessage("error", error.message);
   }
 }

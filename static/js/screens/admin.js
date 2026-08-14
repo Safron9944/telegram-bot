@@ -189,7 +189,6 @@ export async function loadAdminAttestationBanks(ctx) {
 
 function adminUserStatus(access, isAdmin = false) {
   if (isAdmin) return { label: "Адмін", tone: "active", tint: "blue" };
-  if (access?.state === "trial") return { label: "Тріал", tone: "trial", tint: "orange" };
   if (access?.has_access) return { label: "Активний", tone: "active", tint: "green" };
   return { label: "Без доступу", tone: "none", tint: "gray" };
 }
@@ -369,7 +368,7 @@ export async function loadAdminUsers(ctx, offset = 0) {
     if (ctx.state.currentScreen !== "admin-users") return;
 
     ctx.state.adminUsersOffset = payload.offset;
-    ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.trial) + Number(payload.counts.expired);
+    ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.expired);
     updateMiniAppNoticeControls(ctx);
 
     const listLabel = document.querySelector("#admin-users-list-label");
@@ -378,9 +377,8 @@ export async function loadAdminUsers(ctx, offset = 0) {
     const summary = document.querySelector("#admin-users-summary");
     if (summary) {
       summary.innerHTML = `
-        <div class="stat-strip">
+        <div class="stat-strip stat-strip--two">
           ${ctx.statPill("Активні", String(payload.counts.active))}
-          ${ctx.statPill("Тріал", String(payload.counts.trial))}
           ${ctx.statPill("Без доступу", String(payload.counts.expired))}
         </div>
       `;
@@ -577,20 +575,18 @@ export function renderAdminUserDetail(ctx) {
   };
 
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
-  const trialButton = ctx.actionButton("Тріал · 3 дні", () => updateAccess("trial", "Тріал активовано на 3 дні."));
   const casesButton = ctx.actionButton("Атестація", () => updateAccess("cases", "Доступ до атестації активовано."));
   const fullButton = ctx.actionButton("Повний доступ", () => updateAccess("full", "Повний доступ активовано."));
   const removeButton = ctx.actionButton("Забрати підписку", async () => {
-    if (!window.confirm("Забрати у користувача тріал і підписку?")) return;
+    if (!window.confirm("Забрати у користувача підписку?")) return;
     await updateAccess("none", "Підписку скасовано.");
   });
-  [trialButton, casesButton, fullButton, removeButton].forEach((button) => button.classList.add("admin-access-choice"));
-  trialButton.classList.toggle("is-active", currentTier === "trial_full");
+  [casesButton, fullButton, removeButton].forEach((button) => button.classList.add("admin-access-choice"));
   casesButton.classList.toggle("is-active", currentTier === "cases");
   fullButton.classList.toggle("is-active", currentTier === "full");
   removeButton.classList.toggle("is-active", currentTier === "none");
   removeButton.classList.add("admin-access-choice--remove");
-  actions?.append(trialButton, casesButton, fullButton, removeButton);
+  actions?.append(casesButton, fullButton, removeButton);
 
   const protectedActions = ctx.refs.mainPanel.querySelector("#admin-protected-materials-actions");
   const protectedEnabled = Boolean(payload.protected_materials_access);

@@ -7,10 +7,11 @@ from access import access_tier
 
 
 PROTECTED_SECTION_KEYS = frozenset({"cases", "test_questions", "question_search"})
+ALWAYS_FREE_SECTION_KEYS = frozenset({"customs_code", "support"})
 
 
 SYSTEM_SECTIONS = (
-    {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "group": "primary", "default_order": 100, "content_screen": "admin-questions", "content_label": "Банк питань"},
+    {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "preview_count": 50, "group": "primary", "default_order": 100, "content_screen": "admin-questions", "content_label": "Банк питань"},
     {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "manual_grant_only": True, "group": "materials", "default_order": 200, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
     {"key": "customs_code", "title": "Митний кодекс", "screen": "customs-code", "icon": "scale", "price": 0, "group": "materials", "default_order": 201},
     {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "visible": False, "manual_grant_only": True, "group": "materials", "default_order": 202, "content_screen": "admin-test-questions", "content_label": "Питання"},
@@ -39,6 +40,9 @@ async def free_section_keys(store) -> list[str]:
     for definition in SYSTEM_SECTIONS:
         if definition["key"] in PROTECTED_SECTION_KEYS:
             continue
+        if definition["key"] in ALWAYS_FREE_SECTION_KEYS:
+            keys.append(definition["key"])
+            continue
         override = config.get(definition["key"], {})
         price = override.get("price", definition["price"]) if isinstance(override, dict) else definition["price"]
         if int(price or 0) == 0:
@@ -53,6 +57,8 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
     if is_admin:
         return True
     key = str(section["key"])
+    if key in ALWAYS_FREE_SECTION_KEYS:
+        return True
     if section.get("manual_grant_only") or key in PROTECTED_SECTION_KEYS:
         return key in set(user.get("section_access", []) or [])
     if int(section.get("price") or 0) == 0:
@@ -61,8 +67,6 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
     if tier == "full":
         return True
     if key in set(user.get("section_access", []) or []):
-        return True
-    if tier == "trial_full" and key == "customs":
         return True
     if tier == "cases" and (key == "cases" or key.startswith("attestation:")):
         return True
@@ -110,6 +114,8 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
         item.setdefault("visible", True)
         item["order"] = int(item.get("order", item.pop("default_order", 0)) or 0)
         item["price"] = max(0, int(item.get("price") or 0))
+        if item["key"] in ALWAYS_FREE_SECTION_KEYS:
+            item["price"] = 0
         item["has_access"] = _has_access(user or {}, item, is_admin)
         result.append(item)
     return sorted(result, key=lambda row: (row["order"], row["key"]))

@@ -70,11 +70,11 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
                 )
             self.assertEqual(code, raised.exception.detail["code"])
 
-    async def test_trial_cannot_start_dynamic_bank(self):
-        trial = AuthContext({}, {"trial_end": __import__("utils").now()}, 78, False)
+    async def test_legacy_trial_cannot_start_dynamic_bank(self):
+        legacy_trial = AuthContext({}, {"trial_end": __import__("utils").now()}, 78, False)
         with self.assertRaises(HTTPException) as raised:
             await self.service.start_attestation(
-                trial, "stage-2", StartAttestationRequest(section="Topic", block="1-50")
+                legacy_trial, "stage-2", StartAttestationRequest(section="Topic", block="1-50")
             )
         self.assertEqual("attestation_access_required", raised.exception.detail["code"])
 
