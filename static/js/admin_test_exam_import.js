@@ -2,6 +2,7 @@ import { api } from "./core/api.js?v=20260617-question-search-04";
 
 let activeFile = null;
 let activePreview = null;
+let reviewedNew = new Set();
 let busy = false;
 
 function escapeHtml(value) {
@@ -32,13 +33,18 @@ function ensureStyles() {
     .test-import-stat strong { display: block; font-size: 20px; line-height: 1.15; }
     .test-import-stat span { display: block; margin-top: 3px; font-size: 12px; opacity: .72; }
     .test-import-file { font-size: 13px; opacity: .76; overflow-wrap: anywhere; }
-    .test-import-conflicts { display: grid; gap: 10px; }
-    .test-import-conflict { border: 1px solid var(--separator, rgba(128,128,128,.22)); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
-    .test-import-conflict__question { font-weight: 650; line-height: 1.35; }
-    .test-import-answer { padding: 9px 10px; border-radius: 10px; background: var(--bg-fill-soft); font-size: 13px; }
+    .test-import-section { display: grid; gap: 10px; margin-top: 4px; }
+    .test-import-section__title { font-weight: 750; font-size: 15px; line-height: 1.3; }
+    .test-import-section__subtitle { margin-top: -5px; font-size: 12px; line-height: 1.4; opacity: .72; }
+    .test-import-cards { display: grid; gap: 10px; }
+    .test-import-card { border: 1px solid var(--separator, rgba(128,128,128,.22)); border-radius: 14px; padding: 12px; display: grid; gap: 9px; background: var(--bg, transparent); }
+    .test-import-card__meta { font-size: 12px; opacity: .7; }
+    .test-import-card__question { font-weight: 650; line-height: 1.4; }
+    .test-import-answer { padding: 9px 10px; border-radius: 10px; background: var(--bg-fill-soft); font-size: 13px; line-height: 1.4; }
     .test-import-answer b { display: block; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; opacity: .65; }
-    .test-import-options { display: grid; gap: 7px; }
-    .test-import-option { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.35; cursor: pointer; }
+    .test-import-support { font-size: 12px; line-height: 1.4; opacity: .78; overflow-wrap: anywhere; }
+    .test-import-check, .test-import-option { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; line-height: 1.4; cursor: pointer; }
+    .test-import-options { display: grid; gap: 8px; }
     .test-import-warning { padding: 10px 12px; border-radius: 10px; background: var(--bg-fill-soft); font-size: 13px; line-height: 1.4; }
     .test-import-status { font-size: 13px; line-height: 1.4; min-height: 18px; }
     .test-import-status--error { color: var(--danger, #d33); }
@@ -59,6 +65,15 @@ function setStatus(message, tone = "") {
   status.textContent = message || "";
 }
 
+function newItems() {
+  return Array.isArray(activePreview?.new) ? activePreview.new : [];
+}
+
+function allNewReviewed() {
+  const items = newItems();
+  return items.length === 0 || items.every((item) => reviewedNew.has(String(item.import_index)));
+}
+
 function selectedResolutions() {
   const result = {};
   document.querySelectorAll("#test-import-conflicts input[type=radio]:checked").forEach((input) => {
@@ -74,18 +89,53 @@ function blockingFileConflictCount() {
 function updateApplyButton() {
   const button = document.querySelector("#test-import-apply");
   if (!button || !activePreview) return;
+
   const conflicts = activePreview.conflicts || [];
   const blocking = blockingFileConflictCount();
   const decisions = selectedResolutions();
   const resolvable = conflicts.filter((item) => item.kind !== "file_answer_conflict");
   const allResolved = resolvable.every((item) => decisions[String(item.imported.import_index)]);
-  button.disabled = busy || blocking > 0 || !allResolved || (!activePreview.new_count && !conflicts.length);
+  const newReviewed = allNewReviewed();
+
+  button.disabled = busy || blocking > 0 || !allResolved || !newReviewed || (!activePreview.new_count && !conflicts.length);
+
+  if (!newReviewed) {
+    const left = newItems().filter((item) => !reviewedNew.has(String(item.import_index))).length;
+    button.textContent = `Підтвердь нові питання (${left})`;
+    return;
+  }
+  if (!allResolved || blocking > 0) {
+    button.textContent = "Виріши конфлікти перед імпортом";
+    return;
+  }
 
   const changes = Number(activePreview.new_count || 0) + resolvable.filter((item) => {
     const decision = decisions[String(item.imported.import_index)];
     return decision === "use_imported" || decision === "add_new";
   }).length;
   button.textContent = changes ? `Застосувати імпорт (${changes} змін)` : "Застосувати імпорт";
+}
+
+function newQuestionHtml(item) {
+  const index = String(item.import_index);
+  const meta = [item.num, item.module].filter(Boolean).join(" · ");
+  const source = String(item.source || "").trim();
+  const hasRealSource = source && source !== "Імпорт JSON";
+  return `
+    <article class="test-import-card">
+      ${meta ? `<div class="test-import-card__meta">${escapeHtml(meta)}</div>` : ""}
+      <div class="test-import-card__question">${escapeHtml(item.question)}</div>
+      <div class="test-import-answer"><b>Правильна відповідь із файлу</b>${escapeHtml(item.correct_answer || "—")}</div>
+      ${hasRealSource
+        ? `<div class="test-import-support"><b>Джерело:</b> ${escapeHtml(source)}</div>`
+        : `<div class="test-import-warning">Джерело у файлі не вказано — відповідь потрібно перевірити вручну.</div>`}
+      ${item.justification ? `<div class="test-import-support"><b>Обґрунтування:</b> ${escapeHtml(item.justification)}</div>` : ""}
+      <label class="test-import-check">
+        <input type="checkbox" data-review-new-index="${index}" ${reviewedNew.has(index) ? "checked" : ""} />
+        <span>Я перевірив(ла): питання і правильна відповідь вірні</span>
+      </label>
+    </article>
+  `;
 }
 
 function conflictHtml(conflict) {
@@ -96,9 +146,9 @@ function conflictHtml(conflict) {
 
   if (conflict.kind === "file_answer_conflict") {
     return `
-      <article class="test-import-conflict">
-        <div class="test-import-conflict__question">${escapeHtml(imported.question)}</div>
-        <div class="test-import-warning">У самому JSON це питання повторюється з різними правильними відповідями. Виправ файл і завантаж його ще раз — такий конфлікт автоматично не застосовується.</div>
+      <article class="test-import-card">
+        <div class="test-import-card__question">${escapeHtml(imported.question)}</div>
+        <div class="test-import-warning">У самому JSON це питання повторюється з різними правильними відповідями. Виправ файл і завантаж його ще раз.</div>
       </article>
     `;
   }
@@ -110,15 +160,15 @@ function conflictHtml(conflict) {
     : "";
 
   return `
-    <article class="test-import-conflict">
-      <div class="test-import-conflict__question">${escapeHtml(imported.question)}</div>
+    <article class="test-import-card">
+      <div class="test-import-card__question">${escapeHtml(imported.question)}</div>
       <div class="test-import-file">${isSimilar ? "Знайдено дуже схоже питання" : "Знайдено те саме питання"}${similarity}</div>
       ${isSimilar && existing.question !== imported.question ? `<div class="test-import-answer"><b>Питання в базі</b>${escapeHtml(existing.question)}</div>` : ""}
       <div class="test-import-answer"><b>Зараз у базі</b>${escapeHtml(existing.correct_answer || "—")}</div>
       <div class="test-import-answer"><b>У файлі</b>${escapeHtml(imported.correct_answer || "—")}</div>
       <div class="test-import-options">
         <label class="test-import-option"><input type="radio" name="${name}" data-import-index="${index}" value="keep_existing" /> <span>Залишити відповідь, яка зараз у базі</span></label>
-        <label class="test-import-option"><input type="radio" name="${name}" data-import-index="${index}" value="use_imported" /> <span>Замінити правильною відповіддю з файлу</span></label>
+        <label class="test-import-option"><input type="radio" name="${name}" data-import-index="${index}" value="use_imported" /> <span>Замінити відповіддю з файлу</span></label>
         ${addNewOption}
       </div>
     </article>
@@ -127,11 +177,14 @@ function conflictHtml(conflict) {
 
 function renderPreview(preview) {
   activePreview = preview;
+  reviewedNew = new Set();
   const result = document.querySelector("#test-import-result");
   if (!result) return;
 
+  const items = Array.isArray(preview.new) ? preview.new : [];
   const conflicts = preview.conflicts || [];
   const invalidCount = Number(preview.invalid_count || 0);
+
   result.innerHTML = `
     <div class="test-import-file"><b>${escapeHtml(preview.file_name)}</b> · ${formatBytes(preview.file_size)} · ${preview.valid_count} придатних питань</div>
     <div class="test-import-summary">
@@ -140,13 +193,33 @@ function renderPreview(preview) {
       <div class="test-import-stat"><strong>${preview.conflict_count}</strong><span>потребують перевірки</span></div>
     </div>
     ${invalidCount ? `<div class="test-import-warning">Пропущено некоректних елементів: ${invalidCount}. Вони не будуть імпортовані.</div>` : ""}
+
+    ${items.length ? `
+      <section class="test-import-section" id="test-import-new-questions">
+        <div class="test-import-section__title">Нові питання — перевір перед додаванням</div>
+        <div class="test-import-section__subtitle">Цих питань ще немає в базі. Переглянь кожну правильну відповідь і підтвердь її. Це ручна перевірка, а не автоматичне підтвердження правильності.</div>
+        <div class="test-import-cards">${items.map(newQuestionHtml).join("")}</div>
+      </section>
+    ` : ""}
+
     ${conflicts.length ? `
-      <div class="group__label">Перевір конфлікти вручну</div>
-      <div class="test-import-conflicts" id="test-import-conflicts">${conflicts.map(conflictHtml).join("")}</div>
+      <section class="test-import-section">
+        <div class="test-import-section__title">Конфлікти — перевір вручну</div>
+        <div class="test-import-cards" id="test-import-conflicts">${conflicts.map(conflictHtml).join("")}</div>
+      </section>
     ` : '<div class="test-import-warning">Конфліктів відповідей немає. Дублікати будуть пропущені автоматично.</div>'}
+
     <button class="btn btn--primary btn--block" id="test-import-apply" type="button">Застосувати імпорт</button>
   `;
 
+  document.querySelectorAll("[data-review-new-index]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const index = String(checkbox.dataset.reviewNewIndex);
+      if (checkbox.checked) reviewedNew.add(index);
+      else reviewedNew.delete(index);
+      updateApplyButton();
+    });
+  });
   document.querySelectorAll("#test-import-conflicts input[type=radio]").forEach((input) => {
     input.addEventListener("change", updateApplyButton);
   });
@@ -158,8 +231,9 @@ async function previewFile(file) {
   if (!file || busy) return;
   activeFile = file;
   activePreview = null;
+  reviewedNew = new Set();
   busy = true;
-  setStatus("Перевіряю файл, дублікати та відповіді…");
+  setStatus("Перевіряю файл і шукаю нові питання…");
   const result = document.querySelector("#test-import-result");
   if (result) result.innerHTML = "";
   try {
@@ -171,7 +245,7 @@ async function previewFile(file) {
       timeoutMs: 30000,
     });
     renderPreview(preview);
-    setStatus("Перевірку завершено.", "success");
+    setStatus("Перевірку завершено. Переглянь нові питання нижче.", "success");
   } catch (error) {
     activeFile = null;
     setStatus(error.message || "Не вдалося перевірити файл.", "error");
@@ -183,6 +257,14 @@ async function previewFile(file) {
 
 async function applyImport() {
   if (!activeFile || !activePreview || busy) return;
+
+  if (!allNewReviewed()) {
+    const left = newItems().filter((item) => !reviewedNew.has(String(item.import_index))).length;
+    setStatus(`Спочатку перевір і підтвердь усі нові питання. Залишилось: ${left}.`, "error");
+    document.querySelector("#test-import-new-questions")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+
   const blocking = blockingFileConflictCount();
   if (blocking) {
     setStatus("Спочатку виправ конфлікти відповідей усередині самого JSON-файлу.", "error");
@@ -191,14 +273,14 @@ async function applyImport() {
 
   const decisions = selectedResolutions();
   const unresolved = (activePreview.conflicts || []).filter(
-    (item) => !decisions[String(item.imported.import_index)],
+    (item) => item.kind !== "file_answer_conflict" && !decisions[String(item.imported.import_index)],
   );
   if (unresolved.length) {
     setStatus(`Потрібно вибрати рішення для всіх конфліктів (${unresolved.length}).`, "error");
     return;
   }
 
-  if (!window.confirm("Застосувати перевірений імпорт до розділу «Тестові питання»?")) return;
+  if (!window.confirm("Додати підтверджені нові питання та застосувати вибрані рішення щодо конфліктів?")) return;
 
   busy = true;
   updateApplyButton();
@@ -220,6 +302,7 @@ async function applyImport() {
     input?.dispatchEvent(new Event("input", { bubbles: true }));
     activePreview = null;
     activeFile = null;
+    reviewedNew = new Set();
     const result = document.querySelector("#test-import-result");
     if (result) result.innerHTML = "";
     const fileInput = document.querySelector("#test-import-file");
@@ -249,7 +332,7 @@ function injectPanel() {
       <div class="test-import-box">
         <div>
           <div style="font-weight:650;">Додати питання з файлу</div>
-          <div class="test-import-file" style="margin-top:4px;">Дублікати пропускаються. Якщо правильні відповіді відрізняються, імпорт зупиниться на конфлікті й дасть вибрати правильний варіант вручну.</div>
+          <div class="test-import-file" style="margin-top:4px;">Дублікати пропускаються. Нові питання спочатку показуються для ручної перевірки. Якщо відповіді в дубліката відрізняються — потрібно вибрати правильний варіант.</div>
         </div>
         <input id="test-import-file" type="file" accept="application/json,.json" hidden />
         <button class="btn btn--primary btn--block" id="test-import-pick" type="button">Вибрати JSON-файл</button>
