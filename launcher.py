@@ -4,6 +4,7 @@
 # level sitecustomize.py is not guaranteed to be imported during interpreter
 # startup, so import it explicitly before app.py creates the FastAPI instance.
 import sitecustomize as _startup_extensions  # noqa: F401
+import admin_test_exam_import_extension as _admin_test_exam_import  # noqa: F401
 
 from app import app
 
