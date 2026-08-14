@@ -13,12 +13,12 @@ from typing import Any
 from fastapi import Depends, FastAPI, File, Form, UploadFile
 
 from admin_test_exam_import import (
-    _apply_import,
+    _apply,
     _classify,
     _clean_num,
-    _extract_questions,
+    _extract_items,
     _parse_resolutions,
-    _read_payload,
+    _read_json,
 )
 
 _ALLOWED_EDIT_FIELDS = {
@@ -114,8 +114,8 @@ def register_routes(
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         try:
-            payload, file_size = await _read_payload(file)
-            items, invalid = _extract_questions(payload)
+            payload, file_size = await _read_json(file)
+            items, invalid = _extract_items(payload)
             parsed_edits = _parse_edits(edits)
             _apply_edits_to_items(items, parsed_edits)
         except ValueError as exc:
@@ -148,14 +148,12 @@ def register_routes(
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         try:
-            payload, _ = await _read_payload(file)
-            items, invalid = _extract_questions(payload)
-            if invalid:
-                pass
+            payload, _ = await _read_json(file)
+            items, _invalid = _extract_items(payload)
             parsed_edits = _parse_edits(edits)
             _apply_edits_to_items(items, parsed_edits)
             parsed_resolutions = _parse_resolutions(resolutions)
-            result = await _apply_import(runtime, items, parsed_resolutions)
+            result = await _apply(runtime, items, parsed_resolutions)
         except ValueError as exc:
             require_http(400, "invalid_test_import_edit", str(exc))
 
