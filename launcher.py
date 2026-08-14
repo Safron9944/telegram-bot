@@ -7,8 +7,15 @@ import sitecustomize as _startup_extensions  # noqa: F401
 import app as _app_module
 
 from admin_test_exam_import import register_routes as _register_test_exam_import_routes
+from admin_test_exam_import_editor import register_routes as _register_test_exam_editor_routes
 
 _register_test_exam_import_routes(
+    _app_module.app,
+    get_auth_context=_app_module.get_auth_context,
+    get_runtime=_app_module.get_runtime,
+    require_http=_app_module.require_http,
+)
+_register_test_exam_editor_routes(
     _app_module.app,
     get_auth_context=_app_module.get_auth_context,
     get_runtime=_app_module.get_runtime,
