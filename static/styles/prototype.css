@@ -192,6 +192,57 @@ body.ui-prototype {
   gap: 12px;
 }
 
+.ui-prototype .trial-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1px solid #f2d49a;
+  border-radius: 20px;
+  background: #fff8e8;
+  color: #714a0b;
+}
+
+.ui-prototype .trial-notice__badge {
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #f7b731;
+  color: #fff;
+  font-size: 19px;
+  font-weight: 850;
+}
+
+.ui-prototype .trial-notice__badge::after {
+  content: "дні";
+  margin-left: 2px;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ui-prototype .trial-notice__body {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.ui-prototype .trial-notice__title {
+  color: #5f3d07;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.ui-prototype .trial-notice__text {
+  color: #87621f;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .ui-prototype .home-primary {
   display: grid;
   gap: 12px;
