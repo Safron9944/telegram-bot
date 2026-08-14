@@ -1142,6 +1142,17 @@
   margin-bottom: 12px;
 }
 
+.admin-access-controls__heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-access-controls__heading-row .admin-access-controls__header {
+  min-width: 0;
+}
+
 .admin-access-controls__title {
   color: var(--label);
   font-size: 15px;
@@ -1172,6 +1183,59 @@
 .admin-access-actions .btn:focus-visible {
   outline: 3px solid rgba(37, 99, 235, 0.28);
   outline-offset: 2px;
+}
+
+.admin-access-actions--grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.admin-access-actions .admin-access-choice {
+  min-height: 52px;
+  padding: 9px 10px;
+  border: 1px solid var(--separator);
+  background: var(--bg);
+  color: var(--label);
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.admin-access-actions .admin-access-choice.is-active {
+  border-color: var(--accent);
+  background: var(--accent-fill);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.admin-access-actions .admin-access-choice--remove {
+  color: var(--destructive);
+}
+
+.admin-materials-status {
+  flex-shrink: 0;
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.admin-materials-status--on {
+  background: #e7f6ec;
+  color: #137a3f;
+}
+
+.admin-materials-status--off {
+  background: #edf0f4;
+  color: #667085;
+}
+
+.admin-access-actions .admin-materials-button {
+  border: 1px solid var(--separator);
+  background: var(--bg-fill-soft);
+  color: var(--label);
+  box-shadow: none;
 }
 
 @media (max-height: 680px) {

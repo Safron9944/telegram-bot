@@ -209,14 +209,21 @@ export function renderAdminUsers(ctx) {
   ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
+    <section class="screen-content admin-users-screen">
       <h1 class="page-title">Користувачі</h1>
 
       <div id="admin-users-summary"></div>
 
-      <div class="group">
-        <div class="group__label">Повідомлення</div>
-        <div class="group__list">
+      <details class="admin-notice-panel" id="admin-notice-panel"${ctx.state.adminNoticeOpen ? " open" : ""}>
+        <summary class="admin-notice-panel__summary">
+          <span class="admin-notice-panel__icon" aria-hidden="true">✉</span>
+          <span class="admin-notice-panel__body">
+            <span class="admin-notice-panel__title">Повідомлення</span>
+            <span class="admin-notice-panel__subtitle">Надіслати всім або вибраним користувачам</span>
+          </span>
+          <span class="admin-notice-panel__chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="admin-notice-panel__content">
           <div class="admin-notice-controls">
             <div class="segmented" role="group" aria-label="Кому надіслати повідомлення">
               <button class="segmented__btn" id="admin-notice-all" type="button">Усім</button>
@@ -235,9 +242,10 @@ export function renderAdminUsers(ctx) {
             <div class="admin-notice-result" id="admin-mini-app-notice-status" aria-live="polite"></div>
           </div>
         </div>
-      </div>
+      </details>
 
       <div class="group">
+        <div class="group__label" id="admin-users-list-label">Список користувачів</div>
         <div class="group__list" id="admin-users-list">
           <div class="empty empty--inline">
             <h2>Завантажуємо…</h2>
@@ -248,6 +256,10 @@ export function renderAdminUsers(ctx) {
       <div class="row" id="admin-users-pagination" style="justify-content: center; gap: 8px;"></div>
     </section>
   `;
+
+  document.querySelector("#admin-notice-panel")?.addEventListener("toggle", (event) => {
+    ctx.state.adminNoticeOpen = event.currentTarget.open;
+  });
 
   document.querySelector("#admin-notice-all")?.addEventListener("click", () => {
     ctx.state.adminNoticeAudience = "all";
@@ -359,6 +371,9 @@ export async function loadAdminUsers(ctx, offset = 0) {
     ctx.state.adminUsersOffset = payload.offset;
     ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.trial) + Number(payload.counts.expired);
     updateMiniAppNoticeControls(ctx);
+
+    const listLabel = document.querySelector("#admin-users-list-label");
+    if (listLabel) listLabel.textContent = `Список користувачів · ${ctx.state.adminUsersTotal}`;
 
     const summary = document.querySelector("#admin-users-summary");
     if (summary) {
@@ -473,6 +488,7 @@ export function renderAdminUserDetail(ctx) {
   const status = adminUserStatus(payload.access, payload.is_admin);
   const stats = payload.stats || { count: 0, avg: 0, last: null };
   const protectedAccount = payload.is_admin || payload.user_id === ctx.state.bootstrap.user.id;
+  const currentTier = payload.access?.tier || "none";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-user-detail">
@@ -487,26 +503,20 @@ export function renderAdminUserDetail(ctx) {
         </div>
       </section>
 
-      <div class="group">
+      <div class="group admin-account-group">
         <div class="group__label">Обліковий запис</div>
-        <div class="group__list">
-          <div class="cell admin-user-detail__row">
-            <span class="cell__body">
-              <span class="cell__title">Поточний доступ</span>
-              <span class="cell__subtitle">${ctx.escapeHtml(payload.access.label)}</span>
-            </span>
+        <div class="admin-account-card">
+          <div class="admin-account-card__item admin-account-card__item--wide">
+            <span class="admin-account-card__label">Поточний доступ</span>
+            <strong>${ctx.escapeHtml(payload.access.label)}</strong>
           </div>
-          <div class="cell admin-user-detail__row">
-            <span class="cell__body">
-              <span class="cell__title">Дата реєстрації</span>
-              <span class="cell__subtitle">${ctx.escapeHtml(formatAdminDate(payload.created_at))}</span>
-            </span>
+          <div class="admin-account-card__item">
+            <span class="admin-account-card__label">Реєстрація</span>
+            <strong>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</strong>
           </div>
-          <div class="cell admin-user-detail__row">
-            <span class="cell__body">
-              <span class="cell__title">Обрані компетенції</span>
-              <span class="cell__subtitle">${payload.ok_modules?.length || 0} модулів</span>
-            </span>
+          <div class="admin-account-card__item">
+            <span class="admin-account-card__label">Компетенції</span>
+            <strong>${payload.ok_modules?.length || 0} модулів</strong>
           </div>
         </div>
       </div>
@@ -522,26 +532,33 @@ export function renderAdminUserDetail(ctx) {
 
       <section class="admin-access-controls">
         <div class="admin-access-controls__header">
-          <span class="admin-access-controls__title">Керування доступом</span>
-          <span class="admin-access-controls__hint">Зміни застосовуються одразу</span>
+          <span class="admin-access-controls__title">Підписка</span>
+          <span class="admin-access-controls__hint">Оберіть один варіант. Зміни застосуються одразу.</span>
         </div>
-        <div id="admin-user-actions" class="admin-access-actions"></div>
+        <div id="admin-user-actions" class="admin-access-actions admin-access-actions--grid"></div>
       </section>
 
       <section class="admin-access-controls">
-        <div class="admin-access-controls__header">
-          <span class="admin-access-controls__title">Додаткові матеріали</span>
-          <span class="admin-access-controls__hint">Кейси, тестові питання та пошук питань</span>
+        <div class="admin-access-controls__heading-row">
+          <div class="admin-access-controls__header">
+            <span class="admin-access-controls__title">Додаткові матеріали</span>
+            <span class="admin-access-controls__hint">Кейси, тестові питання та пошук питань</span>
+          </div>
+          <span class="admin-materials-status admin-materials-status--${payload.protected_materials_access ? "on" : "off"}">
+            ${payload.protected_materials_access ? "Відкрито" : "Приховано"}
+          </span>
         </div>
         <div id="admin-protected-materials-actions" class="admin-access-actions"></div>
       </section>
 
-      <section class="admin-danger-zone">
-        <div class="admin-danger-zone__title">Видалення користувача</div>
-        <p>Буде видалено профіль, підписку, прогрес, помилки, результати тестів і збережену сесію.</p>
-        <div id="admin-user-delete-wrap"></div>
-        ${protectedAccount ? '<div class="admin-danger-zone__note">Адміністраторські облікові записи захищені від видалення.</div>' : ""}
-      </section>
+      <details class="admin-danger-zone">
+        <summary class="admin-danger-zone__title">Видалення користувача</summary>
+        <div class="admin-danger-zone__content">
+          <p>Буде видалено профіль, підписку, прогрес, помилки, результати тестів і збережену сесію.</p>
+          <div id="admin-user-delete-wrap"></div>
+          ${protectedAccount ? '<div class="admin-danger-zone__note">Адміністраторські облікові записи захищені від видалення.</div>' : ""}
+        </div>
+      </details>
     </section>
   `;
 
@@ -560,22 +577,25 @@ export function renderAdminUserDetail(ctx) {
   };
 
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
-  const trialButton = ctx.actionButton("⏳ Тріал на 3 дні", () => updateAccess("trial", "Тріал активовано на 3 дні."), "block");
-  trialButton.classList.add("btn--admin-trial");
-  const casesButton = ctx.actionButton("⭐ Атестація", () => updateAccess("cases", "Доступ до атестації активовано."), "block");
-  casesButton.classList.add("btn--admin-cases");
-  const fullButton = ctx.actionButton("✓ Повний доступ", () => updateAccess("full", "Повний доступ активовано."), "block");
-  const removeButton = ctx.actionButton("✕ Забрати підписку", async () => {
+  const trialButton = ctx.actionButton("Тріал · 3 дні", () => updateAccess("trial", "Тріал активовано на 3 дні."));
+  const casesButton = ctx.actionButton("Атестація", () => updateAccess("cases", "Доступ до атестації активовано."));
+  const fullButton = ctx.actionButton("Повний доступ", () => updateAccess("full", "Повний доступ активовано."));
+  const removeButton = ctx.actionButton("Забрати підписку", async () => {
     if (!window.confirm("Забрати у користувача тріал і підписку?")) return;
     await updateAccess("none", "Підписку скасовано.");
-  }, "block");
-  removeButton.classList.add("btn--admin-remove");
+  });
+  [trialButton, casesButton, fullButton, removeButton].forEach((button) => button.classList.add("admin-access-choice"));
+  trialButton.classList.toggle("is-active", currentTier === "trial_full");
+  casesButton.classList.toggle("is-active", currentTier === "cases");
+  fullButton.classList.toggle("is-active", currentTier === "full");
+  removeButton.classList.toggle("is-active", currentTier === "none");
+  removeButton.classList.add("admin-access-choice--remove");
   actions?.append(trialButton, casesButton, fullButton, removeButton);
 
   const protectedActions = ctx.refs.mainPanel.querySelector("#admin-protected-materials-actions");
   const protectedEnabled = Boolean(payload.protected_materials_access);
   const protectedButton = ctx.actionButton(
-    protectedEnabled ? "✕ Забрати додаткові матеріали" : "✓ Показати додаткові матеріали",
+    protectedEnabled ? "Забрати доступ до матеріалів" : "Відкрити додаткові матеріали",
     async () => {
       try {
         ctx.state.adminUserDetail = await ctx.api(`/api/admin/users/${payload.user_id}/protected-materials`, {
@@ -591,7 +611,7 @@ export function renderAdminUserDetail(ctx) {
     },
     "block",
   );
-  if (protectedEnabled) protectedButton.classList.add("btn--admin-remove");
+  protectedButton.classList.add("admin-materials-button");
   protectedActions?.append(protectedButton);
 
   const deleteWrap = ctx.refs.mainPanel.querySelector("#admin-user-delete-wrap");
