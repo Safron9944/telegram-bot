@@ -1023,6 +1023,52 @@ async function startAttestationBlock(ctx, section, block) {
   }
 }
 
+function renderAttestationPracticeTopics(ctx, section) {
+  const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
+  const bank = banks.find((item) => item.slug === ctx.state.selectedAttestationBankSlug);
+  const items = section.items || [];
+
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
+      <p class="page-subtitle">${ctx.escapeHtml(items.length)} тем · оберіть тему для перегляду.</p>
+
+      <div class="group">
+        <div class="group__label">Теми</div>
+        <div class="group__list" id="attestation-practice-topics"></div>
+      </div>
+    </section>
+  `;
+
+  const list = ctx.refs.mainPanel.querySelector("#attestation-practice-topics");
+  items.forEach((item, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--blue">${index + 1}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
+        <span class="cell__subtitle">Переглянути завдання і зразок відповіді</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", async () => {
+      try {
+        if (!bank) throw new Error("Розділ не знайдено.");
+        ctx.impact("light");
+        ctx.state.currentView = await ctx.api(`/api/attestation/${bank.slug}/practice/${item.id}`);
+        ctx.queueTransition("forward");
+        ctx.render();
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    });
+    list.append(row);
+  });
+}
+
 export function renderAttestationParts(ctx) {
   const section = ctx.state.selectedAttestationSection;
   if (!section) {
@@ -1030,12 +1076,16 @@ export function renderAttestationParts(ctx) {
     renderAttestationStage1(ctx);
     return;
   }
+  if (section.practice) {
+    renderAttestationPracticeTopics(ctx, section);
+    return;
+  }
 
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
-      <p class="page-subtitle">${ctx.escapeHtml(section.count)} ${section.practice ? "завдань" : "питань"} · частини до 50</p>
+      <p class="page-subtitle">${ctx.escapeHtml(section.count)} питань · частини до 50</p>
 
       <div id="attestation-random"></div>
       <div class="message message--error attestation-start-error" id="attestation-start-error" role="alert" hidden></div>
@@ -1043,16 +1093,14 @@ export function renderAttestationParts(ctx) {
       <div class="group">
         <div class="group__label">Частини</div>
         <div class="group__list" id="attestation-parts-list"></div>
-        <div class="group__footer">${section.practice
-          ? "Виконайте завдання самостійно, а потім відкрийте зразок відповіді."
-          : "Після кожної відповіді показується правильний варіант і ваш вибір."}</div>
+        <div class="group__footer">Після кожної відповіді показується правильний варіант і ваш вибір.</div>
       </div>
     </section>
   `;
 
   ctx.refs.mainPanel.querySelector("#attestation-random").append(
     ctx.actionButton(
-      `Випадкові ${Math.min(50, Number(section.count || 0))} ${section.practice ? "завдань" : "питань"}`,
+      `Випадкові ${Math.min(50, Number(section.count || 0))} питань`,
       () => startAttestationBlock(ctx, section.key, "random"),
       "block",
     ),
@@ -1068,7 +1116,7 @@ export function renderAttestationParts(ctx) {
       <span class="cell__icon cell__icon--blue">${index + 1}</span>
       <span class="cell__body">
         <span class="cell__title">Частина ${index + 1}</span>
-        <span class="cell__subtitle">${section.practice ? "Завдання" : "Питання"} ${block.replace("-", "–")}</span>
+        <span class="cell__subtitle">Питання ${block.replace("-", "–")}</span>
       </span>
       <span class="cell__chevron" aria-hidden="true"></span>
     `;

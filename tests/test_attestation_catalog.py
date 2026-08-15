@@ -112,6 +112,10 @@ class AttestationCatalogTests(unittest.TestCase):
         self.assertTrue(all("\u0301" not in value for value in visible_text))
         practice_sections = [item["title"] for item in bank.attestation_sections(loaded.slug) if item["practice"]]
         self.assertEqual(["Написання тексту на визначену тему", "Говоріння"], practice_sections)
+        sections = {item["title"]: item for item in bank.attestation_sections(loaded.slug)}
+        self.assertEqual(11, len(sections["Написання тексту на визначену тему"]["items"]))
+        self.assertEqual(113, len(sections["Говоріння"]["items"]))
+        self.assertEqual([], sections["Говоріння"]["blocks"])
 
 
 if __name__ == "__main__":
