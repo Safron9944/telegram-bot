@@ -10,6 +10,7 @@ import zipfile
 import urllib.parse
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -120,6 +121,7 @@ def format_dt(value: Any) -> str | None:
 
 
 DEFAULT_PRICES: dict[str, int] = {"cases": 100, "full": 250}
+SESSION_RESUME_TTL = timedelta(hours=24)
 HOME_VISIBILITY_DEFAULTS: dict[str, bool] = {
     "attestation": True,
     "customs": True,
@@ -487,7 +489,10 @@ class MiniAppService:
         return ui.get("state", {}) or {}
 
     async def set_state(self, user_id: int, state: dict[str, Any]) -> None:
-        await self.store.set_state(user_id, state)
+        saved_state = dict(state or {})
+        if saved_state:
+            saved_state["last_activity_at"] = dt_to_iso(now())
+        await self.store.set_state(user_id, saved_state)
 
     def ensure_access(self, auth: AuthContext) -> None:
         """Paid access to the complete competencies section."""
@@ -699,15 +704,29 @@ class MiniAppService:
         mode = str(state.get("mode") or "")
         if not mode:
             return None
+
+        # Completed results live in the tests history. They should never
+        # replace the home screen when the Mini App is opened again.
+        if mode in {"test_result", "test_review"}:
+            await self.set_state(auth.user_id, {})
+            return None
+
+        # Resume only recently active sessions. Legacy states without an
+        # activity timestamp are stale by definition and are cleared once.
+        try:
+            last_activity = iso_to_dt(state.get("last_activity_at") or state.get("started_at"))
+            is_stale = last_activity is None or now() - last_activity > SESSION_RESUME_TTL
+        except (TypeError, ValueError):
+            is_stale = True
+        if is_stale:
+            await self.set_state(auth.user_id, {})
+            return None
+
         if mode == "pretest":
             return self.build_pretest_view(state, auth.is_admin)
         if mode in {"learn", "test", "mistakes"}:
             self.ensure_session_access(auth, state)
             return await self.build_session_view(auth, state)
-        if mode == "test_result":
-            return self.build_test_result_view(state)
-        if mode == "test_review":
-            return await self.build_test_review_view(auth.user_id, state)
         return None
 
     def build_pretest_view(self, state: dict[str, Any], is_admin: bool) -> dict[str, Any]:
