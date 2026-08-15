@@ -6,6 +6,30 @@ from questions import Q, QuestionBank
 
 ROOT = Path(__file__).resolve().parents[1]
 
+UKRAINIAN_LANGUAGE_SECTIONS = [
+    ("Слова близькі за значенням", 22),
+    ("Слова протилежні за значенням", 21),
+    ("Можливі обидва слова, наведені в дужках", 60),
+    ("Правильно вжито всі слова та форми", 73),
+    ("Рядок містить помилку", 63),
+    ("Точність висловлювання", 42),
+    ("Пряма мова в реченні", 18),
+    ("Норми культури мови у словосполученнях", 74),
+    ("Офіційне мовлення", 32),
+    ("Відмінювання прізвищ, імен та по батькові", 69),
+    ("Виправлення у реченнях", 60),
+    ("Розділові знаки", 72),
+    ("Іншомовні слова", 206),
+    ("Значення слів", 175),
+    ("Значення висловів", 83),
+    ("Відповідність між текстом і метою мовлення", 227),
+    ("Пропущені літери", 85),
+    ("Пропущені слова", 200),
+    ("Пропущені вислови", 115),
+    ("Розуміння тексту (правда чи неправда)", 175),
+    ("Розуміння тексту (вибір відповіді)", 65),
+]
+
 
 def make_question(qid, topic, qnum, *, shuffle=True):
     return Q(
@@ -65,6 +89,16 @@ class AttestationCatalogTests(unittest.TestCase):
         self.assertEqual("ukrainian_language", loaded.manual_grant_section_key)
         self.assertEqual(307, sum(len(bank.by_id[qid].correct) > 1 for qid in loaded.qids))
         self.assertTrue(all(bank.by_id[qid].choices for qid in loaded.qids))
+        self.assertEqual(
+            UKRAINIAN_LANGUAGE_SECTIONS,
+            [(item["title"], item["count"]) for item in bank.attestation_sections(loaded.slug)],
+        )
+        visible_text = [
+            value
+            for qid in loaded.qids
+            for value in [bank.by_id[qid].topic, bank.by_id[qid].question, *bank.by_id[qid].choices]
+        ]
+        self.assertTrue(all("\u0301" not in value for value in visible_text))
 
 
 if __name__ == "__main__":
