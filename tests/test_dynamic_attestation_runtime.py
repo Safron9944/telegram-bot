@@ -3,7 +3,7 @@ import asyncio
 import unittest
 
 from app import AuthContext, MiniAppService
-from questions import QuestionBank
+from questions import Q, QuestionBank
 
 
 class PublishedStore:
@@ -85,6 +85,25 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(800, len(bank.attestation_banks["stage-1"].qids))
         self.assertEqual(800, len(bank.attestation_stage_1))
+
+    async def test_database_reload_preserves_other_bundled_banks(self):
+        bank = QuestionBank("unused.json")
+        question = Q(
+            20_000_001, "Державна мова", "Тема", None, None, 1,
+            "Питання?", ["A", "B"], [1], ["A"],
+        )
+        bank.register_attestation_bank(
+            "ukrainian-language",
+            "Державна мова",
+            [question],
+            source_id="bundled-ukrainian-language-3.8.26",
+            manual_grant_section_key="ukrainian_language",
+        )
+
+        await bank.load_published_attestation_banks(PublishedStore())
+
+        self.assertIn("ukrainian-language", bank.attestation_banks)
+        self.assertIn(20_000_001, bank.by_id)
 
     async def test_reload_keeps_current_catalog_available_while_fetching(self):
         bank = QuestionBank("unused.json")

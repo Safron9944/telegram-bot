@@ -549,6 +549,19 @@ export function renderAdminUserDetail(ctx) {
         <div id="admin-protected-materials-actions" class="admin-access-actions"></div>
       </section>
 
+      <section class="admin-access-controls">
+        <div class="admin-access-controls__heading-row">
+          <div class="admin-access-controls__header">
+            <span class="admin-access-controls__title">Державна мова</span>
+            <span class="admin-access-controls__hint">Окремий доступ до тестів з української мови</span>
+          </div>
+          <span class="admin-materials-status admin-materials-status--${payload.ukrainian_language_access ? "on" : "off"}">
+            ${payload.ukrainian_language_access ? "Відкрито" : "Приховано"}
+          </span>
+        </div>
+        <div id="admin-ukrainian-language-actions" class="admin-access-actions"></div>
+      </section>
+
       <details class="admin-danger-zone">
         <summary class="admin-danger-zone__title">Видалення користувача</summary>
         <div class="admin-danger-zone__content">
@@ -609,6 +622,28 @@ export function renderAdminUserDetail(ctx) {
   );
   protectedButton.classList.add("admin-materials-button");
   protectedActions?.append(protectedButton);
+
+  const ukrainianActions = ctx.refs.mainPanel.querySelector("#admin-ukrainian-language-actions");
+  const ukrainianEnabled = Boolean(payload.ukrainian_language_access);
+  const ukrainianButton = ctx.actionButton(
+    ukrainianEnabled ? "Забрати доступ до державної мови" : "Відкрити державну мову",
+    async () => {
+      try {
+        ctx.state.adminUserDetail = await ctx.api(`/api/admin/users/${payload.user_id}/ukrainian-language`, {
+          method: "POST",
+          body: { enabled: !ukrainianEnabled },
+        });
+        ctx.impact("medium");
+        ctx.setMessage("success", ukrainianEnabled ? "Доступ до державної мови забрано." : "Доступ до державної мови відкрито.");
+        ctx.render();
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
+    },
+    "block",
+  );
+  ukrainianButton.classList.add("admin-materials-button");
+  ukrainianActions?.append(ukrainianButton);
 
   const deleteWrap = ctx.refs.mainPanel.querySelector("#admin-user-delete-wrap");
   if (deleteWrap && !protectedAccount) {

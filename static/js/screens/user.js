@@ -940,7 +940,9 @@ export function renderAttestationStage1(ctx) {
       ` : ""}
 
       ${ctx.group({
-        header: hasFullBankAccess ? "Оберіть розділ" : `Повний доступ · ${ctx.escapeHtml(managedSection?.price || 0)} ⭐`,
+        header: hasFullBankAccess
+          ? "Оберіть розділ"
+          : (managedSection?.manual_grant_only ? "Доступ надає адміністратор" : `Повний доступ · ${ctx.escapeHtml(managedSection?.price || 0)} ⭐`),
         children: sections.map((item, index) => `
           <button class="cell" type="button" data-attestation-section="${index}">
             <span class="cell__icon cell__icon--purple">${index + 1}</span>
@@ -962,6 +964,10 @@ export function renderAttestationStage1(ctx) {
   ctx.refs.mainPanel.querySelectorAll("[data-attestation-section]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!hasFullBankAccess && managedSection) {
+        if (managedSection.manual_grant_only) {
+          ctx.setMessage("error", "Доступ до цього розділу надає адміністратор.");
+          return;
+        }
         void ctx.openPayment({ section_key: managedSection.key });
         return;
       }
@@ -992,6 +998,10 @@ async function startAttestationBlock(ctx, section, block) {
     ctx.queueTransition("forward");
     ctx.render();
   } catch (error) {
+    if (error.code === "protected_materials_required") {
+      ctx.setMessage("error", "Доступ до цього розділу надає адміністратор.");
+      return;
+    }
     if (error.code === "attestation_access_required" || error.code === "access_expired") {
       const managedSection = (ctx.state.bootstrap.sections || []).find((item) => item.bank_slug === bank?.slug);
       if (managedSection) {

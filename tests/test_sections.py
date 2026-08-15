@@ -1,6 +1,6 @@
 import unittest
 
-from sections import PROTECTED_SECTION_KEYS, build_sections, free_section_keys, move_section, reorder_section_group, update_section
+from sections import PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, move_section, reorder_section_group, update_section
 
 
 class FakeStore:
@@ -38,6 +38,20 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         customs = next(item for item in items if item["key"] == "customs")
         self.assertFalse(customs["has_access"])
         self.assertEqual(50, customs["preview_count"])
+        language = next(item for item in items if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY)
+        self.assertTrue(language["manual_grant_only"])
+        self.assertFalse(language["has_access"])
+        self.assertEqual("ukrainian-language", language["bank_slug"])
+
+    async def test_language_bank_requires_explicit_admin_grant(self):
+        store = FakeStore()
+        self.assertNotIn(UKRAINIAN_LANGUAGE_SECTION_KEY, await free_section_keys(store))
+
+        full = await build_sections(store, {"sub_infinite": 1, "sub_tier": "full", "section_access": []})
+        self.assertFalse(next(item for item in full if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY)["has_access"])
+
+        granted = await build_sections(store, {"section_access": [UKRAINIAN_LANGUAGE_SECTION_KEY]})
+        self.assertTrue(next(item for item in granted if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY)["has_access"])
 
     async def test_full_access_does_not_unlock_protected_materials(self):
         store = FakeStore()
@@ -49,7 +63,12 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         protected = [item for item in full if item["key"] in PROTECTED_SECTION_KEYS]
         self.assertTrue(protected)
         self.assertTrue(all(not item["has_access"] for item in protected))
-        self.assertTrue(all(item["has_access"] for item in full if item["key"] not in PROTECTED_SECTION_KEYS))
+        full_access_keys = {
+            item["key"]
+            for item in full
+            if item["key"] not in PROTECTED_SECTION_KEYS | {UKRAINIAN_LANGUAGE_SECTION_KEY}
+        }
+        self.assertTrue(all(item["has_access"] for item in full if item["key"] in full_access_keys))
 
         granted = await build_sections(store, {
             "sub_infinite": 1,
@@ -89,12 +108,12 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         store = FakeStore()
         items = await build_sections(store, {}, is_admin=True)
         self.assertEqual(
-            ["attestation:7", "customs", "cases", "customs_code", "test_questions", "question_search", "support"],
+            ["attestation:7", "customs", "ukrainian_language", "cases", "customs_code", "test_questions", "question_search", "support"],
             [item["key"] for item in items],
         )
         self.assertTrue(await move_section(store, "customs", "up"))
         moved = await build_sections(store, {}, is_admin=True)
-        self.assertEqual(["customs", "attestation:7"], [item["key"] for item in moved if item["group"] == "primary"])
+        self.assertEqual(["customs", "attestation:7", "ukrainian_language"], [item["key"] for item in moved if item["group"] == "primary"])
         self.assertEqual(["cases", "customs_code", "test_questions", "question_search"], [item["key"] for item in moved if item["group"] == "materials"])
 
     async def test_drag_order_reorders_exact_group_and_rejects_incomplete_list(self):
