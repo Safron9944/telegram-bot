@@ -393,6 +393,92 @@ function renderResultView(ctx, view) {
   );
 }
 
+/* ===================== OPEN PRACTICE ===================== */
+function renderOpenPracticeView(ctx, view) {
+  const question = view.question || {};
+  const revealed = Boolean(view.actions?.revealed);
+  const hasNext = Boolean(view.actions?.has_next);
+
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <div class="row-between">
+        <div class="muted-sm" style="font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase;">
+          ${ctx.escapeHtml(view.header || "Практичне завдання")}
+        </div>
+        <div class="muted-sm">${view.progress.current} / ${view.progress.total}</div>
+      </div>
+
+      ${progressBar(view.progress.current, view.progress.total)}
+
+      <div class="question-card">
+        <div class="question-card__meta">Завдання</div>
+        <div class="question-card__text open-practice__text">${ctx.escapeHtml(question.question || "")}</div>
+      </div>
+
+      ${revealed ? `
+        <div class="question-card open-practice__answer">
+          <div class="question-card__meta">Зразок відповіді</div>
+          <div class="question-card__text open-practice__text">${ctx.escapeHtml(question.sample_answer || "")}</div>
+        </div>
+      ` : ""}
+
+      <div class="sticky-cta" id="open-practice-actions"></div>
+    </section>
+  `;
+
+  const actions = ctx.refs.mainPanel.querySelector("#open-practice-actions");
+  if (!revealed) {
+    actions.append(
+      ctx.actionButton(
+        "Показати зразок відповіді",
+        async () => {
+          try {
+            ctx.state.currentView = await ctx.api("/api/session/open-practice/reveal", { method: "POST" });
+            ctx.render();
+          } catch (error) {
+            ctx.setMessage("error", error.message);
+          }
+        },
+        "block",
+      ),
+    );
+  }
+  actions.append(
+    ctx.actionButton(
+      hasNext ? "Наступне завдання" : "Завершити практику",
+      async () => {
+        try {
+          ctx.state.currentView = await ctx.api("/api/session/open-practice/next", { method: "POST" });
+          ctx.render();
+        } catch (error) {
+          ctx.setMessage("error", error.message);
+        }
+      },
+      revealed ? "block" : "block-ghost",
+    ),
+    ctx.actionButton("Завершити", ctx.leaveCurrentView, "block-ghost"),
+  );
+}
+
+function renderOpenPracticeResult(ctx, view) {
+  const summary = view.summary || {};
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <h1 class="page-title">${ctx.escapeHtml(summary.title || "Практику завершено")}</h1>
+      <div class="result-hero">
+        <div class="result-hero__pct result-hero__pct--success">✓</div>
+        <div class="result-hero__label">Переглянуто ${ctx.escapeHtml(summary.completed || 0)} з ${ctx.escapeHtml(summary.total || 0)} завдань</div>
+      </div>
+      <div class="sticky-cta" id="open-practice-result-actions"></div>
+    </section>
+  `;
+  ctx.refs.mainPanel.querySelector("#open-practice-result-actions").append(
+    ctx.actionButton("Повернутися до розділу", ctx.leaveCurrentView, "block"),
+  );
+}
+
 /* ===================== REVIEW (mistakes navigation) ===================== */
 function renderReviewView(ctx, view) {
   const options = view.question.options
@@ -505,6 +591,8 @@ export function renderCurrentView(ctx) {
   }
   if (view.screen === "question") return renderQuestionView(ctx, view);
   if (view.screen === "feedback") return renderFeedbackView(ctx, view);
+  if (view.screen === "open-practice") return renderOpenPracticeView(ctx, view);
+  if (view.screen === "open-practice-result") return renderOpenPracticeResult(ctx, view);
   if (view.screen === "result") return renderResultView(ctx, view);
   if (view.screen === "review") return renderReviewView(ctx, view);
 

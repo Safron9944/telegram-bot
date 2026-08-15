@@ -925,7 +925,9 @@ export function renderAttestationStage1(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">${ctx.escapeHtml(bank?.title || "Тестування")}</h1>
-      <p class="page-subtitle">${ctx.escapeHtml(bank?.count || 0)} питань · повноцінний режим тестування.</p>
+      <p class="page-subtitle">${bank?.practice_count
+        ? `${ctx.escapeHtml(bank.count - bank.practice_count)} тестових · ${ctx.escapeHtml(bank.practice_count)} практичних завдань`
+        : `${ctx.escapeHtml(bank?.count || 0)} питань · повноцінний режим тестування.`}</p>
 
       ${!hasFullBankAccess && previewCount ? `
         <div class="group">
@@ -948,7 +950,7 @@ export function renderAttestationStage1(ctx) {
             <span class="cell__icon cell__icon--purple">${index + 1}</span>
             <span class="cell__body">
               <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-              <span class="cell__subtitle">${ctx.escapeHtml(item.count)} питань</span>
+              <span class="cell__subtitle">${ctx.escapeHtml(item.count)} ${item.practice ? "завдань" : "питань"}</span>
             </span>
             <span class="cell__chevron" aria-hidden="true"></span>
           </button>
@@ -1033,7 +1035,7 @@ export function renderAttestationParts(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
-      <p class="page-subtitle">${ctx.escapeHtml(section.count)} питань · частини до 50 питань</p>
+      <p class="page-subtitle">${ctx.escapeHtml(section.count)} ${section.practice ? "завдань" : "питань"} · частини до 50</p>
 
       <div id="attestation-random"></div>
       <div class="message message--error attestation-start-error" id="attestation-start-error" role="alert" hidden></div>
@@ -1041,14 +1043,16 @@ export function renderAttestationParts(ctx) {
       <div class="group">
         <div class="group__label">Частини</div>
         <div class="group__list" id="attestation-parts-list"></div>
-        <div class="group__footer">Після кожної відповіді показується правильний варіант і ваш вибір.</div>
+        <div class="group__footer">${section.practice
+          ? "Виконайте завдання самостійно, а потім відкрийте зразок відповіді."
+          : "Після кожної відповіді показується правильний варіант і ваш вибір."}</div>
       </div>
     </section>
   `;
 
   ctx.refs.mainPanel.querySelector("#attestation-random").append(
     ctx.actionButton(
-      `Випадкові ${Math.min(50, Number(section.count || 0))} питань`,
+      `Випадкові ${Math.min(50, Number(section.count || 0))} ${section.practice ? "завдань" : "питань"}`,
       () => startAttestationBlock(ctx, section.key, "random"),
       "block",
     ),
@@ -1064,7 +1068,7 @@ export function renderAttestationParts(ctx) {
       <span class="cell__icon cell__icon--blue">${index + 1}</span>
       <span class="cell__body">
         <span class="cell__title">Частина ${index + 1}</span>
-        <span class="cell__subtitle">Питання ${block.replace("-", "–")}</span>
+        <span class="cell__subtitle">${section.practice ? "Завдання" : "Питання"} ${block.replace("-", "–")}</span>
       </span>
       <span class="cell__chevron" aria-hidden="true"></span>
     `;

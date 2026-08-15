@@ -616,6 +616,14 @@
   color: var(--label);
 }
 
+.open-practice__text {
+  white-space: pre-wrap;
+}
+
+.open-practice__answer {
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--separator));
+}
+
 .question-card__topic {
   font-size: 13px;
   color: var(--label-secondary);

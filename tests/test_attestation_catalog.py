@@ -28,6 +28,8 @@ UKRAINIAN_LANGUAGE_SECTIONS = [
     ("Пропущені вислови", 115),
     ("Розуміння тексту (правда чи неправда)", 175),
     ("Розуміння тексту (вибір відповіді)", 65),
+    ("Написання тексту на визначену тему", 11),
+    ("Говоріння", 113),
 ]
 
 
@@ -85,10 +87,14 @@ class AttestationCatalogTests(unittest.TestCase):
             manual_grant_section_key="ukrainian_language",
         )
 
-        self.assertEqual(1937, len(loaded.qids))
+        self.assertEqual(2061, len(loaded.qids))
         self.assertEqual("ukrainian_language", loaded.manual_grant_section_key)
         self.assertEqual(307, sum(len(bank.by_id[qid].correct) > 1 for qid in loaded.qids))
-        self.assertTrue(all(bank.by_id[qid].choices for qid in loaded.qids))
+        practice_qids = [qid for qid in loaded.qids if bank.by_id[qid].is_open_practice]
+        test_qids = [qid for qid in loaded.qids if not bank.by_id[qid].is_open_practice]
+        self.assertEqual(124, len(practice_qids))
+        self.assertEqual(1937, len(test_qids))
+        self.assertTrue(all(bank.by_id[qid].choices for qid in test_qids))
         self.assertEqual(
             UKRAINIAN_LANGUAGE_SECTIONS,
             [(item["title"], item["count"]) for item in bank.attestation_sections(loaded.slug)],
@@ -96,9 +102,16 @@ class AttestationCatalogTests(unittest.TestCase):
         visible_text = [
             value
             for qid in loaded.qids
-            for value in [bank.by_id[qid].topic, bank.by_id[qid].question, *bank.by_id[qid].choices]
+            for value in [
+                bank.by_id[qid].topic,
+                bank.by_id[qid].question,
+                bank.by_id[qid].practice_answer,
+                *bank.by_id[qid].choices,
+            ]
         ]
         self.assertTrue(all("\u0301" not in value for value in visible_text))
+        practice_sections = [item["title"] for item in bank.attestation_sections(loaded.slug) if item["practice"]]
+        self.assertEqual(["Написання тексту на визначену тему", "Говоріння"], practice_sections)
 
 
 if __name__ == "__main__":

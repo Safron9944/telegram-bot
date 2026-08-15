@@ -46,7 +46,7 @@ export function setTelegramBackButton(showBack) {
 
 export function syncClosingConfirmation(view) {
   const shouldProtect = Boolean(
-    view && (view.mode === "pretest" || view.screen === "question" || view.screen === "feedback"),
+    view && (view.mode === "pretest" || view.screen === "question" || view.screen === "feedback" || view.screen === "open-practice"),
   );
 
   if (shouldProtect && !closingConfirmationEnabled) {
