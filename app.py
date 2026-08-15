@@ -656,6 +656,10 @@ class MiniAppService:
                 "slug": bank.slug,
                 "title": bank.title,
                 "count": len(bank.qids),
+                "practice_count": sum(
+                    1 for qid in bank.qids
+                    if qid in self.qb.by_id and self.qb.by_id[qid].is_open_practice
+                ),
                 "preview_count": min(50, len(bank.qids)) if bank.db_id is not None else 0,
                 "topics": len(self.qb.attestation_sections(bank.slug)),
                 "sections": self.qb.attestation_sections(bank.slug),
@@ -739,7 +743,7 @@ class MiniAppService:
 
         if mode == "pretest":
             return self.build_pretest_view(state, auth.is_admin)
-        if mode in {"learn", "test", "mistakes"}:
+        if mode in {"learn", "test", "mistakes", "open_practice"}:
             self.ensure_session_access(auth, state)
             return await self.build_session_view(auth, state)
         return None
@@ -805,9 +809,61 @@ class MiniAppService:
             },
         )
 
+    async def start_open_practice_session(
+        self,
+        user_id: int,
+        qids: list[int],
+        header: str,
+        meta: dict[str, Any],
+    ) -> None:
+        await self.set_state(
+            user_id,
+            {
+                "mode": "open_practice",
+                "header": header,
+                "qids": list(qids or []),
+                "index": 0,
+                "revealed": False,
+                "total": len(qids or []),
+                "started_at": dt_to_iso(now()),
+                "meta": meta or {},
+            },
+        )
+
+    async def build_open_practice_view(
+        self,
+        auth: AuthContext,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        qids = [
+            int(qid)
+            for qid in (state.get("qids", []) or [])
+            if int(qid) in self.qb.by_id and self.qb.by_id[int(qid)].is_open_practice
+        ]
+        if not qids:
+            return {"mode": "open_practice", "screen": "empty", "message": "Практичні завдання не знайдено."}
+
+        index = clamp(int(state.get("index", 0) or 0), 0, len(qids) - 1)
+        question = self.qb.by_id[qids[index]]
+        revealed = bool(state.get("revealed"))
+        return {
+            "mode": "open_practice",
+            "screen": "open-practice",
+            "header": state.get("header", "Практичне завдання"),
+            "progress": {"current": index + 1, "total": len(qids)},
+            "question": {
+                "id": question.id,
+                "question": question.question,
+                "sample_answer": question.practice_answer if revealed else None,
+            },
+            "actions": {"revealed": revealed, "has_next": index + 1 < len(qids)},
+        }
+
     async def build_session_view(self, auth: AuthContext, state: dict[str, Any] | None = None) -> dict[str, Any]:
         state = state or await self.get_state(auth.user_id)
         mode = str(state.get("mode") or "")
+        if mode == "open_practice":
+            return await self.build_open_practice_view(auth, state)
         if mode not in {"learn", "test", "mistakes"}:
             return {"mode": "idle", "screen": "empty"}
 
@@ -1218,18 +1274,30 @@ class MiniAppService:
             if not qids:
                 require_http(404, "attestation_block_not_found", "Обрану частину тесту не знайдено.")
             block_label = "Випадкові 50" if payload.block == "random" else payload.block
-        await self.start_learning_session(
-            auth.user_id,
-            qids,
-            f"{section} • {block_label}",
-            {
-                "kind": "attestation_stage_1" if legacy else "attestation",
-                "bank_slug": bank.slug,
-                "section": section,
-                "block": payload.block,
-                "preview": is_preview,
-            },
-        )
+        session_meta = {
+            "kind": "attestation_stage_1" if legacy else "attestation",
+            "bank_slug": bank.slug,
+            "section": section,
+            "block": payload.block,
+            "preview": is_preview,
+        }
+        practice_qids = [qid for qid in qids if self.qb.by_id.get(qid) and self.qb.by_id[qid].is_open_practice]
+        if practice_qids and len(practice_qids) != len(qids):
+            require_http(503, "mixed_attestation_block", "У цій частині змішані тестові та практичні завдання.")
+        if practice_qids:
+            await self.start_open_practice_session(
+                auth.user_id,
+                qids,
+                f"{section} • {block_label}",
+                session_meta,
+            )
+        else:
+            await self.start_learning_session(
+                auth.user_id,
+                qids,
+                f"{section} • {block_label}",
+                session_meta,
+            )
         return await self.build_session_view(auth)
 
     async def start_mistakes(self, auth: AuthContext) -> dict[str, Any]:
@@ -1368,6 +1436,35 @@ class MiniAppService:
         state["feedback"] = None
         await self.set_state(auth.user_id, state)
         return await self.build_session_view(auth, state)
+
+    async def reveal_open_practice_answer(self, auth: AuthContext) -> dict[str, Any]:
+        state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
+        if state.get("mode") != "open_practice":
+            require_http(409, "not_open_practice", "Немає активного практичного завдання.")
+        state["revealed"] = True
+        await self.set_state(auth.user_id, state)
+        return await self.build_open_practice_view(auth, state)
+
+    async def next_open_practice(self, auth: AuthContext) -> dict[str, Any]:
+        state = await self.get_state(auth.user_id)
+        self.ensure_session_access(auth, state)
+        if state.get("mode") != "open_practice":
+            require_http(409, "not_open_practice", "Немає активного практичного завдання.")
+        qids = list(state.get("qids", []) or [])
+        next_index = int(state.get("index", 0) or 0) + 1
+        if next_index >= len(qids):
+            total = len(qids)
+            await self.set_state(auth.user_id, {})
+            return {
+                "mode": "open_practice_result",
+                "screen": "open-practice-result",
+                "summary": {"title": "Практику завершено", "completed": total, "total": total},
+            }
+        state["index"] = next_index
+        state["revealed"] = False
+        await self.set_state(auth.user_id, state)
+        return await self.build_open_practice_view(auth, state)
 
     async def leave_session(self, auth: AuthContext) -> dict[str, Any]:
         await self.set_state(auth.user_id, {})
@@ -2151,6 +2248,16 @@ async def api_session_skip(auth: AuthContext = Depends(get_auth_context), runtim
 @app.post("/api/session/next")
 async def api_session_next(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).feedback_next(auth)
+
+
+@app.post("/api/session/open-practice/reveal")
+async def api_session_open_practice_reveal(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).reveal_open_practice_answer(auth)
+
+
+@app.post("/api/session/open-practice/next")
+async def api_session_open_practice_next(auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).next_open_practice(auth)
 
 
 @app.post("/api/session/leave")

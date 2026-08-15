@@ -28,10 +28,15 @@ class Q:
     correct: List[int]
     correct_texts: List[str]
     shuffle_choices: bool = True
+    practice_answer: str = ""
 
     @property
     def is_valid_mcq(self) -> bool:
         return bool(self.choices) and isinstance(self.correct, list) and len(self.correct) > 0
+
+    @property
+    def is_open_practice(self) -> bool:
+        return bool(self.practice_answer) and not self.choices
 
 
 @dataclass
@@ -205,7 +210,7 @@ class QuestionBank:
         id_offset: int,
         manual_grant_section_key: str = "",
     ) -> AttestationBank:
-        """Load an app-bundled multiple-choice bank without importing it into Postgres."""
+        """Load an app-bundled test and open-practice bank without importing it into Postgres."""
         source_path = Path(path)
         source_files = sorted(source_path.glob("*.json")) if source_path.is_dir() else [source_path]
         raw_items: List[Dict[str, Any]] = []
@@ -215,16 +220,22 @@ class QuestionBank:
 
         questions: List[Q] = []
         for position, item in enumerate(raw_items, start=1):
-            if str(item.get("type") or "").strip() == "open_answer":
-                continue
+            question_type = str(item.get("type") or "").strip()
             choices = [str(value or "").strip() for value in (item.get("options") or item.get("choices") or [])]
             choices = [value for value in choices if value]
-            try:
-                correct = sorted({int(value) for value in (item.get("correct") or [])})
-            except (TypeError, ValueError):
+            practice_answer = str(item.get("sample_answer") or "").strip()
+            if question_type == "open_answer":
+                if not practice_answer:
+                    continue
+                choices = []
                 correct = []
-            if not choices or not correct or any(value < 1 or value > len(choices) for value in correct):
-                continue
+            else:
+                try:
+                    correct = sorted({int(value) for value in (item.get("correct") or [])})
+                except (TypeError, ValueError):
+                    correct = []
+                if not choices or not correct or any(value < 1 or value > len(choices) for value in correct):
+                    continue
 
             try:
                 source_number = int(item.get("id") or position)
@@ -241,7 +252,8 @@ class QuestionBank:
                 choices=choices,
                 correct=correct,
                 correct_texts=[choices[index - 1] for index in correct],
-                shuffle_choices=True,
+                shuffle_choices=question_type != "open_answer",
+                practice_answer=practice_answer,
             ))
 
         return self.register_attestation_bank(
@@ -389,24 +401,25 @@ class QuestionBank:
         bank = self.attestation_banks.get(slug)
         if not bank or not bank.published:
             return []
-        counts: Dict[str, int] = {}
+        grouped: Dict[str, List[int]] = {}
         for qid in bank.qids:
             question = self.by_id.get(qid)
             if not question:
                 continue
             title = (question.topic or question.section or "Інші питання").strip()
-            counts[title] = counts.get(title, 0) + 1
+            grouped.setdefault(title, []).append(qid)
         return [
             {
                 "key": title,
                 "title": title,
-                "count": count,
+                "count": len(qids),
+                "practice": bool(qids) and all(self.by_id[qid].is_open_practice for qid in qids),
                 "blocks": [
-                    {"key": f"{start}-{min(start + 49, count)}", "title": f"{start}-{min(start + 49, count)}"}
-                    for start in range(1, count + 1, 50)
+                    {"key": f"{start}-{min(start + 49, len(qids))}", "title": f"{start}-{min(start + 49, len(qids))}"}
+                    for start in range(1, len(qids) + 1, 50)
                 ],
             }
-            for title, count in counts.items()
+            for title, qids in grouped.items()
         ]
 
     def attestation_section_qids(self, slug: str, section: str) -> List[int]:
