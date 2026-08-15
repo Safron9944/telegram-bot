@@ -39,7 +39,7 @@ from customs_code import repository as customs_code_repository
 from questions import QuestionBank
 from storage import Storage
 from access import access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access
-from sections import PROTECTED_SECTION_KEYS, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
+from sections import PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_BANK_SLUG, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -221,6 +221,8 @@ def serialize_question(
         "qnum": q.qnum,
         "question": q.question,
         "choices": choices,
+        "multiple": len(correct_set) > 1,
+        "required_choices": len(correct_set),
     }
     if reveal_answers:
         payload["correct"] = correct
@@ -269,10 +271,16 @@ def sort_law_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def build_option_review(
     q: Any,
-    chosen_index: int | None,
+    chosen_index: int | list[int] | None,
     choice_order: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     correct_set = set(int(x) for x in (q.correct or []))
+    if isinstance(chosen_index, list):
+        chosen_set = {int(value) for value in chosen_index}
+    elif chosen_index is None:
+        chosen_set = set()
+    else:
+        chosen_set = {int(chosen_index)}
     source_choices = list(q.choices or [])
     order = ordered_choice_indices(len(source_choices), choice_order)
     items = []
@@ -280,7 +288,7 @@ def build_option_review(
         status = "plain"
         if (source_index + 1) in correct_set:
             status = "correct"
-        elif chosen_index is not None and source_index == chosen_index:
+        elif source_index in chosen_set:
             status = "chosen"
         items.append({
             "index": display_index,
@@ -354,7 +362,8 @@ class SelectIndexRequest(BaseModel):
 
 
 class AnswerRequest(BaseModel):
-    choice: int
+    choice: int | None = None
+    choices: list[int] = Field(default_factory=list)
 
 
 class ReviewIndexRequest(BaseModel):
@@ -523,8 +532,13 @@ class MiniAppService:
         """Attestation access: 100-star tier or full paid access, without trial."""
         purchased = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
         dynamic_key = ""
+        bank = None
         if bank_slug:
             bank = self.qb.attestation_banks.get(bank_slug)
+            if bank and bank.manual_grant_section_key:
+                if auth.is_admin or bank.manual_grant_section_key in set(auth.user.get("section_access", []) or []):
+                    return
+                require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
             if bank and getattr(bank, "db_id", None):
                 dynamic_key = f"attestation:{bank.db_id}"
         if has_attestation_access(auth.user) or (dynamic_key and dynamic_key in purchased):
@@ -646,6 +660,7 @@ class MiniAppService:
                 "topics": len(self.qb.attestation_sections(bank.slug)),
                 "sections": self.qb.attestation_sections(bank.slug),
                 "system": False,
+                "manual_grant_only": bool(bank.manual_grant_section_key),
             })
 
         return {
@@ -799,7 +814,7 @@ class MiniAppService:
         feedback = state.get("feedback")
         if feedback:
             qid = int(feedback.get("qid"))
-            chosen = int(feedback.get("chosen"))
+            chosen = feedback.get("chosen")
             q = self.qb.by_id.get(qid)
             if q:
                 choice_order, order_created = ensure_choice_order(
@@ -975,8 +990,7 @@ class MiniAppService:
             qid = wrong_qids[index]
             q = self.qb.by_id.get(qid)
             if q:
-                chosen = chosen_map.get(str(qid))
-                chosen_idx = int(chosen) if chosen is not None else None
+                chosen_idx = chosen_map.get(str(qid))
                 choice_order, order_created = ensure_choice_order(
                     state, qid, len(q.choices or []), shuffle_choices=q.shuffle_choices
                 )
@@ -1279,11 +1293,19 @@ class MiniAppService:
         if not q or not (q.choices or []):
             require_http(404, "question_missing", "Питання недоступне.")
 
-        choice = int(payload.choice)
-        if choice < 0 or choice >= len(q.choices or []):
+        selected = list(payload.choices or [])
+        if payload.choice is not None and not selected:
+            selected = [int(payload.choice)]
+        selected = list(dict.fromkeys(int(value) for value in selected))
+        if not selected or any(choice < 0 or choice >= len(q.choices or []) for choice in selected):
             require_http(400, "bad_choice", "Невірний номер відповіді.")
 
-        is_correct = (choice + 1) in set(int(x) for x in (q.correct or []))
+        correct_set = set(int(x) for x in (q.correct or []))
+        is_multiple = len(correct_set) > 1
+        if not is_multiple and len(selected) != 1:
+            require_http(400, "bad_choice", "Оберіть одну відповідь.")
+        is_correct = {choice + 1 for choice in selected} == correct_set
+        chosen_value: int | list[int] = selected if is_multiple else selected[0]
         pending = [int(x) for x in (state.get("pending", []) or [])]
         if pending and int(pending[0]) == int(qid):
             pending = pending[1:]
@@ -1295,7 +1317,7 @@ class MiniAppService:
                 state["feedback"] = None
             else:
                 await self.store.bump_wrong(auth.user_id, int(qid))
-                state["feedback"] = {"qid": int(qid), "chosen": choice}
+                state["feedback"] = {"qid": int(qid), "chosen": chosen_value}
             await self.set_state(auth.user_id, state)
             return await self.build_session_view(auth, state)
 
@@ -1303,7 +1325,7 @@ class MiniAppService:
             answers = dict(state.get("answers", {}) or {})
             chosen = dict(state.get("chosen", {}) or {})
             answers[str(qid)] = bool(is_correct)
-            chosen[str(qid)] = choice
+            chosen[str(qid)] = chosen_value
             state["answers"] = answers
             state["chosen"] = chosen
             if is_correct:
@@ -1663,6 +1685,7 @@ class MiniAppService:
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
             "protected_materials_access": PROTECTED_SECTION_KEYS.issubset(set(user.get("section_access", []) or [])),
             "protected_materials_sections": sorted(PROTECTED_SECTION_KEYS & set(user.get("section_access", []) or [])),
+            "ukrainian_language_access": UKRAINIAN_LANGUAGE_SECTION_KEY in set(user.get("section_access", []) or []),
         }
 
     async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
@@ -1675,6 +1698,13 @@ class MiniAppService:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         if not await self.store.set_protected_materials_access(target_id, enabled):
+            require_http(404, "user_not_found", "Користувача не знайдено.")
+        return await self.admin_user_detail(auth, target_id)
+
+    async def admin_set_ukrainian_language_access(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        if not await self.store.set_section_access(target_id, UKRAINIAN_LANGUAGE_SECTION_KEY, enabled):
             require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
@@ -1987,6 +2017,18 @@ async def lifespan(app: FastAPI):
     if not attestation_stage_1_path.exists():
         raise RuntimeError(f"Attestation question file not found: {attestation_stage_1_path}")
     qb.load_attestation_stage_1(str(attestation_stage_1_path))
+
+    ukrainian_language_path = BASE_DIR / "data" / "ukrainian_language_questions"
+    if not ukrainian_language_path.exists():
+        raise RuntimeError(f"Ukrainian language question file not found: {ukrainian_language_path}")
+    qb.load_bundled_attestation_bank(
+        str(ukrainian_language_path),
+        slug=UKRAINIAN_LANGUAGE_BANK_SLUG,
+        title="Державна мова",
+        source_id="bundled-ukrainian-language-3.8.26",
+        id_offset=20_000_000,
+        manual_grant_section_key=UKRAINIAN_LANGUAGE_SECTION_KEY,
+    )
     await qb.load_published_attestation_banks(store)
 
     runtime = RuntimeContext(
@@ -2514,6 +2556,11 @@ async def api_admin_user_access(user_id: int, payload: AdminAccessUpdateRequest,
 @app.post("/api/admin/users/{user_id}/protected-materials")
 async def api_admin_user_protected_materials(user_id: int, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_set_protected_materials(auth, user_id, payload.enabled)
+
+
+@app.post("/api/admin/users/{user_id}/ukrainian-language")
+async def api_admin_user_ukrainian_language(user_id: int, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_set_ukrainian_language_access(auth, user_id, payload.enabled)
 
 
 @app.delete("/api/admin/users/{user_id}")

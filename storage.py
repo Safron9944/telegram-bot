@@ -373,6 +373,31 @@ class Storage:
             telegram_charge_id,
         )
 
+    async def set_section_access(self, user_id: int, section_key: str, enabled: bool) -> bool:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                if enabled:
+                    await con.execute(
+                        """
+                        INSERT INTO user_section_access(user_id, section_key)
+                        VALUES($1, $2)
+                        ON CONFLICT(user_id, section_key) DO NOTHING
+                        """,
+                        user_id,
+                        section_key,
+                    )
+                else:
+                    await con.execute(
+                        "DELETE FROM user_section_access WHERE user_id=$1 AND section_key=$2",
+                        user_id,
+                        section_key,
+                    )
+        return True
+
     async def set_protected_materials_access(self, user_id: int, enabled: bool) -> bool:
         assert self.pool
         keys = sorted(PROTECTED_SECTION_KEYS)

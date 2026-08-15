@@ -141,6 +141,7 @@ function renderQuestionView(ctx, view) {
 
       <div class="question-card">
         <h3 class="question-card__text">${ctx.escapeHtml(question.question)}</h3>
+        ${question.multiple ? `<p class="muted">Оберіть ${question.required_choices} правильні варіанти</p>` : ""}
       </div>
 
       <div class="stack" style="gap: 8px;">${choices}</div>
@@ -149,22 +150,53 @@ function renderQuestionView(ctx, view) {
     </section>
   `;
 
-  ctx.refs.mainPanel.querySelectorAll("[data-choice]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      try {
-        ctx.impact("medium");
-        ctx.state.currentView = await ctx.api("/api/session/answer", {
-          method: "POST",
-          body: { choice: Number(button.dataset.choice) },
-        });
-        ctx.render();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    });
-  });
-
   const actions = ctx.refs.mainPanel.querySelector("#question-actions");
+  const choiceButtons = [...ctx.refs.mainPanel.querySelectorAll("[data-choice]")];
+  const submitAnswer = async (body) => {
+    try {
+      ctx.impact("medium");
+      ctx.state.currentView = await ctx.api("/api/session/answer", {
+        method: "POST",
+        body,
+      });
+      ctx.render();
+    } catch (error) {
+      ctx.setMessage("error", error.message);
+    }
+  };
+
+  if (question.multiple) {
+    const requiredChoices = Number(question.required_choices || 1);
+    const selectedChoices = new Set();
+    const submitButton = ctx.actionButton("Відповісти", () => {
+      if (selectedChoices.size !== requiredChoices) return;
+      void submitAnswer({ choices: [...selectedChoices] });
+    }, "block");
+    submitButton.disabled = true;
+    actions.append(submitButton);
+
+    choiceButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const value = Number(button.dataset.choice);
+        if (selectedChoices.has(value)) {
+          selectedChoices.delete(value);
+          button.classList.remove("choice--chosen");
+        } else if (selectedChoices.size < requiredChoices) {
+          selectedChoices.add(value);
+          button.classList.add("choice--chosen");
+        }
+        submitButton.disabled = selectedChoices.size !== requiredChoices;
+        submitButton.textContent = `Відповісти (${selectedChoices.size}/${requiredChoices})`;
+      });
+    });
+  } else {
+    choiceButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        void submitAnswer({ choice: Number(button.dataset.choice) });
+      });
+    });
+  }
+
   if (view.actions.allow_skip) {
     actions.append(
       ctx.actionButton(

@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260814-no-trial-preview-01";
+import "/static/js/app.js?v=20260815-ukrainian-language-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

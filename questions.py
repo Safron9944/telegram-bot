@@ -5,6 +5,7 @@ import json
 import random
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 ATTESTATION_STAGE_1_SECTION = "Атестація посадових осіб — 1 етап"
@@ -41,6 +42,7 @@ class AttestationBank:
     source_id: str = ""
     published: bool = True
     db_id: int | None = None
+    manual_grant_section_key: str = ""
 
 
 class QuestionBank:
@@ -125,7 +127,7 @@ class QuestionBank:
         rows = await store.list_published_attestation_banks()
 
         for slug, bank in list(self.attestation_banks.items()):
-            if slug == "stage-1":
+            if slug == "stage-1" or (bank.db_id is None and bank.source_id.startswith("bundled-")):
                 continue
             for qid in bank.qids:
                 self.by_id.pop(qid, None)
@@ -191,6 +193,64 @@ class QuestionBank:
             title=ATTESTATION_STAGE_1_SECTION,
             qids=list(self.attestation_stage_1),
             source_id="bundled-stage-1",
+        )
+
+    def load_bundled_attestation_bank(
+        self,
+        path: str,
+        *,
+        slug: str,
+        title: str,
+        source_id: str,
+        id_offset: int,
+        manual_grant_section_key: str = "",
+    ) -> AttestationBank:
+        """Load an app-bundled multiple-choice bank without importing it into Postgres."""
+        source_path = Path(path)
+        source_files = sorted(source_path.glob("*.json")) if source_path.is_dir() else [source_path]
+        raw_items: List[Dict[str, Any]] = []
+        for file_path in source_files:
+            with file_path.open("r", encoding="utf-8") as f:
+                raw_items.extend(self._iter_raw_questions(json.load(f)))
+
+        questions: List[Q] = []
+        for position, item in enumerate(raw_items, start=1):
+            if str(item.get("type") or "").strip() == "open_answer":
+                continue
+            choices = [str(value or "").strip() for value in (item.get("options") or item.get("choices") or [])]
+            choices = [value for value in choices if value]
+            try:
+                correct = sorted({int(value) for value in (item.get("correct") or [])})
+            except (TypeError, ValueError):
+                correct = []
+            if not choices or not correct or any(value < 1 or value > len(choices) for value in correct):
+                continue
+
+            try:
+                source_number = int(item.get("id") or position)
+            except (TypeError, ValueError):
+                source_number = position
+            questions.append(Q(
+                id=int(id_offset) + source_number,
+                section=title,
+                topic=str(item.get("section") or item.get("part") or "Інші питання").strip(),
+                ok=None,
+                level=None,
+                qnum=source_number,
+                question=str(item.get("question") or "").strip(),
+                choices=choices,
+                correct=correct,
+                correct_texts=[choices[index - 1] for index in correct],
+                shuffle_choices=True,
+            ))
+
+        return self.register_attestation_bank(
+            slug,
+            title,
+            questions,
+            source_id=source_id,
+            published=True,
+            manual_grant_section_key=manual_grant_section_key,
         )
 
     def _build_indexes(self):
@@ -294,6 +354,7 @@ class QuestionBank:
         source_id: str = "",
         published: bool = True,
         db_id: int | None = None,
+        manual_grant_section_key: str = "",
     ) -> AttestationBank:
         slug = (slug or "").strip()
         if not slug:
@@ -309,7 +370,15 @@ class QuestionBank:
                 raise ValueError(f"Duplicate attestation question id: {question.id}")
             self.by_id[question.id] = question
             qids.append(question.id)
-        bank = AttestationBank(slug, title.strip() or slug, qids, source_id, published, db_id)
+        bank = AttestationBank(
+            slug,
+            title.strip() or slug,
+            qids,
+            source_id,
+            published,
+            db_id,
+            manual_grant_section_key,
+        )
         self.attestation_banks[slug] = bank
         return bank
 

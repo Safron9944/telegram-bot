@@ -1,6 +1,10 @@
 import unittest
+from pathlib import Path
 
 from questions import Q, QuestionBank
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def make_question(qid, topic, qnum, *, shuffle=True):
@@ -44,6 +48,23 @@ class AttestationCatalogTests(unittest.TestCase):
     def test_rejects_unknown_bank_or_block(self):
         self.assertEqual([], self.bank.attestation_sections("missing"))
         self.assertEqual([], self.bank.attestation_block_qids("stage-2", "Section A", "bad"))
+
+    def test_loads_bundled_ukrainian_language_test_questions(self):
+        bank = QuestionBank("unused.json")
+
+        loaded = bank.load_bundled_attestation_bank(
+            str(ROOT / "data" / "ukrainian_language_questions"),
+            slug="ukrainian-language",
+            title="Державна мова",
+            source_id="bundled-ukrainian-language-3.8.26",
+            id_offset=20_000_000,
+            manual_grant_section_key="ukrainian_language",
+        )
+
+        self.assertEqual(1937, len(loaded.qids))
+        self.assertEqual("ukrainian_language", loaded.manual_grant_section_key)
+        self.assertEqual(307, sum(len(bank.by_id[qid].correct) > 1 for qid in loaded.qids))
+        self.assertTrue(all(bank.by_id[qid].choices for qid in loaded.qids))
 
 
 if __name__ == "__main__":
