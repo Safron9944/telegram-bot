@@ -1,7 +1,7 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
 import { state } from "./core/state.js?v=20260812-editable-notice-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
-import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-practice-02";
+import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-browse-03";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
 import {
   actionButton,
@@ -13,7 +13,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260815-language-practice-02";
+} from "./core/ui.js?v=20260815-language-browse-03";
 import {
   loadCaseDetail,
   loadCases,
@@ -40,7 +40,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260815-language-practice-02";
+} from "./screens/user.js?v=20260815-language-browse-03";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -61,7 +61,7 @@ import {
   renderAdminUsers,
   runQuestionSearch,
 } from "./screens/admin.js?v=20260815-ukrainian-language-01";
-import { renderCurrentView } from "./screens/session.js?v=20260815-language-practice-02";
+import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
 import {
   cleanupAdminApkImport,
   renderAdminApkImport,
@@ -224,6 +224,13 @@ function goHome() {
 
 async function goBack() {
   if (state.currentView) {
+    if (state.currentView.screen === "open-practice-detail") {
+      state.currentView = null;
+      queueTransition("back");
+      render();
+      return;
+    }
+
     if (state.currentView.screen === "review") {
       try {
         state.currentView = await api("/api/test/review/back", { method: "POST" });

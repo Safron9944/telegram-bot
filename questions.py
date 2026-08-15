@@ -11,6 +11,15 @@ from typing import Any, Dict, List, Optional
 ATTESTATION_STAGE_1_SECTION = "Атестація посадових осіб — 1 етап"
 
 
+def open_practice_title(question_text: str) -> str:
+    """Return the visible topic name without the source collection number."""
+    first_line = next(
+        (line.strip() for line in str(question_text or "").splitlines() if line.strip()),
+        "",
+    )
+    return re.sub(r"^[A-Z]+\.\s*\d+[.)]?\s*", "", first_line).strip() or first_line
+
+
 def dynamic_attestation_runtime_id(database_id: int) -> int:
     return -1_000_000_000 - int(database_id)
 
@@ -408,19 +417,24 @@ class QuestionBank:
                 continue
             title = (question.topic or question.section or "Інші питання").strip()
             grouped.setdefault(title, []).append(qid)
-        return [
-            {
+        sections: List[Dict[str, Any]] = []
+        for title, qids in grouped.items():
+            is_practice = bool(qids) and all(self.by_id[qid].is_open_practice for qid in qids)
+            sections.append({
                 "key": title,
                 "title": title,
                 "count": len(qids),
-                "practice": bool(qids) and all(self.by_id[qid].is_open_practice for qid in qids),
-                "blocks": [
+                "practice": is_practice,
+                "items": [
+                    {"id": qid, "title": open_practice_title(self.by_id[qid].question)}
+                    for qid in qids
+                ] if is_practice else [],
+                "blocks": [] if is_practice else [
                     {"key": f"{start}-{min(start + 49, len(qids))}", "title": f"{start}-{min(start + 49, len(qids))}"}
                     for start in range(1, len(qids) + 1, 50)
                 ],
-            }
-            for title, qids in grouped.items()
-        ]
+            })
+        return sections
 
     def attestation_section_qids(self, slug: str, section: str) -> List[int]:
         bank = self.attestation_banks.get(slug)
