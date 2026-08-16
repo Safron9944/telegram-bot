@@ -18,7 +18,7 @@ class VisibleMessagesTests(unittest.TestCase):
         html = (ROOT / "static/index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="messages-panel" role="status" aria-live="polite"', html)
-        self.assertIn("20260816-section-access-02", html)
+        self.assertIn("20260816-purchase-access-01", html)
 
     def test_old_success_timer_cannot_hide_a_newer_message(self):
         source = (ROOT / "static/js/core/ui.js").read_text(encoding="utf-8")

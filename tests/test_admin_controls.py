@@ -242,6 +242,22 @@ class StorageDeleteUserTests(unittest.IsolatedAsyncioTestCase):
             statements,
         )
 
+    async def test_paid_section_grant_clears_old_admin_access_override(self):
+        connection = _DeleteConnection()
+        storage = Storage("postgresql://unused")
+        storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
+
+        await storage.grant_section_access(42, "customs", telegram_charge_id="charge-1")
+
+        statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
+        self.assertIn(
+            (
+                "DELETE FROM user_section_access_overrides WHERE user_id=$1 AND section_key=$2",
+                (42, "customs"),
+            ),
+            statements,
+        )
+
     async def test_admin_cannot_delete_another_admin(self):
         store = SimpleNamespace(
             get_user=AsyncMock(return_value={"user_id": 2, "is_admin": 1}),

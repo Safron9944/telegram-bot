@@ -157,7 +157,8 @@ export function renderHome(ctx) {
       if (!section.has_access && !section.preview_count) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        void ctx.openPayment({ section_key: section.key });
+        ctx.state.selectedPurchaseSectionKey = section.key;
+        ctx.navigate("purchase-options");
       }
     });
   });
@@ -208,11 +209,21 @@ export function renderCustoms(ctx) {
   `;
 
   if (!hasFullAccess) {
+    const fullPrice = Number(ctx.state.bootstrap.payment_prices?.full || 250);
     ctx.refs.mainPanel.querySelector("#customs-preview-start")?.append(
       ctx.actionButton("Розпочати перші 50 питань", ctx.startCustomsPreview, "block"),
     );
     ctx.refs.mainPanel.querySelector("#customs-preview-buy")?.append(
-      ctx.actionButton("Відкрити повний доступ", () => void ctx.openPayment("full"), "block-ghost"),
+      ctx.actionButton(
+        `Купити лише «Митні компетенції» · ${Number(customsSection?.price || 0)} ⭐`,
+        () => void ctx.openPayment({ section_key: "customs" }),
+        "block-ghost",
+      ),
+      ctx.actionButton(
+        `Купити повний доступ до всіх розділів · ${fullPrice} ⭐`,
+        () => void ctx.openPayment("full"),
+        "block-ghost",
+      ),
     );
   }
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
@@ -970,7 +981,8 @@ export function renderAttestationStage1(ctx) {
           ctx.setMessage("error", "Доступ до цього розділу надає адміністратор.");
           return;
         }
-        void ctx.openPayment({ section_key: managedSection.key });
+        ctx.state.selectedPurchaseSectionKey = managedSection.key;
+        ctx.navigate("purchase-options");
         return;
       }
       const item = sections[Number(button.dataset.attestationSection)];
@@ -1007,7 +1019,8 @@ async function startAttestationBlock(ctx, section, block) {
     if (error.code === "attestation_access_required" || error.code === "access_expired") {
       const managedSection = (ctx.state.bootstrap.sections || []).find((item) => item.bank_slug === bank?.slug);
       if (managedSection) {
-        void ctx.openPayment({ section_key: managedSection.key });
+        ctx.state.selectedPurchaseSectionKey = managedSection.key;
+        ctx.navigate("purchase-options");
         return;
       }
       ctx.queueTransition("forward");
@@ -1348,6 +1361,57 @@ export function renderHelp(ctx) {
 
 
 /* ===================== PAYWALL ===================== */
+export function renderPurchaseOptions(ctx) {
+  ctx.setChrome({ showBack: true });
+  const section = (ctx.state.bootstrap.sections || []).find(
+    (item) => item.key === ctx.state.selectedPurchaseSectionKey,
+  );
+  if (!section || section.has_access || !section.visible) {
+    ctx.navigate("home", { replace: true });
+    return;
+  }
+  const fullPrice = Number(ctx.state.bootstrap.payment_prices?.full || 250);
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content">
+      <header class="page-hero">
+        <h1 class="page-title">Оберіть варіант доступу</h1>
+        <p class="page-subtitle">${ctx.escapeHtml(section.title)}</p>
+      </header>
+
+      <div class="group">
+        <div class="group__label">Лише цей розділ — ${ctx.escapeHtml(section.price)} ⭐</div>
+        <div class="group__list" style="padding: 16px;">
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безстроковий доступ тільки до розділу «${ctx.escapeHtml(section.title)}».</p>
+          <div id="pay-section-wrap"></div>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group__label">Усі розділи — ${fullPrice} ⭐</div>
+        <div class="group__list" style="padding: 16px;">
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Відкриває всі платні розділи, які показані вам адміністратором.</p>
+          <div id="pay-all-wrap"></div>
+        </div>
+      </div>
+    </section>
+  `;
+  ctx.refs.mainPanel.querySelector("#pay-section-wrap")?.append(
+    ctx.actionButton(
+      `Купити лише цей розділ · ${section.price} ⭐`,
+      () => void ctx.openPayment({ section_key: section.key }),
+      "block",
+    ),
+  );
+  ctx.refs.mainPanel.querySelector("#pay-all-wrap")?.append(
+    ctx.actionButton(
+      `Купити повний доступ до всіх розділів · ${fullPrice} ⭐`,
+      () => void ctx.openPayment("full"),
+      "block",
+    ),
+  );
+}
+
+
 export function renderPaywall(ctx, errorCode) {
   ctx.applyTransition();
   ctx.setChrome({ showBack: true });
@@ -1382,7 +1446,7 @@ export function renderPaywall(ctx, errorCode) {
       <div class="group">
         <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Навчання, тести та атестація. Додаткові матеріали відкриває адміністратор.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Усі платні розділи, які показані вам адміністратором.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
@@ -1395,7 +1459,7 @@ export function renderPaywall(ctx, errorCode) {
     );
   }
   ctx.refs.mainPanel.querySelector("#pay-full-wrap")?.append(
-    ctx.actionButton(`Оплатити ${prices.full} ⭐ — повний доступ`, () => void ctx.openPayment("full"), "block"),
+    ctx.actionButton(`Купити повний доступ до всіх розділів · ${prices.full} ⭐`, () => void ctx.openPayment("full"), "block"),
   );
 }
 

@@ -2072,6 +2072,10 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
             return
         user_id = message.from_user.id
         await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
+        paid_sections = [ATTESTATION_STAGE_1_SECTION_KEY]
+        if tier == "full":
+            paid_sections.append(CUSTOMS_COMPETENCIES_SECTION_KEY)
+        await runtime.store.clear_section_access_overrides(user_id, paid_sections)
         label = "атестації" if tier == "cases" else "повного доступу"
         await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 

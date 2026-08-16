@@ -66,7 +66,7 @@ async def create_stars_invoice_link(bot: "Bot", tier: str, amount: int) -> str:
         description = "Безлімітний доступ до першого етапу атестації"
     else:
         title = "Повний доступ"
-        description = "Безлімітний доступ: навчання, тести та атестація"
+        description = "Безлімітний доступ до всіх показаних платних розділів"
     link = await bot.create_invoice_link(
         title=title,
         description=description,

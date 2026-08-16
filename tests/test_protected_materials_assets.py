@@ -17,10 +17,21 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
         self.assertIn("/sections/", admin)
         self.assertIn('section.control_mode === "visibility"', admin)
 
-    def test_payment_copy_no_longer_promises_cases_in_full_access(self):
+    def test_payment_copy_describes_all_visible_paid_sections(self):
         access = (ROOT / "access.py").read_text(encoding="utf-8")
-        self.assertIn("Безлімітний доступ: навчання, тести та атестація", access)
+        self.assertIn("Безлімітний доступ до всіх показаних платних розділів", access)
         self.assertNotIn("навчання, тести, кейси та атестація", access)
+
+    def test_locked_sections_offer_individual_or_full_purchase(self):
+        user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
+        self.assertIn("Купити лише цей розділ", user)
+        self.assertIn("Купити повний доступ до всіх розділів", user)
+        self.assertIn('ctx.navigate("purchase-options")', user)
+
+    def test_admin_can_edit_full_access_price(self):
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        self.assertIn("Повний доступ до всіх розділів, ⭐", admin)
+        self.assertIn("price_full: priceFull", admin)
 
     def test_server_routes_require_explicit_protected_access(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")
