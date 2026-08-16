@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from access import access_tier
+from access import access_tier, section_access_override
 
 
 PROTECTED_SECTION_KEYS = frozenset({"cases", "test_questions", "question_search"})
@@ -64,6 +64,9 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
     key = str(section["key"])
     if key in ALWAYS_FREE_SECTION_KEYS:
         return True
+    override = section_access_override(user, key)
+    if override is not None:
+        return override
     if section.get("manual_grant_only") or key in PROTECTED_SECTION_KEYS:
         return key in set(user.get("section_access", []) or [])
     if int(section.get("price") or 0) == 0:
