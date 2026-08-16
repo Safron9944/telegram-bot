@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260815-language-browse-03";
+import "/static/js/app.js?v=20260816-section-access-02";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
