@@ -30,7 +30,7 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
 
     def test_admin_can_edit_full_access_price(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        self.assertIn("Повний доступ до всіх розділів, ⭐", admin)
+        self.assertIn("Ціна повного доступу до всіх розділів, ⭐", admin)
         self.assertIn("price_full: priceFull", admin)
 
     def test_server_routes_require_explicit_protected_access(self):

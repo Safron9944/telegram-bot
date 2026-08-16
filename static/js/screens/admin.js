@@ -25,13 +25,6 @@ export function renderAdminHub(ctx) {
             screen: "admin-attestation-banks",
           }),
           ctx.cell({
-            title: "Ціни доступу",
-            subtitle: "Атестація та повний пакет",
-            iconName: "star",
-            tint: "green",
-            screen: "admin-payment-settings",
-          }),
-          ctx.cell({
             title: "Питання " + "з APK",
             subtitle: "Витягнути питання і створити розділ",
             icon: "APK",
@@ -53,62 +46,6 @@ export function renderAdminHub(ctx) {
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
 
-export function renderAdminPaymentSettings(ctx) {
-  ctx.setChrome({ showBack: true });
-  ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
-      <h1 class="page-title">Ціни доступу</h1>
-      <p class="page-subtitle">Ціни окремих розділів змінюються в меню «Розділи».</p>
-      <form class="admin-section-form" id="admin-payment-settings-form">
-        <label class="field">
-          <span class="field__label">Атестація — 1 етап, ⭐</span>
-          <input class="input" id="admin-price-attestation" type="number" min="1" step="1" disabled>
-        </label>
-        <label class="field">
-          <span class="field__label">Повний доступ до всіх розділів, ⭐</span>
-          <input class="input" id="admin-price-full" type="number" min="1" step="1" disabled>
-        </label>
-        <button class="btn btn--primary btn--block" id="admin-payment-settings-save" type="submit" disabled>Зберегти</button>
-      </form>
-    </section>
-  `;
-
-  const form = ctx.refs.mainPanel.querySelector("#admin-payment-settings-form");
-  const attestationInput = ctx.refs.mainPanel.querySelector("#admin-price-attestation");
-  const fullInput = ctx.refs.mainPanel.querySelector("#admin-price-full");
-  const saveButton = ctx.refs.mainPanel.querySelector("#admin-payment-settings-save");
-  void ctx.api("/api/admin/settings").then((payload) => {
-    attestationInput.value = Number(payload.price_cases || 100);
-    fullInput.value = Number(payload.price_full || 250);
-    attestationInput.disabled = false;
-    fullInput.disabled = false;
-    saveButton.disabled = false;
-  }).catch((error) => ctx.setMessage("error", error.message));
-
-  form?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const priceCases = Number(attestationInput.value);
-    const priceFull = Number(fullInput.value);
-    if (!Number.isInteger(priceCases) || priceCases < 1 || !Number.isInteger(priceFull) || priceFull < 1) {
-      ctx.setMessage("error", "Ціни мають бути цілими числами від 1 ⭐.");
-      return;
-    }
-    try {
-      saveButton.disabled = true;
-      await ctx.api("/api/admin/settings", {
-        method: "POST",
-        body: { price_cases: priceCases, price_full: priceFull },
-      });
-      ctx.state.bootstrap.payment_prices = { cases: priceCases, full: priceFull };
-      ctx.setMessage("success", "Ціни збережено.");
-    } catch (error) {
-      ctx.setMessage("error", error.message);
-    } finally {
-      saveButton.disabled = false;
-    }
-  });
-}
-
 /* ===================== ADMIN ATTESTATION BANKS ===================== */
 export function renderAdminAttestationBanks(ctx) {
   ctx.setChrome({ showBack: true });
@@ -116,6 +53,15 @@ export function renderAdminAttestationBanks(ctx) {
     <section class="screen-content admin-attestation-overview">
       <h1 class="page-title">Розділи</h1>
       <p class="page-subtitle">Затисніть ручку справа і перетягніть розділ на потрібне місце.</p>
+
+      <form class="admin-section-form" id="admin-full-price-form">
+        <label class="field">
+          <span class="field__label">Ціна повного доступу до всіх розділів, ⭐</span>
+          <input class="input" id="admin-price-full" type="number" min="1" step="1" disabled>
+          <span class="field__hint">Ціни окремих розділів змінюються в їхніх налаштуваннях.</span>
+        </label>
+        <button class="btn btn--primary btn--block" id="admin-full-price-save" type="submit" disabled>Зберегти ціну</button>
+      </form>
 
       <div id="admin-attestation-list">
         <div class="group"><div class="group__list">
@@ -125,6 +71,32 @@ export function renderAdminAttestationBanks(ctx) {
       <div class="group__footer">Порядок у цих групах повторюється на головному екрані. 0 ⭐ — безкоштовно.</div>
     </section>
   `;
+  const priceForm = ctx.refs.mainPanel.querySelector("#admin-full-price-form");
+  const fullPriceInput = ctx.refs.mainPanel.querySelector("#admin-price-full");
+  const priceSaveButton = ctx.refs.mainPanel.querySelector("#admin-full-price-save");
+  void ctx.api("/api/admin/settings").then((payload) => {
+    fullPriceInput.value = Number(payload.price_full || 250);
+    fullPriceInput.disabled = false;
+    priceSaveButton.disabled = false;
+  }).catch((error) => ctx.setMessage("error", error.message));
+  priceForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const priceFull = Number(fullPriceInput.value);
+    if (!Number.isInteger(priceFull) || priceFull < 1) {
+      ctx.setMessage("error", "Ціна має бути цілим числом від 1 ⭐.");
+      return;
+    }
+    try {
+      priceSaveButton.disabled = true;
+      await ctx.api("/api/admin/settings", { method: "POST", body: { price_full: priceFull } });
+      ctx.state.bootstrap.payment_prices.full = priceFull;
+      ctx.setMessage("success", "Ціну повного доступу збережено.");
+    } catch (error) {
+      ctx.setMessage("error", error.message);
+    } finally {
+      priceSaveButton.disabled = false;
+    }
+  });
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
 }
 
