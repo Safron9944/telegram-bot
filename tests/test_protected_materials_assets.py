@@ -19,8 +19,10 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
 
     def test_payment_copy_describes_all_visible_paid_sections(self):
         access = (ROOT / "access.py").read_text(encoding="utf-8")
-        self.assertIn("Безлімітний доступ до всіх показаних платних розділів", access)
+        user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
+        self.assertIn("Відкриває доступ до всіх платних функцій", access)
         self.assertNotIn("навчання, тести, кейси та атестація", access)
+        self.assertIn("Відкриває доступ до всіх платних функцій.", user)
 
     def test_locked_sections_offer_individual_or_full_purchase(self):
         user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
