@@ -209,19 +209,16 @@ export function renderCustoms(ctx) {
   `;
 
   if (!hasFullAccess) {
-    const fullPrice = Number(ctx.state.bootstrap.payment_prices?.full || 250);
     ctx.refs.mainPanel.querySelector("#customs-preview-start")?.append(
       ctx.actionButton("Розпочати перші 50 питань", ctx.startCustomsPreview, "block"),
     );
     ctx.refs.mainPanel.querySelector("#customs-preview-buy")?.append(
       ctx.actionButton(
-        `Купити лише «Митні компетенції» · ${Number(customsSection?.price || 0)} ⭐`,
-        () => void ctx.openPayment({ section_key: "customs" }),
-        "block-ghost",
-      ),
-      ctx.actionButton(
-        `Купити повний доступ до всіх розділів · ${fullPrice} ⭐`,
-        () => void ctx.openPayment("full"),
+        "Обрати варіант доступу",
+        () => {
+          ctx.state.selectedPurchaseSectionKey = "customs";
+          ctx.navigate("purchase-options");
+        },
         "block-ghost",
       ),
     );
@@ -1421,11 +1418,7 @@ export function renderPaywall(ctx, errorCode) {
   const prices = ctx.state.bootstrap?.payment_prices || { cases: 100, full: 250 };
   const fullOnly = errorCode === "full_access_required" || errorCode === "ok_questions_access_required";
   const attestationOnly = errorCode === "attestation_access_required";
-  const title = fullOnly
-    ? "Потрібна повна підписка"
-    : attestationOnly
-      ? "Доступ до атестації"
-      : "Потрібна підписка";
+  const title = "Оберіть варіант доступу";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
@@ -1435,16 +1428,16 @@ export function renderPaywall(ctx, errorCode) {
 
       ${!fullOnly ? `
       <div class="group">
-        <div class="group__label">Атестація — ${prices.cases} ⭐</div>
+        <div class="group__label">Лише цей розділ — ${prices.cases} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безлімітний доступ до 800 питань першого етапу атестації.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Безстроковий доступ тільки до розділу «Атестація посадових осіб митних органів 1 етап».</p>
           <div id="pay-cases-wrap"></div>
         </div>
       </div>
       ` : ""}
 
       <div class="group">
-        <div class="group__label">Повний доступ — ${prices.full} ⭐</div>
+        <div class="group__label">Усі розділи — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
           <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Усі платні розділи, які показані вам адміністратором.</p>
           <div id="pay-full-wrap"></div>
@@ -1455,7 +1448,7 @@ export function renderPaywall(ctx, errorCode) {
 
   if (!fullOnly) {
     ctx.refs.mainPanel.querySelector("#pay-cases-wrap")?.append(
-      ctx.actionButton(`Оплатити ${prices.cases} ⭐ — атестація`, () => void ctx.openPayment("cases"), "block"),
+      ctx.actionButton(`Купити лише цей розділ · ${prices.cases} ⭐`, () => void ctx.openPayment("cases"), "block"),
     );
   }
   ctx.refs.mainPanel.querySelector("#pay-full-wrap")?.append(

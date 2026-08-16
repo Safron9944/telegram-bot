@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260816-purchase-access-01";
+} from "./screens/user.js?v=20260816-uniform-purchase-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -54,7 +54,6 @@ import {
   renderAdminAttestationBanks,
   renderAdminGlobalSearch,
   renderAdminHub,
-  renderAdminPaymentSettings,
   renderAdminQuestionDetail,
   renderAdminQuestionView,
   renderAdminQuestions,
@@ -62,7 +61,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260816-purchase-access-01";
+} from "./screens/admin.js?v=20260816-uniform-purchase-01";
 import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
 import {
   cleanupAdminApkImport,
@@ -105,7 +104,6 @@ const PROTOTYPE_SCREENS = new Set([
   "purchase-options",
   "help",
   "admin",
-  "admin-payment-settings",
   "admin-global-search",
   "admin-apk-import",
   "admin-users",
@@ -392,7 +390,6 @@ function render() {
     case "help":                  renderHelp(ctx); break;
     case "purchase-options":      renderPurchaseOptions(ctx); break;
     case "admin":                  renderAdminHub(ctx); break;
-    case "admin-payment-settings": renderAdminPaymentSettings(ctx); break;
     case "admin-global-search":    renderAdminGlobalSearch(ctx); break;
     case "admin-apk-import":       renderAdminApkImport(ctx); break;
     case "admin-users":            renderAdminUsers(ctx); break;
