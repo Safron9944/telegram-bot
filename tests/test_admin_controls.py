@@ -117,6 +117,20 @@ class AdminSectionAccessTests(unittest.IsolatedAsyncioTestCase):
         )
         service.admin_user_detail.assert_awaited_once_with(admin_auth(), 42)
 
+    async def test_admin_controls_protected_section_visibility_without_granting_access(self):
+        store = SimpleNamespace(
+            set_section_visibility=AsyncMock(return_value=True),
+            get_setting=AsyncMock(return_value="{}"),
+            list_attestation_banks_for_admin=AsyncMock(return_value=[]),
+        )
+        service = MiniAppService(SimpleNamespace(store=store))
+        service.admin_user_detail = AsyncMock(return_value={"section_controls": []})
+
+        await service.admin_set_section_access(admin_auth(), 42, "cases", True)
+
+        store.set_section_visibility.assert_awaited_once_with(42, "cases", True)
+        self.assertFalse(hasattr(store, "set_section_access_override"))
+
 
 class _AsyncContext:
     def __init__(self, value=None):
@@ -208,6 +222,22 @@ class StorageDeleteUserTests(unittest.IsolatedAsyncioTestCase):
             (
                 "INSERT INTO user_section_access_overrides(user_id, section_key, enabled, updated_at) VALUES($1, $2, $3, now()) ON CONFLICT(user_id, section_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_at=EXCLUDED.updated_at",
                 (42, "customs", False),
+            ),
+            statements,
+        )
+
+    async def test_set_section_visibility_upserts_independent_display_decision(self):
+        connection = _DeleteConnection()
+        storage = Storage("postgresql://unused")
+        storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
+
+        self.assertTrue(await storage.set_section_visibility(42, "cases", True))
+
+        statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
+        self.assertIn(
+            (
+                "INSERT INTO user_section_visibility_overrides(user_id, section_key, visible, updated_at) VALUES($1, $2, $3, now()) ON CONFLICT(user_id, section_key) DO UPDATE SET visible=EXCLUDED.visible, updated_at=EXCLUDED.updated_at",
+                (42, "cases", True),
             ),
             statements,
         )

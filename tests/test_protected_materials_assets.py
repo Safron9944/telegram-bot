@@ -15,6 +15,7 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
         self.assertIn("Додаткові матеріали", admin)
         self.assertIn("section_controls", admin)
         self.assertIn("/sections/", admin)
+        self.assertIn('section.control_mode === "visibility"', admin)
 
     def test_payment_copy_no_longer_promises_cases_in_full_access(self):
         access = (ROOT / "access.py").read_text(encoding="utf-8")

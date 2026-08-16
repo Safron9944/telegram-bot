@@ -76,7 +76,7 @@ class CustomsPreviewAssetsTests(unittest.TestCase):
         app = (ROOT / "static/app.js").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
         self.assertIn("20260816-section-access-02", index)
-        self.assertIn("20260816-section-access-02", app)
+        self.assertIn("20260816-section-visibility-01", app)
         self.assertIn("screens/user.js?v=20260815-language-browse-03", module)
 
 

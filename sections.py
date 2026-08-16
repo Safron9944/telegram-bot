@@ -15,10 +15,10 @@ UKRAINIAN_LANGUAGE_BANK_SLUG = "ukrainian-language"
 SYSTEM_SECTIONS = (
     {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "preview_count": 50, "group": "primary", "default_order": 100, "content_screen": "admin-questions", "content_label": "Банк питань"},
     {"key": UKRAINIAN_LANGUAGE_SECTION_KEY, "title": "Державна мова", "screen": "attestation-bank", "icon": "document", "price": 0, "manual_grant_only": True, "kind": "attestation", "bank_slug": UKRAINIAN_LANGUAGE_BANK_SLUG, "group": "primary", "default_order": 150},
-    {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "manual_grant_only": True, "group": "materials", "default_order": 200, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
+    {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "group": "materials", "default_order": 200, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
     {"key": "customs_code", "title": "Митний кодекс", "screen": "customs-code", "icon": "scale", "price": 0, "group": "materials", "default_order": 201},
-    {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "visible": False, "manual_grant_only": True, "group": "materials", "default_order": 202, "content_screen": "admin-test-questions", "content_label": "Питання"},
-    {"key": "question_search", "title": "Пошук питань", "screen": "question-search", "icon": "search", "price": 250, "manual_grant_only": True, "group": "materials", "default_order": 203},
+    {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "group": "materials", "default_order": 202, "content_screen": "admin-test-questions", "content_label": "Питання"},
+    {"key": "question_search", "title": "Пошук питань", "screen": "question-search", "icon": "search", "price": 250, "group": "materials", "default_order": 203},
     {"key": "support", "title": "Підтримка", "screen": "help", "icon": "support", "price": 0, "group": "help", "default_order": 300},
 )
 
@@ -64,21 +64,33 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
     key = str(section["key"])
     if key in ALWAYS_FREE_SECTION_KEYS:
         return True
-    override = section_access_override(user, key)
-    if override is not None:
-        return override
-    if section.get("manual_grant_only") or key in PROTECTED_SECTION_KEYS:
-        return key in set(user.get("section_access", []) or [])
+    if key not in PROTECTED_SECTION_KEYS:
+        override = section_access_override(user, key)
+        if override is not None:
+            return override
+    explicit = set(user.get("section_access", []) or [])
+    if section.get("manual_grant_only"):
+        return key in explicit
+    if key in PROTECTED_SECTION_KEYS:
+        return access_tier(user) == "full" or key in explicit
     if int(section.get("price") or 0) == 0:
         return True
     tier = access_tier(user)
     if tier == "full":
         return True
-    if key in set(user.get("section_access", []) or []):
-        return True
-    if tier == "cases" and (key == "cases" or key.startswith("attestation:")):
+    if key in explicit:
         return True
     return False
+
+
+def _is_visible(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -> bool:
+    if not bool(section.get("visible", True)):
+        return False
+    key = str(section["key"])
+    if is_admin or key not in PROTECTED_SECTION_KEYS:
+        return True
+    overrides = user.get("section_visibility_overrides", {}) if user else {}
+    return bool(overrides.get(key, False)) if isinstance(overrides, dict) else False
 
 
 async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin: bool = False) -> list[dict[str, Any]]:
@@ -126,6 +138,7 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
         if item["key"] in ALWAYS_FREE_SECTION_KEYS:
             item["price"] = 0
         item["has_access"] = _has_access(user or {}, item, is_admin)
+        item["visible"] = _is_visible(user or {}, item, is_admin)
         result.append(item)
     return sorted(result, key=lambda row: (row["order"], row["key"]))
 

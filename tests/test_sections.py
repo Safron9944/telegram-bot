@@ -66,16 +66,22 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(customs["has_access"])
         self.assertTrue(language["has_access"])
 
-    async def test_full_access_does_not_unlock_protected_materials(self):
+    async def test_full_access_unlocks_only_protected_materials_shown_by_admin(self):
         store = FakeStore()
         await update_section(store, "attestation:7", {"price": 0})
         self.assertIn("attestation:7", await free_section_keys(store))
         free = await build_sections(store, {"section_access": []})
         self.assertTrue(next(item for item in free if item["key"] == "attestation:7")["has_access"])
-        full = await build_sections(store, {"sub_infinite": 1, "sub_tier": "full"})
+        full = await build_sections(store, {
+            "sub_infinite": 1,
+            "sub_tier": "full",
+            "section_visibility_overrides": {"cases": True},
+        })
         protected = [item for item in full if item["key"] in PROTECTED_SECTION_KEYS]
         self.assertTrue(protected)
-        self.assertTrue(all(not item["has_access"] for item in protected))
+        self.assertTrue(all(item["has_access"] for item in protected))
+        self.assertTrue(next(item for item in protected if item["key"] == "cases")["visible"])
+        self.assertTrue(all(not item["visible"] for item in protected if item["key"] != "cases"))
         full_access_keys = {
             item["key"]
             for item in full
@@ -96,6 +102,16 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("cases", await free_section_keys(store))
         items = await build_sections(store, {"section_access": []})
         self.assertFalse(next(item for item in items if item["key"] == "cases")["has_access"])
+
+    async def test_protected_material_is_visible_when_admin_shows_it_but_stays_locked(self):
+        items = await build_sections(FakeStore(), {
+            "section_access": [],
+            "section_visibility_overrides": {"cases": True},
+        })
+        cases = next(item for item in items if item["key"] == "cases")
+        self.assertTrue(cases["visible"])
+        self.assertFalse(cases["has_access"])
+        self.assertNotIn("manual_grant_only", cases)
 
     async def test_customs_code_and_support_are_always_free(self):
         store = FakeStore()

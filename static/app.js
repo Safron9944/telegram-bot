@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260816-section-access-02";
+import "/static/js/app.js?v=20260816-section-visibility-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

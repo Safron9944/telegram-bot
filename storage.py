@@ -60,6 +60,15 @@ class Storage:
                     PRIMARY KEY(user_id, section_key)
                 );
             """)
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS user_section_visibility_overrides (
+                    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    section_key TEXT NOT NULL,
+                    visible BOOLEAN NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    PRIMARY KEY(user_id, section_key)
+                );
+            """)
 
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
@@ -90,6 +99,36 @@ class Storage:
                         OR (users.sub_tier = 'cases' AND grants.section_key = 'cases')
                     )
                 ON CONFLICT(user_id, section_key) DO NOTHING
+                """,
+                sorted(PROTECTED_SECTION_KEYS),
+            )
+            await con.execute(
+                """
+                WITH migration_guard AS (
+                    INSERT INTO settings(key, value)
+                    VALUES('protected_materials_visibility_v2', 'done')
+                    ON CONFLICT(key) DO NOTHING
+                    RETURNING key
+                ), copied_visibility AS (
+                    INSERT INTO user_section_visibility_overrides(user_id, section_key, visible, updated_at)
+                    SELECT overrides.user_id, overrides.section_key, overrides.enabled, overrides.updated_at
+                    FROM user_section_access_overrides AS overrides
+                    CROSS JOIN migration_guard
+                    WHERE overrides.section_key = ANY($1::text[])
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        visible=EXCLUDED.visible,
+                        updated_at=EXCLUDED.updated_at
+                    RETURNING user_id
+                ), cleared_access_overrides AS (
+                    DELETE FROM user_section_access_overrides AS overrides
+                    USING migration_guard
+                    WHERE overrides.section_key = ANY($1::text[])
+                    RETURNING overrides.user_id
+                )
+                DELETE FROM user_section_access AS access
+                USING migration_guard
+                WHERE access.section_key = ANY($1::text[])
+                  AND access.telegram_charge_id IS NULL
                 """,
                 sorted(PROTECTED_SECTION_KEYS),
             )
@@ -368,6 +407,13 @@ class Storage:
                 user_id,
             )
         }
+        d["section_visibility_overrides"] = {
+            str(row["section_key"]): bool(row["visible"])
+            for row in await self._fetch(
+                "SELECT section_key, visible FROM user_section_visibility_overrides WHERE user_id=$1 ORDER BY section_key",
+                user_id,
+            )
+        }
         return d
 
     async def grant_section_access(
@@ -433,6 +479,28 @@ class Storage:
                     user_id,
                     section_key,
                     bool(enabled),
+                )
+        return True
+
+    async def set_section_visibility(self, user_id: int, section_key: str, visible: bool) -> bool:
+        """Control whether a purchasable section is shown to one user."""
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                await con.execute(
+                    """
+                    INSERT INTO user_section_visibility_overrides(user_id, section_key, visible, updated_at)
+                    VALUES($1, $2, $3, now())
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        visible=EXCLUDED.visible,
+                        updated_at=EXCLUDED.updated_at
+                    """,
+                    user_id,
+                    section_key,
+                    bool(visible),
                 )
         return True
 
