@@ -51,6 +51,15 @@ class Storage:
                     PRIMARY KEY (user_id, section_key)
                 );
             """)
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS user_section_access_overrides (
+                    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    section_key TEXT NOT NULL,
+                    enabled BOOLEAN NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    PRIMARY KEY(user_id, section_key)
+                );
+            """)
 
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
@@ -352,6 +361,13 @@ class Storage:
                 user_id,
             )
         ]
+        d["section_access_overrides"] = {
+            str(row["section_key"]): bool(row["enabled"])
+            for row in await self._fetch(
+                "SELECT section_key, enabled FROM user_section_access_overrides WHERE user_id=$1 ORDER BY section_key",
+                user_id,
+            )
+        }
         return d
 
     async def grant_section_access(
@@ -396,6 +412,28 @@ class Storage:
                         user_id,
                         section_key,
                     )
+        return True
+
+    async def set_section_access_override(self, user_id: int, section_key: str, enabled: bool) -> bool:
+        """Persist an administrator decision that takes priority over subscriptions."""
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                await con.execute(
+                    """
+                    INSERT INTO user_section_access_overrides(user_id, section_key, enabled, updated_at)
+                    VALUES($1, $2, $3, now())
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        enabled=EXCLUDED.enabled,
+                        updated_at=EXCLUDED.updated_at
+                    """,
+                    user_id,
+                    section_key,
+                    bool(enabled),
+                )
         return True
 
     async def set_protected_materials_access(self, user_id: int, enabled: bool) -> bool:

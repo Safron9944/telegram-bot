@@ -22,15 +22,16 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn(".admin-access-actions--grid", styles)
         self.assertIn(".ui-prototype .admin-account-card", prototype)
 
-    def test_user_detail_has_separate_ukrainian_language_access_toggle(self):
+    def test_user_detail_manages_all_sections_individually(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        self.assertIn("Державна мова", admin)
-        self.assertIn("/ukrainian-language", admin)
-        self.assertIn("ukrainian_language_access", admin)
+        self.assertIn("Доступ до всіх розділів", admin)
+        self.assertIn("section_controls", admin)
+        self.assertIn("/sections/", admin)
+        self.assertIn("Рішення адміністратора має пріоритет", admin)
 
     def test_admin_screen_has_current_cache_version(self):
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("screens/admin.js?v=20260815-ukrainian-language-01", module)
+        self.assertIn("screens/admin.js?v=20260816-section-access-01", module)
 
 
 if __name__ == "__main__":

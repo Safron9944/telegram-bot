@@ -53,6 +53,19 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         granted = await build_sections(store, {"section_access": [UKRAINIAN_LANGUAGE_SECTION_KEY]})
         self.assertTrue(next(item for item in granted if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY)["has_access"])
 
+    async def test_admin_override_has_priority_over_full_subscription(self):
+        user = {
+            "sub_infinite": True,
+            "sub_tier": "full",
+            "section_access_overrides": {"customs": False, UKRAINIAN_LANGUAGE_SECTION_KEY: True},
+        }
+        items = await build_sections(FakeStore(), user, is_admin=False)
+
+        customs = next(item for item in items if item["key"] == "customs")
+        language = next(item for item in items if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY)
+        self.assertFalse(customs["has_access"])
+        self.assertTrue(language["has_access"])
+
     async def test_full_access_does_not_unlock_protected_materials(self):
         store = FakeStore()
         await update_section(store, "attestation:7", {"price": 0})

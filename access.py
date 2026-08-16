@@ -9,6 +9,18 @@ if TYPE_CHECKING:
 from utils import now
 
 
+ATTESTATION_STAGE_1_SECTION_KEY = "attestation_stage_1"
+CUSTOMS_COMPETENCIES_SECTION_KEY = "customs"
+
+
+def section_access_override(user: Dict[str, Any], section_key: str) -> Optional[bool]:
+    """Return an explicit admin decision for a section, when one exists."""
+    overrides = user.get("section_access_overrides", {}) if user else {}
+    if not isinstance(overrides, dict) or section_key not in overrides:
+        return None
+    return bool(overrides[section_key])
+
+
 def access_tier(user: Dict[str, Any]) -> str:
     """Return the effective paid access tier: 'none' | 'cases' | 'full'."""
     if not user:
@@ -39,6 +51,9 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
 
 def has_attestation_access(user: Dict[str, Any]) -> bool:
     """Stage 1 attestation is included in the 100-star and full tiers."""
+    override = section_access_override(user, ATTESTATION_STAGE_1_SECTION_KEY)
+    if override is not None:
+        return override
     return access_tier(user) in ("cases", "full")
 
 

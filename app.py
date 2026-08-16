@@ -38,8 +38,8 @@ from customs_code import repository as customs_code_repository
 
 from questions import QuestionBank, open_practice_title
 from storage import Storage
-from access import access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access
-from sections import PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_BANK_SLUG, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
+from access import ATTESTATION_STAGE_1_SECTION_KEY, CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access, section_access_override
+from sections import ALWAYS_FREE_SECTION_KEYS, PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_BANK_SLUG, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -505,42 +505,73 @@ class MiniAppService:
 
     def ensure_access(self, auth: AuthContext) -> None:
         """Paid access to the complete competencies section."""
+        if auth.is_admin:
+            return
+        override = section_access_override(auth.user, CUSTOMS_COMPETENCIES_SECTION_KEY)
+        if override is not None:
+            if override:
+                return
+            require_http(403, "access_expired", "Адміністратор закрив доступ до митних компетенцій.")
         tier = access_tier(auth.user)
         allowed = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
-        if auth.is_admin or tier == "full" or "customs" in allowed:
+        if tier == "full" or CUSTOMS_COMPETENCIES_SECTION_KEY in allowed:
             return
         require_http(403, "access_expired", "Потрібна підписка на повний доступ (250 ⭐).")
 
     def ensure_section_access(self, auth: AuthContext, section_key: str) -> None:
+        if auth.is_admin:
+            return
+        override = section_access_override(auth.user, section_key)
+        if override is not None:
+            if override:
+                return
+            code = "protected_materials_required" if section_key in PROTECTED_SECTION_KEYS else "section_access_required"
+            require_http(403, code, "Адміністратор закрив доступ до цього розділу.")
         explicit = set(auth.user.get("section_access", []) or [])
         if section_key in PROTECTED_SECTION_KEYS:
-            if auth.is_admin or section_key in explicit:
+            if section_key in explicit:
                 return
             require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
         allowed = explicit | set(auth.user.get("free_sections", []) or [])
-        if auth.is_admin or access_tier(auth.user) == "full" or section_key in allowed:
+        if access_tier(auth.user) == "full" or section_key in allowed:
             return
         require_http(403, "section_access_required", "Потрібно придбати доступ до цього розділу.")
 
     def ensure_cases_access(self, auth: AuthContext) -> None:
         """Cases are available only through an explicit protected-materials grant."""
-        if auth.is_admin or "cases" in set(auth.user.get("section_access", []) or []):
+        if auth.is_admin:
+            return
+        override = section_access_override(auth.user, "cases")
+        if override is not None:
+            if override:
+                return
+            require_http(403, "protected_materials_required", "Адміністратор закрив доступ до кейсів.")
+        if "cases" in set(auth.user.get("section_access", []) or []):
             return
         require_http(403, "protected_materials_required", "Кейси відкриває адміністратор.")
 
     def ensure_attestation_access(self, auth: AuthContext, bank_slug: str = "") -> None:
         """Attestation access: 100-star tier or full paid access, without trial."""
+        if auth.is_admin:
+            return
         purchased = set(auth.user.get("section_access", []) or []) | set(auth.user.get("free_sections", []) or [])
         dynamic_key = ""
         bank = None
         if bank_slug:
             bank = self.qb.attestation_banks.get(bank_slug)
             if bank and bank.manual_grant_section_key:
-                if auth.is_admin or bank.manual_grant_section_key in set(auth.user.get("section_access", []) or []):
+                override = section_access_override(auth.user, bank.manual_grant_section_key)
+                if override is True or (override is None and bank.manual_grant_section_key in set(auth.user.get("section_access", []) or [])):
                     return
                 require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
             if bank and getattr(bank, "db_id", None):
                 dynamic_key = f"attestation:{bank.db_id}"
+        if dynamic_key:
+            override = section_access_override(auth.user, dynamic_key)
+            if override is not None:
+                if override:
+                    return
+                require_http(403, "attestation_access_required", "Адміністратор закрив доступ до цього розділу.")
         if has_attestation_access(auth.user) or (dynamic_key and dynamic_key in purchased):
             return
         require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
@@ -558,9 +589,18 @@ class MiniAppService:
 
     def ensure_full_access(self, auth: AuthContext, section_key: str = "") -> None:
         """Тільки повний оплачений доступ — без тарифу атестації."""
+        if auth.is_admin:
+            return
+        if section_key:
+            override = section_access_override(auth.user, section_key)
+            if override is not None:
+                if override:
+                    return
+                code = "protected_materials_required" if section_key in PROTECTED_SECTION_KEYS else "ok_questions_access_required"
+                require_http(403, code, "Адміністратор закрив доступ до цього розділу.")
         explicit = set(auth.user.get("section_access", []) or [])
         if section_key in PROTECTED_SECTION_KEYS:
-            if auth.is_admin or section_key in explicit:
+            if section_key in explicit:
                 return
             require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
         allowed = explicit | set(auth.user.get("free_sections", []) or [])
@@ -1714,6 +1754,39 @@ class MiniAppService:
         if not user:
             require_http(404, "user_not_found", "Користувача не знайдено.")
         stats = await self.store.stats(target_id)
+        section_access = set(user.get("section_access", []) or [])
+        overrides = dict(user.get("section_access_overrides", {}) or {})
+        section_controls = [
+            {
+                "key": ATTESTATION_STAGE_1_SECTION_KEY,
+                "title": "Атестація посадових осіб — 1 етап",
+                "group": "primary",
+                "has_access": has_attestation_access(user),
+                "admin_decision": overrides.get(ATTESTATION_STAGE_1_SECTION_KEY),
+            }
+        ]
+        for section in await build_sections(self.store, user, is_admin=False):
+            key = str(section["key"])
+            is_managed = (
+                key not in ALWAYS_FREE_SECTION_KEYS
+                and (
+                    int(section.get("price") or 0) > 0
+                    or bool(section.get("manual_grant_only"))
+                    or key in PROTECTED_SECTION_KEYS
+                )
+            )
+            if not is_managed:
+                continue
+            section_controls.append(
+                {
+                    "key": key,
+                    "title": str(section.get("title") or key),
+                    "group": str(section.get("group") or "primary"),
+                    "has_access": bool(section.get("has_access")),
+                    "admin_decision": overrides.get(key),
+                    "visible": bool(section.get("visible", True)),
+                }
+            )
         return {
             "user_id": target_id,
             "first_name": user.get("first_name") or "",
@@ -1724,15 +1797,24 @@ class MiniAppService:
             "stats": self.serialize_stats(stats),
             "ok_modules": list(user.get("ok_modules", []) or []),
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
-            "protected_materials_access": PROTECTED_SECTION_KEYS.issubset(set(user.get("section_access", []) or [])),
-            "protected_materials_sections": sorted(PROTECTED_SECTION_KEYS & set(user.get("section_access", []) or [])),
-            "ukrainian_language_access": UKRAINIAN_LANGUAGE_SECTION_KEY in set(user.get("section_access", []) or []),
+            "protected_materials_access": PROTECTED_SECTION_KEYS.issubset(section_access),
+            "protected_materials_sections": sorted(PROTECTED_SECTION_KEYS & section_access),
+            "ukrainian_language_access": bool(next((item["has_access"] for item in section_controls if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY), False)),
+            "section_controls": section_controls,
         }
 
     async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         await self.store.set_admin_access(target_id, access)
+        decisions = {
+            "cases": (True, False),
+            "full": (True, True),
+            "none": (False, False),
+        }
+        stage_one, competencies = decisions[access]
+        await self.store.set_section_access_override(target_id, ATTESTATION_STAGE_1_SECTION_KEY, stage_one)
+        await self.store.set_section_access_override(target_id, CUSTOMS_COMPETENCIES_SECTION_KEY, competencies)
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_protected_materials(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
@@ -1740,12 +1822,32 @@ class MiniAppService:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         if not await self.store.set_protected_materials_access(target_id, enabled):
             require_http(404, "user_not_found", "Користувача не знайдено.")
+        for section_key in PROTECTED_SECTION_KEYS:
+            await self.store.set_section_access_override(target_id, section_key, enabled)
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_ukrainian_language_access(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        if not await self.store.set_section_access(target_id, UKRAINIAN_LANGUAGE_SECTION_KEY, enabled):
+        if not await self.store.set_section_access_override(target_id, UKRAINIAN_LANGUAGE_SECTION_KEY, enabled):
+            require_http(404, "user_not_found", "Користувача не знайдено.")
+        return await self.admin_user_detail(auth, target_id)
+
+    async def admin_set_section_access(self, auth: AuthContext, target_id: int, section_key: str, enabled: bool) -> dict[str, Any]:
+        if not auth.is_admin:
+            require_http(403, "forbidden", "Потрібні права адміністратора.")
+        clean_key = (section_key or "").strip()
+        if clean_key != ATTESTATION_STAGE_1_SECTION_KEY:
+            section = await get_section(self.store, clean_key, is_admin=True)
+            if not section:
+                require_http(404, "section_not_found", "Розділ не знайдено.")
+            if clean_key in ALWAYS_FREE_SECTION_KEYS or not (
+                int(section.get("price") or 0) > 0
+                or bool(section.get("manual_grant_only"))
+                or clean_key in PROTECTED_SECTION_KEYS
+            ):
+                require_http(400, "section_is_free", "Цей розділ не потребує керування доступом.")
+        if not await self.store.set_section_access_override(target_id, clean_key, enabled):
             require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
@@ -2612,6 +2714,11 @@ async def api_admin_user_protected_materials(user_id: int, payload: AdminProtect
 @app.post("/api/admin/users/{user_id}/ukrainian-language")
 async def api_admin_user_ukrainian_language(user_id: int, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_set_ukrainian_language_access(auth, user_id, payload.enabled)
+
+
+@app.post("/api/admin/users/{user_id}/sections/{section_key}")
+async def api_admin_user_section_access(user_id: int, section_key: str, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).admin_set_section_access(auth, user_id, section_key, payload.enabled)
 
 
 @app.delete("/api/admin/users/{user_id}")

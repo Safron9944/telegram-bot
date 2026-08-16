@@ -530,36 +530,18 @@ export function renderAdminUserDetail(ctx) {
 
       <section class="admin-access-controls">
         <div class="admin-access-controls__header">
-          <span class="admin-access-controls__title">Підписка</span>
-          <span class="admin-access-controls__hint">Оберіть один варіант. Зміни застосуються одразу.</span>
+          <span class="admin-access-controls__title">Швидке керування підпискою</span>
+          <span class="admin-access-controls__hint">Готові пакети для першого етапу та митних компетенцій.</span>
         </div>
         <div id="admin-user-actions" class="admin-access-actions admin-access-actions--grid"></div>
       </section>
 
       <section class="admin-access-controls">
-        <div class="admin-access-controls__heading-row">
-          <div class="admin-access-controls__header">
-            <span class="admin-access-controls__title">Додаткові матеріали</span>
-            <span class="admin-access-controls__hint">Кейси, тестові питання та пошук питань</span>
-          </div>
-          <span class="admin-materials-status admin-materials-status--${payload.protected_materials_access ? "on" : "off"}">
-            ${payload.protected_materials_access ? "Відкрито" : "Приховано"}
-          </span>
+        <div class="admin-access-controls__header">
+          <span class="admin-access-controls__title">Доступ до всіх розділів</span>
+          <span class="admin-access-controls__hint">Рішення адміністратора має пріоритет над підпискою користувача.</span>
         </div>
-        <div id="admin-protected-materials-actions" class="admin-access-actions"></div>
-      </section>
-
-      <section class="admin-access-controls">
-        <div class="admin-access-controls__heading-row">
-          <div class="admin-access-controls__header">
-            <span class="admin-access-controls__title">Державна мова</span>
-            <span class="admin-access-controls__hint">Окремий доступ до тестів з української мови</span>
-          </div>
-          <span class="admin-materials-status admin-materials-status--${payload.ukrainian_language_access ? "on" : "off"}">
-            ${payload.ukrainian_language_access ? "Відкрито" : "Приховано"}
-          </span>
-        </div>
-        <div id="admin-ukrainian-language-actions" class="admin-access-actions"></div>
+        <div id="admin-section-access-list" class="admin-section-access-list"></div>
       </section>
 
       <details class="admin-danger-zone">
@@ -588,8 +570,8 @@ export function renderAdminUserDetail(ctx) {
   };
 
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
-  const casesButton = ctx.actionButton("Атестація", () => updateAccess("cases", "Доступ до атестації активовано."));
-  const fullButton = ctx.actionButton("Повний доступ", () => updateAccess("full", "Повний доступ активовано."));
+  const casesButton = ctx.actionButton("Тільки 1 етап", () => updateAccess("cases", "Доступ до першого етапу активовано."));
+  const fullButton = ctx.actionButton("1 етап + компетенції", () => updateAccess("full", "Доступ до першого етапу та компетенцій активовано."));
   const removeButton = ctx.actionButton("Забрати підписку", async () => {
     if (!window.confirm("Забрати у користувача підписку?")) return;
     await updateAccess("none", "Підписку скасовано.");
@@ -601,49 +583,52 @@ export function renderAdminUserDetail(ctx) {
   removeButton.classList.add("admin-access-choice--remove");
   actions?.append(casesButton, fullButton, removeButton);
 
-  const protectedActions = ctx.refs.mainPanel.querySelector("#admin-protected-materials-actions");
-  const protectedEnabled = Boolean(payload.protected_materials_access);
-  const protectedButton = ctx.actionButton(
-    protectedEnabled ? "Забрати доступ до матеріалів" : "Відкрити додаткові матеріали",
-    async () => {
-      try {
-        ctx.state.adminUserDetail = await ctx.api(`/api/admin/users/${payload.user_id}/protected-materials`, {
-          method: "POST",
-          body: { enabled: !protectedEnabled },
-        });
-        ctx.impact("medium");
-        ctx.setMessage("success", protectedEnabled ? "Додаткові матеріали приховано." : "Додаткові матеріали відкрито.");
-        ctx.render();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    },
-    "block",
-  );
-  protectedButton.classList.add("admin-materials-button");
-  protectedActions?.append(protectedButton);
+  const sectionList = ctx.refs.mainPanel.querySelector("#admin-section-access-list");
+  const sectionControls = Array.isArray(payload.section_controls) ? payload.section_controls : [];
+  const groupLabels = { primary: "Основні розділи", materials: "Додаткові матеріали" };
+  let currentGroup = "";
+  sectionControls.forEach((section) => {
+    if (!sectionList) return;
+    const group = section.group || "primary";
+    if (group !== currentGroup) {
+      currentGroup = group;
+      const groupLabel = document.createElement("div");
+      groupLabel.className = "admin-section-access-list__group";
+      groupLabel.textContent = groupLabels[group] || "Інші розділи";
+      sectionList.append(groupLabel);
+    }
 
-  const ukrainianActions = ctx.refs.mainPanel.querySelector("#admin-ukrainian-language-actions");
-  const ukrainianEnabled = Boolean(payload.ukrainian_language_access);
-  const ukrainianButton = ctx.actionButton(
-    ukrainianEnabled ? "Забрати доступ до державної мови" : "Відкрити державну мову",
-    async () => {
+    const enabled = Boolean(section.has_access);
+    const decision = section.admin_decision;
+    const statusText = enabled
+      ? (decision === true ? "Відкрито адміном" : "Є доступ")
+      : (decision === false ? "Закрито адміном" : "Немає доступу");
+    const row = document.createElement("div");
+    row.className = "admin-section-access-row";
+    row.innerHTML = `
+      <div class="admin-section-access-row__body">
+        <strong>${ctx.escapeHtml(section.title || section.key)}</strong>
+        <span class="admin-materials-status admin-materials-status--${enabled ? "on" : "off"}">${statusText}</span>
+      </div>
+      <div class="admin-section-access-row__action"></div>
+    `;
+    const button = ctx.actionButton(enabled ? "Закрити" : "Відкрити", async () => {
       try {
-        ctx.state.adminUserDetail = await ctx.api(`/api/admin/users/${payload.user_id}/ukrainian-language`, {
-          method: "POST",
-          body: { enabled: !ukrainianEnabled },
-        });
+        ctx.state.adminUserDetail = await ctx.api(
+          `/api/admin/users/${payload.user_id}/sections/${encodeURIComponent(section.key)}`,
+          { method: "POST", body: { enabled: !enabled } },
+        );
         ctx.impact("medium");
-        ctx.setMessage("success", ukrainianEnabled ? "Доступ до державної мови забрано." : "Доступ до державної мови відкрито.");
+        ctx.setMessage("success", enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`);
         ctx.render();
       } catch (error) {
         ctx.setMessage("error", error.message);
       }
-    },
-    "block",
-  );
-  ukrainianButton.classList.add("admin-materials-button");
-  ukrainianActions?.append(ukrainianButton);
+    }, "sm");
+    if (enabled) button.classList.add("admin-section-access-row__revoke");
+    row.querySelector(".admin-section-access-row__action")?.append(button);
+    sectionList.append(row);
+  });
 
   const deleteWrap = ctx.refs.mainPanel.querySelector("#admin-user-delete-wrap");
   if (deleteWrap && !protectedAccount) {

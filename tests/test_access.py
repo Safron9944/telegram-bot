@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from fastapi import HTTPException
 
 from app import AuthContext, MiniAppService
-from access import access_status, access_tier, has_attestation_access
+from access import ATTESTATION_STAGE_1_SECTION_KEY, CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, has_attestation_access
 from utils import dt_to_iso, iso_to_dt, now
 
 
@@ -32,6 +32,19 @@ class AccessTierTests(unittest.TestCase):
         user = {"trial_end": now() - timedelta(seconds=1)}
         self.assertEqual("none", access_tier(user))
         self.assertEqual((False, "expired"), access_status(user))
+
+    def test_admin_override_can_open_or_close_stage_one_regardless_of_subscription(self):
+        denied = {
+            "sub_infinite": True,
+            "sub_tier": "full",
+            "section_access_overrides": {ATTESTATION_STAGE_1_SECTION_KEY: False},
+        }
+        granted = {
+            "section_access_overrides": {ATTESTATION_STAGE_1_SECTION_KEY: True},
+        }
+
+        self.assertFalse(has_attestation_access(denied))
+        self.assertTrue(has_attestation_access(granted))
 
     def test_new_full_subscription_does_not_unlock_protected_materials(self):
         service = MiniAppService(SimpleNamespace())
@@ -63,6 +76,31 @@ class AccessTierTests(unittest.TestCase):
 
         service.ensure_cases_access(auth)
         service.ensure_full_access(auth, "question_search")
+
+    def test_admin_override_has_priority_for_competencies(self):
+        service = MiniAppService(SimpleNamespace())
+        denied = AuthContext(
+            telegram_user={"id": 42},
+            user={
+                "sub_infinite": True,
+                "sub_tier": "full",
+                "section_access_overrides": {CUSTOMS_COMPETENCIES_SECTION_KEY: False},
+            },
+            user_id=42,
+            is_admin=False,
+        )
+        granted = AuthContext(
+            telegram_user={"id": 43},
+            user={
+                "section_access_overrides": {CUSTOMS_COMPETENCIES_SECTION_KEY: True},
+            },
+            user_id=43,
+            is_admin=False,
+        )
+
+        with self.assertRaises(HTTPException):
+            service.ensure_access(denied)
+        service.ensure_access(granted)
 
 
 class SavedAttestationAccessTests(unittest.IsolatedAsyncioTestCase):

@@ -10,11 +10,11 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
         user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
         self.assertIn("section.manual_grant_only && !user.is_admin && !section.has_access", user)
 
-    def test_admin_user_has_one_grouped_materials_control(self):
+    def test_admin_user_has_individual_materials_controls(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
         self.assertIn("Додаткові матеріали", admin)
-        self.assertIn("/protected-materials", admin)
-        self.assertIn("Кейси, тестові питання та пошук питань", admin)
+        self.assertIn("section_controls", admin)
+        self.assertIn("/sections/", admin)
 
     def test_payment_copy_no_longer_promises_cases_in_full_access(self):
         access = (ROOT / "access.py").read_text(encoding="utf-8")
