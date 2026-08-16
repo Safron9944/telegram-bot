@@ -423,16 +423,33 @@ class Storage:
         *,
         telegram_charge_id: str | None = None,
     ) -> None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                await con.execute(
+                    """
+                    INSERT INTO user_section_access(user_id, section_key, telegram_charge_id)
+                    VALUES($1, $2, $3)
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        telegram_charge_id=COALESCE(EXCLUDED.telegram_charge_id, user_section_access.telegram_charge_id)
+                    """,
+                    user_id,
+                    section_key,
+                    telegram_charge_id,
+                )
+                await con.execute(
+                    "DELETE FROM user_section_access_overrides WHERE user_id=$1 AND section_key=$2",
+                    user_id,
+                    section_key,
+                )
+
+    async def clear_section_access_overrides(self, user_id: int, section_keys: list[str]) -> None:
+        if not section_keys:
+            return
         await self._exec(
-            """
-            INSERT INTO user_section_access(user_id, section_key, telegram_charge_id)
-            VALUES($1, $2, $3)
-            ON CONFLICT(user_id, section_key) DO UPDATE SET
-                telegram_charge_id=COALESCE(EXCLUDED.telegram_charge_id, user_section_access.telegram_charge_id)
-            """,
+            "DELETE FROM user_section_access_overrides WHERE user_id=$1 AND section_key=ANY($2::text[])",
             user_id,
-            section_key,
-            telegram_charge_id,
+            section_keys,
         )
 
     async def set_section_access(self, user_id: int, section_key: str, enabled: bool) -> bool:
