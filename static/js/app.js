@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260816-uniform-purchase-01";
+} from "./screens/user.js?v=20260816-paid-functions-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,

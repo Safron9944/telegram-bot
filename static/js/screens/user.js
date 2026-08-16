@@ -1386,7 +1386,7 @@ export function renderPurchaseOptions(ctx) {
       <div class="group">
         <div class="group__label">Усі розділи — ${fullPrice} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Відкриває всі платні розділи, які показані вам адміністратором.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Відкриває доступ до всіх платних функцій.</p>
           <div id="pay-all-wrap"></div>
         </div>
       </div>
@@ -1439,7 +1439,7 @@ export function renderPaywall(ctx, errorCode) {
       <div class="group">
         <div class="group__label">Усі розділи — ${prices.full} ⭐</div>
         <div class="group__list" style="padding: 16px;">
-          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Усі платні розділи, які показані вам адміністратором.</p>
+          <p class="muted" style="margin: 0 0 12px; font-size: 15px;">Відкриває доступ до всіх платних функцій.</p>
           <div id="pay-full-wrap"></div>
         </div>
       </div>
