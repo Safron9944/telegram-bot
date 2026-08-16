@@ -46,7 +46,7 @@ class AccessTierTests(unittest.TestCase):
         self.assertFalse(has_attestation_access(denied))
         self.assertTrue(has_attestation_access(granted))
 
-    def test_new_full_subscription_does_not_unlock_protected_materials(self):
+    def test_full_subscription_unlocks_protected_materials(self):
         service = MiniAppService(SimpleNamespace())
         auth = AuthContext(
             telegram_user={"id": 42},
@@ -55,13 +55,22 @@ class AccessTierTests(unittest.TestCase):
             is_admin=False,
         )
 
-        with self.assertRaises(HTTPException) as cases_error:
-            service.ensure_cases_access(auth)
-        with self.assertRaises(HTTPException) as search_error:
-            service.ensure_full_access(auth, "question_search")
+        service.ensure_cases_access(auth)
+        service.ensure_full_access(auth, "question_search")
 
-        self.assertEqual("protected_materials_required", cases_error.exception.detail["code"])
-        self.assertEqual("protected_materials_required", search_error.exception.detail["code"])
+    def test_stage_one_subscription_does_not_unlock_protected_materials(self):
+        service = MiniAppService(SimpleNamespace())
+        auth = AuthContext(
+            telegram_user={"id": 42},
+            user={"sub_infinite": True, "sub_tier": "cases", "section_access": []},
+            user_id=42,
+            is_admin=False,
+        )
+
+        with self.assertRaises(HTTPException):
+            service.ensure_cases_access(auth)
+        with self.assertRaises(HTTPException):
+            service.ensure_full_access(auth, "question_search")
 
     def test_explicit_grant_unlocks_protected_materials(self):
         service = MiniAppService(SimpleNamespace())

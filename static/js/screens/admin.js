@@ -538,8 +538,8 @@ export function renderAdminUserDetail(ctx) {
 
       <section class="admin-access-controls">
         <div class="admin-access-controls__header">
-          <span class="admin-access-controls__title">Доступ до всіх розділів</span>
-          <span class="admin-access-controls__hint">Рішення адміністратора має пріоритет над підпискою користувача.</span>
+          <span class="admin-access-controls__title">Керування розділами</span>
+          <span class="admin-access-controls__hint">Для додаткових матеріалів показ і оплачений доступ керуються окремо.</span>
         </div>
         <div id="admin-section-access-list" class="admin-section-access-list"></div>
       </section>
@@ -598,11 +598,15 @@ export function renderAdminUserDetail(ctx) {
       sectionList.append(groupLabel);
     }
 
-    const enabled = Boolean(section.has_access);
+    const visibilityMode = section.control_mode === "visibility";
+    const enabled = visibilityMode ? Boolean(section.visible) : Boolean(section.has_access);
     const decision = section.admin_decision;
-    const statusText = enabled
-      ? (decision === true ? "Відкрито адміном" : "Є доступ")
-      : (decision === false ? "Закрито адміном" : "Немає доступу");
+    const accessText = section.has_access ? "доступ є" : "потрібна оплата";
+    const statusText = visibilityMode
+      ? (enabled ? `Показується · ${accessText}` : `Приховано · ${accessText}`)
+      : (enabled
+        ? (decision === true ? "Відкрито адміном" : "Є доступ")
+        : (decision === false ? "Закрито адміном" : "Немає доступу"));
     const row = document.createElement("div");
     row.className = "admin-section-access-row";
     row.innerHTML = `
@@ -612,19 +616,28 @@ export function renderAdminUserDetail(ctx) {
       </div>
       <div class="admin-section-access-row__action"></div>
     `;
-    const button = ctx.actionButton(enabled ? "Закрити" : "Відкрити", async () => {
+    const button = ctx.actionButton(
+      visibilityMode ? (enabled ? "Приховати" : "Показати") : (enabled ? "Закрити" : "Відкрити"),
+      async () => {
       try {
         ctx.state.adminUserDetail = await ctx.api(
           `/api/admin/users/${payload.user_id}/sections/${encodeURIComponent(section.key)}`,
           { method: "POST", body: { enabled: !enabled } },
         );
         ctx.impact("medium");
-        ctx.setMessage("success", enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`);
+        ctx.setMessage(
+          "success",
+          visibilityMode
+            ? (enabled ? `Розділ «${section.title}» приховано.` : `Розділ «${section.title}» показано. Для відкриття потрібна оплата.`)
+            : (enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`),
+        );
         ctx.render();
       } catch (error) {
         ctx.setMessage("error", error.message);
       }
-    }, "sm");
+      },
+      "sm",
+    );
     if (enabled) button.classList.add("admin-section-access-row__revoke");
     row.querySelector(".admin-section-access-row__action")?.append(button);
     sectionList.append(row);

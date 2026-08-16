@@ -521,34 +521,24 @@ class MiniAppService:
     def ensure_section_access(self, auth: AuthContext, section_key: str) -> None:
         if auth.is_admin:
             return
-        override = section_access_override(auth.user, section_key)
+        override = section_access_override(auth.user, section_key) if section_key not in PROTECTED_SECTION_KEYS else None
         if override is not None:
             if override:
                 return
-            code = "protected_materials_required" if section_key in PROTECTED_SECTION_KEYS else "section_access_required"
-            require_http(403, code, "Адміністратор закрив доступ до цього розділу.")
+            require_http(403, "section_access_required", "Адміністратор закрив доступ до цього розділу.")
         explicit = set(auth.user.get("section_access", []) or [])
-        if section_key in PROTECTED_SECTION_KEYS:
-            if section_key in explicit:
-                return
-            require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
         allowed = explicit | set(auth.user.get("free_sections", []) or [])
         if access_tier(auth.user) == "full" or section_key in allowed:
             return
         require_http(403, "section_access_required", "Потрібно придбати доступ до цього розділу.")
 
     def ensure_cases_access(self, auth: AuthContext) -> None:
-        """Cases are available only through an explicit protected-materials grant."""
+        """Cases require an individual purchase or the full tier."""
         if auth.is_admin:
             return
-        override = section_access_override(auth.user, "cases")
-        if override is not None:
-            if override:
-                return
-            require_http(403, "protected_materials_required", "Адміністратор закрив доступ до кейсів.")
-        if "cases" in set(auth.user.get("section_access", []) or []):
+        if access_tier(auth.user) == "full" or "cases" in set(auth.user.get("section_access", []) or []):
             return
-        require_http(403, "protected_materials_required", "Кейси відкриває адміністратор.")
+        require_http(403, "protected_materials_required", "Потрібно придбати кейси або повний доступ.")
 
     def ensure_attestation_access(self, auth: AuthContext, bank_slug: str = "") -> None:
         """Attestation access: 100-star tier or full paid access, without trial."""
@@ -591,7 +581,7 @@ class MiniAppService:
         """Тільки повний оплачений доступ — без тарифу атестації."""
         if auth.is_admin:
             return
-        if section_key:
+        if section_key and section_key not in PROTECTED_SECTION_KEYS:
             override = section_access_override(auth.user, section_key)
             if override is not None:
                 if override:
@@ -599,10 +589,6 @@ class MiniAppService:
                 code = "protected_materials_required" if section_key in PROTECTED_SECTION_KEYS else "ok_questions_access_required"
                 require_http(403, code, "Адміністратор закрив доступ до цього розділу.")
         explicit = set(auth.user.get("section_access", []) or [])
-        if section_key in PROTECTED_SECTION_KEYS:
-            if section_key in explicit:
-                return
-            require_http(403, "protected_materials_required", "Цей розділ відкриває адміністратор.")
         allowed = explicit | set(auth.user.get("free_sections", []) or [])
         if access_tier(auth.user) == "full" or (section_key and section_key in allowed):
             return
@@ -1756,6 +1742,7 @@ class MiniAppService:
         stats = await self.store.stats(target_id)
         section_access = set(user.get("section_access", []) or [])
         overrides = dict(user.get("section_access_overrides", {}) or {})
+        visibility_overrides = dict(user.get("section_visibility_overrides", {}) or {})
         section_controls = [
             {
                 "key": ATTESTATION_STAGE_1_SECTION_KEY,
@@ -1785,6 +1772,8 @@ class MiniAppService:
                     "has_access": bool(section.get("has_access")),
                     "admin_decision": overrides.get(key),
                     "visible": bool(section.get("visible", True)),
+                    "control_mode": "visibility" if key in PROTECTED_SECTION_KEYS else "access",
+                    "visibility_decision": visibility_overrides.get(key),
                 }
             )
         return {
@@ -1820,10 +1809,9 @@ class MiniAppService:
     async def admin_set_protected_materials(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        if not await self.store.set_protected_materials_access(target_id, enabled):
-            require_http(404, "user_not_found", "Користувача не знайдено.")
         for section_key in PROTECTED_SECTION_KEYS:
-            await self.store.set_section_access_override(target_id, section_key, enabled)
+            if not await self.store.set_section_visibility(target_id, section_key, enabled):
+                require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_ukrainian_language_access(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
@@ -1841,6 +1829,10 @@ class MiniAppService:
             section = await get_section(self.store, clean_key, is_admin=True)
             if not section:
                 require_http(404, "section_not_found", "Розділ не знайдено.")
+            if clean_key in PROTECTED_SECTION_KEYS:
+                if not await self.store.set_section_visibility(target_id, clean_key, enabled):
+                    require_http(404, "user_not_found", "Користувача не знайдено.")
+                return await self.admin_user_detail(auth, target_id)
             if clean_key in ALWAYS_FREE_SECTION_KEYS or not (
                 int(section.get("price") or 0) > 0
                 or bool(section.get("manual_grant_only"))
@@ -2047,7 +2039,8 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
         payload = query.invoice_payload or ""
         if payload.startswith("section:"):
             section_key = payload.removeprefix("section:")
-            section = await get_section(runtime.store, section_key, is_admin=False)
+            payment_user = await runtime.store.get_user(query.from_user.id)
+            section = await get_section(runtime.store, section_key, payment_user, is_admin=False)
             if not section or not section["visible"] or int(section["price"]) != int(query.total_amount):
                 await query.answer(ok=False, error_message="Цей розділ або його ціна вже змінилися. Відкрийте оплату ще раз.")
                 return
