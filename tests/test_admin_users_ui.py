@@ -29,16 +29,22 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn("/sections/", admin)
         self.assertIn("показ і оплачений доступ керуються окремо", admin)
 
+    def test_full_access_button_changes_with_current_tier(self):
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        self.assertIn('currentTier === "full" ? "Забрати повний доступ" : "Надати повний доступ"', admin)
+        self.assertIn('await updateAccess("none", "Повний доступ скасовано.")', admin)
+        self.assertIn('await updateAccess("full", "Повний доступ активовано.")', admin)
+
     def test_admin_screen_has_current_cache_version(self):
         index = (ROOT / "static/index.html").read_text(encoding="utf-8")
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20260816-paid-functions-01", index)
+        self.assertIn("static/app.js?v=20260817-admin-full-access-01", index)
         self.assertIn("static/styles.css?v=20260816-section-access-02", index)
-        self.assertIn("static/js/app.js?v=20260816-paid-functions-01", entry)
+        self.assertIn("static/js/app.js?v=20260817-admin-full-access-01", entry)
         self.assertIn("styles/components.css?v=20260816-section-access-02", styles)
-        self.assertIn("screens/admin.js?v=20260816-uniform-purchase-01", module)
+        self.assertIn("screens/admin.js?v=20260817-admin-full-access-01", module)
         self.assertIn("screens/user.js?v=20260816-paid-functions-01", module)
 
 

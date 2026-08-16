@@ -61,7 +61,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260816-uniform-purchase-01";
+} from "./screens/admin.js?v=20260817-admin-full-access-01";
 import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
 import {
   cleanupAdminApkImport,

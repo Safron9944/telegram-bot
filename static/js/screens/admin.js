@@ -605,18 +605,36 @@ export function renderAdminUserDetail(ctx) {
   };
 
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
-  const casesButton = ctx.actionButton("Тільки 1 етап", () => updateAccess("cases", "Доступ до першого етапу активовано."));
-  const fullButton = ctx.actionButton("1 етап + компетенції", () => updateAccess("full", "Доступ до першого етапу та компетенцій активовано."));
-  const removeButton = ctx.actionButton("Забрати підписку", async () => {
-    if (!window.confirm("Забрати у користувача підписку?")) return;
-    await updateAccess("none", "Підписку скасовано.");
+  const casesButton = ctx.actionButton(
+    currentTier === "full" ? "Залишити тільки 1 етап" : (currentTier === "cases" ? "1 етап активний" : "Надати доступ до 1 етапу"),
+    () => updateAccess("cases", "Доступ до першого етапу активовано."),
+  );
+  const fullButton = ctx.actionButton(
+    currentTier === "full" ? "Забрати повний доступ" : "Надати повний доступ",
+    async () => {
+      if (currentTier === "full") {
+        if (!window.confirm("Забрати у користувача повний доступ?")) return;
+        await updateAccess("none", "Повний доступ скасовано.");
+        return;
+      }
+      await updateAccess("full", "Повний доступ активовано.");
+    },
+  );
+  const removeButton = ctx.actionButton("Забрати доступ до 1 етапу", async () => {
+    if (!window.confirm("Забрати у користувача доступ до першого етапу?")) return;
+    await updateAccess("none", "Доступ до першого етапу скасовано.");
   });
   [casesButton, fullButton, removeButton].forEach((button) => button.classList.add("admin-access-choice"));
   casesButton.classList.toggle("is-active", currentTier === "cases");
-  fullButton.classList.toggle("is-active", currentTier === "full");
-  removeButton.classList.toggle("is-active", currentTier === "none");
-  removeButton.classList.add("admin-access-choice--remove");
-  actions?.append(casesButton, fullButton, removeButton);
+  if (currentTier === "full") fullButton.classList.add("admin-access-choice--remove");
+  if (currentTier === "cases") removeButton.classList.add("admin-access-choice--remove");
+  if (currentTier === "full") {
+    actions?.append(casesButton, fullButton);
+  } else if (currentTier === "cases") {
+    actions?.append(casesButton, fullButton, removeButton);
+  } else {
+    actions?.append(casesButton, fullButton);
+  }
 
   const sectionList = ctx.refs.mainPanel.querySelector("#admin-section-access-list");
   const sectionControls = Array.isArray(payload.section_controls) ? payload.section_controls : [];

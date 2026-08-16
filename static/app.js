@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260816-paid-functions-01";
+import "/static/js/app.js?v=20260817-admin-full-access-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
