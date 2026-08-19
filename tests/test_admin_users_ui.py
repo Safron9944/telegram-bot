@@ -12,39 +12,50 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn('id="admin-users-list-label"', admin)
         self.assertIn("adminNoticeOpen", admin)
 
-    def test_user_detail_uses_compact_account_and_access_cards(self):
+    def test_user_detail_uses_compact_profile_and_tier_selector(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles/components.css").read_text(encoding="utf-8")
         prototype = (ROOT / "static/styles/prototype.css").read_text(encoding="utf-8")
-        self.assertIn("admin-account-card", admin)
-        self.assertIn("admin-access-actions--grid", admin)
+        self.assertIn("admin-tier-selector", admin)
+        self.assertIn('label: "Немає"', admin)
+        self.assertIn('label: "1 етап"', admin)
+        self.assertIn('label: "Повний"', admin)
         self.assertIn("admin-materials-status", admin)
-        self.assertIn(".admin-access-actions--grid", styles)
-        self.assertIn(".ui-prototype .admin-account-card", prototype)
+        self.assertIn(".admin-tier-selector", styles)
+        self.assertIn(".ui-prototype .admin-user-profile", prototype)
+
+    def test_user_detail_sections_and_account_info_are_collapsible(self):
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static/styles/components.css").read_text(encoding="utf-8")
+        self.assertIn('disclosure.className = "admin-section-group"', admin)
+        self.assertIn('class="admin-user-info"', admin)
+        self.assertIn("adminUserSectionGroupsOpen", admin)
+        self.assertIn(".admin-section-group__summary", styles)
 
     def test_user_detail_manages_all_sections_individually(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
         self.assertIn("Керування розділами", admin)
         self.assertIn("section_controls", admin)
         self.assertIn("/sections/", admin)
-        self.assertIn("показ і оплачений доступ керуються окремо", admin)
+        self.assertIn("section.control_mode", admin)
 
-    def test_full_access_button_changes_with_current_tier(self):
+    def test_tier_selector_confirms_access_downgrade(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        self.assertIn('currentTier === "full" ? "Забрати повний доступ" : "Надати повний доступ"', admin)
-        self.assertIn('await updateAccess("none", "Повний доступ скасовано.")', admin)
-        self.assertIn('await updateAccess("full", "Повний доступ активовано.")', admin)
+        self.assertIn("const tierRank", admin)
+        self.assertIn("const isDowngrade", admin)
+        self.assertIn("window.confirm", admin)
+        self.assertIn("await updateAccess(option.key, option.message)", admin)
 
     def test_admin_screen_has_current_cache_version(self):
         index = (ROOT / "static/index.html").read_text(encoding="utf-8")
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20260817-admin-full-access-01", index)
-        self.assertIn("static/styles.css?v=20260816-section-access-02", index)
-        self.assertIn("static/js/app.js?v=20260817-admin-full-access-01", entry)
-        self.assertIn("styles/components.css?v=20260816-section-access-02", styles)
-        self.assertIn("screens/admin.js?v=20260817-admin-full-access-01", module)
+        self.assertIn("static/app.js?v=20260819-admin-user-compact-01", index)
+        self.assertIn("static/styles.css?v=20260819-admin-user-compact-01", index)
+        self.assertIn("static/js/app.js?v=20260819-admin-user-compact-01", entry)
+        self.assertIn("styles/components.css?v=20260819-admin-user-compact-01", styles)
+        self.assertIn("screens/admin.js?v=20260819-admin-user-compact-01", module)
         self.assertIn("screens/user.js?v=20260816-paid-functions-01", module)
 
 
