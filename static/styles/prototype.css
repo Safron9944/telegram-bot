@@ -589,8 +589,8 @@ body.ui-prototype {
 .ui-prototype .admin-user-profile {
   display: flex;
   align-items: center;
-  gap: 15px;
-  padding: 18px;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid var(--separator);
   border-radius: 22px;
   background: #fff;
@@ -600,13 +600,13 @@ body.ui-prototype {
 .ui-prototype .admin-user-profile__avatar {
   display: grid;
   place-items: center;
-  flex: 0 0 58px;
-  width: 58px;
-  height: 58px;
-  border-radius: 18px;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
   background: var(--navy);
   color: #fff;
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
@@ -616,13 +616,13 @@ body.ui-prototype {
   align-items: flex-start;
   flex-direction: column;
   min-width: 0;
-  gap: 5px;
+  gap: 4px;
 }
 
 .ui-prototype .admin-user-profile__name {
   overflow-wrap: anywhere;
   color: var(--label);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 780;
   line-height: 1.15;
 }
@@ -630,6 +630,14 @@ body.ui-prototype {
 .ui-prototype .admin-user-profile__id {
   color: var(--label-secondary);
   font-size: 13px;
+}
+
+.ui-prototype .admin-user-profile > .admin-user-status {
+  max-width: 38%;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ui-prototype .admin-user-detail__row,
@@ -648,49 +656,10 @@ body.ui-prototype {
   margin: 0;
 }
 
-.ui-prototype .admin-account-card {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--separator);
-  border-radius: 20px;
+.ui-prototype .admin-section-group,
+.ui-prototype .admin-user-info {
+  border-radius: 16px;
   background: #fff;
-}
-
-.ui-prototype .admin-account-card__item {
-  display: grid;
-  align-content: start;
-  min-width: 0;
-  gap: 5px;
-  padding: 15px;
-}
-
-.ui-prototype .admin-account-card__item + .admin-account-card__item {
-  border-left: 1px solid var(--separator);
-}
-
-.ui-prototype .admin-account-card__item--wide {
-  grid-column: 1 / -1;
-  border-bottom: 1px solid var(--separator);
-}
-
-.ui-prototype .admin-account-card__item--wide + .admin-account-card__item {
-  border-left: 0;
-}
-
-.ui-prototype .admin-account-card__label {
-  color: var(--label-secondary);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.ui-prototype .admin-account-card strong {
-  overflow-wrap: anywhere;
-  color: var(--label);
-  font-size: 14px;
-  line-height: 1.35;
 }
 
 .ui-prototype .admin-danger-zone {

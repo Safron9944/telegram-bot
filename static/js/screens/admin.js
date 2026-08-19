@@ -466,6 +466,7 @@ export async function loadAdminUsers(ctx, offset = 0) {
           }
           ctx.state.selectedAdminUserId = item.user_id;
           ctx.state.adminUserDetail = null;
+          ctx.state.adminUserSectionGroupsOpen = [];
           ctx.navigate("admin-user-detail");
         });
         list.append(row);
@@ -532,29 +533,22 @@ export function renderAdminUserDetail(ctx) {
         <div class="admin-user-profile__body">
           <div class="admin-user-profile__name">${ctx.escapeHtml(name)}</div>
           <div class="admin-user-profile__id">Telegram ID ${payload.user_id}</div>
-          <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
         </div>
+        <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
       </section>
 
-      <div class="group admin-account-group">
-        <div class="group__label">Обліковий запис</div>
-        <div class="admin-account-card">
-          <div class="admin-account-card__item admin-account-card__item--wide">
-            <span class="admin-account-card__label">Поточний доступ</span>
-            <strong>${ctx.escapeHtml(payload.access.label)}</strong>
+      <section class="admin-access-controls">
+        <div class="admin-access-controls__heading-row">
+          <div class="admin-access-controls__header">
+            <span class="admin-access-controls__title">Доступ</span>
+            <span class="admin-access-controls__hint">Оберіть потрібний пакет</span>
           </div>
-          <div class="admin-account-card__item">
-            <span class="admin-account-card__label">Реєстрація</span>
-            <strong>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</strong>
-          </div>
-          <div class="admin-account-card__item">
-            <span class="admin-account-card__label">Компетенції</span>
-            <strong>${payload.ok_modules?.length || 0} модулів</strong>
-          </div>
+          <span class="admin-access-current">${ctx.escapeHtml(payload.access.label)}</span>
         </div>
-      </div>
+        <div id="admin-user-actions" class="admin-tier-selector" role="group" aria-label="Рівень доступу"></div>
+      </section>
 
-      <div class="group">
+      <div class="group admin-results-group">
         <div class="group__label">Результати</div>
         <div class="stat-strip admin-user-detail__stats">
           ${ctx.statPill("Тестів", String(stats.count || 0))}
@@ -565,19 +559,31 @@ export function renderAdminUserDetail(ctx) {
 
       <section class="admin-access-controls">
         <div class="admin-access-controls__header">
-          <span class="admin-access-controls__title">Швидке керування підпискою</span>
-          <span class="admin-access-controls__hint">Готові пакети для першого етапу та митних компетенцій.</span>
-        </div>
-        <div id="admin-user-actions" class="admin-access-actions admin-access-actions--grid"></div>
-      </section>
-
-      <section class="admin-access-controls">
-        <div class="admin-access-controls__header">
           <span class="admin-access-controls__title">Керування розділами</span>
-          <span class="admin-access-controls__hint">Для додаткових матеріалів показ і оплачений доступ керуються окремо.</span>
+          <span class="admin-access-controls__hint">Відкрийте лише потрібну групу</span>
         </div>
         <div id="admin-section-access-list" class="admin-section-access-list"></div>
       </section>
+
+      <details class="admin-user-info">
+        <summary class="admin-user-info__summary">
+          <span>
+            <strong>Інформація про користувача</strong>
+            <small>Реєстрація та компетенції</small>
+          </span>
+          <span class="admin-disclosure-chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="admin-user-info__grid">
+          <div>
+            <span>Реєстрація</span>
+            <strong>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</strong>
+          </div>
+          <div>
+            <span>Компетенції</span>
+            <strong>${payload.ok_modules?.length || 0} модулів</strong>
+          </div>
+        </div>
+      </details>
 
       <details class="admin-danger-zone">
         <summary class="admin-danger-zone__title">Видалення користувача</summary>
@@ -605,95 +611,114 @@ export function renderAdminUserDetail(ctx) {
   };
 
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
-  const casesButton = ctx.actionButton(
-    currentTier === "full" ? "Залишити тільки 1 етап" : (currentTier === "cases" ? "1 етап активний" : "Надати доступ до 1 етапу"),
-    () => updateAccess("cases", "Доступ до першого етапу активовано."),
-  );
-  const fullButton = ctx.actionButton(
-    currentTier === "full" ? "Забрати повний доступ" : "Надати повний доступ",
-    async () => {
-      if (currentTier === "full") {
-        if (!window.confirm("Забрати у користувача повний доступ?")) return;
-        await updateAccess("none", "Повний доступ скасовано.");
-        return;
-      }
-      await updateAccess("full", "Повний доступ активовано.");
-    },
-  );
-  const removeButton = ctx.actionButton("Забрати доступ до 1 етапу", async () => {
-    if (!window.confirm("Забрати у користувача доступ до першого етапу?")) return;
-    await updateAccess("none", "Доступ до першого етапу скасовано.");
+  const tierOptions = [
+    { key: "none", label: "Немає", message: "Доступ скасовано." },
+    { key: "cases", label: "1 етап", message: "Доступ до першого етапу активовано." },
+    { key: "full", label: "Повний", message: "Повний доступ активовано." },
+  ];
+  const tierRank = { none: 0, cases: 1, full: 2 };
+  tierOptions.forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "admin-tier-selector__button";
+    button.textContent = option.label;
+    button.classList.toggle("is-active", option.key === currentTier);
+    button.setAttribute("aria-pressed", option.key === currentTier ? "true" : "false");
+    button.addEventListener("click", async () => {
+      if (option.key === currentTier) return;
+      const isDowngrade = (tierRank[option.key] ?? 0) < (tierRank[currentTier] ?? 0);
+      if (isDowngrade && !window.confirm(`Змінити доступ на «${option.label}»?`)) return;
+      await updateAccess(option.key, option.message);
+    });
+    actions?.append(button);
   });
-  [casesButton, fullButton, removeButton].forEach((button) => button.classList.add("admin-access-choice"));
-  casesButton.classList.toggle("is-active", currentTier === "cases");
-  if (currentTier === "full") fullButton.classList.add("admin-access-choice--remove");
-  if (currentTier === "cases") removeButton.classList.add("admin-access-choice--remove");
-  if (currentTier === "full") {
-    actions?.append(casesButton, fullButton);
-  } else if (currentTier === "cases") {
-    actions?.append(casesButton, fullButton, removeButton);
-  } else {
-    actions?.append(casesButton, fullButton);
-  }
 
   const sectionList = ctx.refs.mainPanel.querySelector("#admin-section-access-list");
   const sectionControls = Array.isArray(payload.section_controls) ? payload.section_controls : [];
   const groupLabels = { primary: "Основні розділи", materials: "Додаткові матеріали" };
-  let currentGroup = "";
+  const openSectionGroups = new Set(ctx.state.adminUserSectionGroupsOpen || []);
+  const groupedSections = new Map();
   sectionControls.forEach((section) => {
-    if (!sectionList) return;
     const group = section.group || "primary";
-    if (group !== currentGroup) {
-      currentGroup = group;
-      const groupLabel = document.createElement("div");
-      groupLabel.className = "admin-section-access-list__group";
-      groupLabel.textContent = groupLabels[group] || "Інші розділи";
-      sectionList.append(groupLabel);
-    }
+    if (!groupedSections.has(group)) groupedSections.set(group, []);
+    groupedSections.get(group).push(section);
+  });
 
-    const visibilityMode = section.control_mode === "visibility";
-    const enabled = visibilityMode ? Boolean(section.visible) : Boolean(section.has_access);
-    const decision = section.admin_decision;
-    const accessText = section.has_access ? "доступ є" : "потрібна оплата";
-    const statusText = visibilityMode
-      ? (enabled ? `Показується · ${accessText}` : `Приховано · ${accessText}`)
-      : (enabled
-        ? (decision === true ? "Відкрито адміном" : "Є доступ")
-        : (decision === false ? "Закрито адміном" : "Немає доступу"));
-    const row = document.createElement("div");
-    row.className = "admin-section-access-row";
-    row.innerHTML = `
-      <div class="admin-section-access-row__body">
-        <strong>${ctx.escapeHtml(section.title || section.key)}</strong>
-        <span class="admin-materials-status admin-materials-status--${enabled ? "on" : "off"}">${statusText}</span>
-      </div>
-      <div class="admin-section-access-row__action"></div>
+  const sectionEnabled = (section) => section.control_mode === "visibility"
+    ? Boolean(section.visible)
+    : Boolean(section.has_access);
+
+  groupedSections.forEach((sections, group) => {
+    if (!sectionList) return;
+    const enabledCount = sections.filter(sectionEnabled).length;
+    const disclosure = document.createElement("details");
+    disclosure.className = "admin-section-group";
+    disclosure.dataset.sectionGroup = group;
+    disclosure.open = openSectionGroups.has(group);
+    disclosure.innerHTML = `
+      <summary class="admin-section-group__summary">
+        <span>
+          <strong>${ctx.escapeHtml(groupLabels[group] || "Інші розділи")}</strong>
+          <small>Активно ${enabledCount} з ${sections.length}</small>
+        </span>
+        <span class="admin-disclosure-chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="admin-section-group__content"></div>
     `;
-    const button = ctx.actionButton(
-      visibilityMode ? (enabled ? "Приховати" : "Показати") : (enabled ? "Закрити" : "Відкрити"),
-      async () => {
-      try {
-        ctx.state.adminUserDetail = await ctx.api(
-          `/api/admin/users/${payload.user_id}/sections/${encodeURIComponent(section.key)}`,
-          { method: "POST", body: { enabled: !enabled } },
-        );
-        ctx.impact("medium");
-        ctx.setMessage(
-          "success",
-          visibilityMode
-            ? (enabled ? `Розділ «${section.title}» приховано.` : `Розділ «${section.title}» показано. Для відкриття потрібна оплата.`)
-            : (enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`),
-        );
-        ctx.render();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-      },
-      "sm",
-    );
-    if (enabled) button.classList.add("admin-section-access-row__revoke");
-    row.querySelector(".admin-section-access-row__action")?.append(button);
-    sectionList.append(row);
+    disclosure.addEventListener("toggle", () => {
+      const openGroups = new Set(ctx.state.adminUserSectionGroupsOpen || []);
+      if (disclosure.open) openGroups.add(group);
+      else openGroups.delete(group);
+      ctx.state.adminUserSectionGroupsOpen = [...openGroups];
+    });
+    const groupContent = disclosure.querySelector(".admin-section-group__content");
+
+    sections.forEach((section) => {
+      const visibilityMode = section.control_mode === "visibility";
+      const enabled = sectionEnabled(section);
+      const decision = section.admin_decision;
+      const accessText = section.has_access ? "доступ є" : "потрібна оплата";
+      const statusText = visibilityMode
+        ? (enabled ? `Показується · ${accessText}` : `Приховано · ${accessText}`)
+        : (enabled
+          ? (decision === true ? "Відкрито адміном" : "Є доступ")
+          : (decision === false ? "Закрито адміном" : "Немає доступу"));
+      const row = document.createElement("div");
+      row.className = "admin-section-access-row";
+      row.innerHTML = `
+        <div class="admin-section-access-row__body">
+          <strong>${ctx.escapeHtml(section.title || section.key)}</strong>
+          <span class="admin-materials-status admin-materials-status--${enabled ? "on" : "off"}">${statusText}</span>
+        </div>
+        <div class="admin-section-access-row__action"></div>
+      `;
+      const button = ctx.actionButton(
+        visibilityMode ? (enabled ? "Приховати" : "Показати") : (enabled ? "Закрити" : "Відкрити"),
+        async () => {
+          try {
+            ctx.state.adminUserDetail = await ctx.api(
+              `/api/admin/users/${payload.user_id}/sections/${encodeURIComponent(section.key)}`,
+              { method: "POST", body: { enabled: !enabled } },
+            );
+            ctx.impact("medium");
+            ctx.setMessage(
+              "success",
+              visibilityMode
+                ? (enabled ? `Розділ «${section.title}» приховано.` : `Розділ «${section.title}» показано. Для відкриття потрібна оплата.`)
+                : (enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`),
+            );
+            ctx.render();
+          } catch (error) {
+            ctx.setMessage("error", error.message);
+          }
+        },
+        "sm",
+      );
+      if (enabled) button.classList.add("admin-section-access-row__revoke");
+      row.querySelector(".admin-section-access-row__action")?.append(button);
+      groupContent?.append(row);
+    });
+    sectionList.append(disclosure);
   });
 
   const deleteWrap = ctx.refs.mainPanel.querySelector("#admin-user-delete-wrap");
