@@ -8,10 +8,16 @@ ROOT = Path(__file__).resolve().parents[1]
 class AdminUsersUiTests(unittest.TestCase):
     def test_notice_form_has_its_own_screen_and_user_list_stays_clean(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static/styles/prototype.css").read_text(encoding="utf-8")
         users_screen = admin.split("export function renderAdminMessages", 1)[0]
         self.assertIn("export function renderAdminMessages", admin)
         self.assertIn('id="admin-users-list-label"', admin)
-        self.assertIn('id="admin-message-fab"', users_screen)
+        self.assertIn('id="admin-users-notice"', users_screen)
+        self.assertIn("Надіслати повідомлення", users_screen)
+        self.assertIn("admin-users-notice-button", styles)
+        self.assertNotIn('id="admin-user-search"', users_screen)
+        self.assertNotIn('id="admin-users-more"', users_screen)
+        self.assertNotIn('id="admin-message-fab"', users_screen)
         self.assertNotIn('id="admin-mini-app-notice"', users_screen)
         self.assertIn('id="admin-mini-app-notice"', admin)
 
@@ -75,12 +81,12 @@ class AdminUsersUiTests(unittest.TestCase):
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20260820-admin-hub-04", index)
-        self.assertIn("static/styles.css?v=20260820-admin-hub-04", index)
-        self.assertIn("static/js/app.js?v=20260820-admin-hub-04", entry)
-        self.assertIn("styles/components.css?v=20260820-admin-hub-04", styles)
-        self.assertIn("screens/admin.js?v=20260820-admin-hub-04", module)
-        self.assertIn("screens/user.js?v=20260820-admin-hub-04", module)
+        self.assertIn("static/app.js?v=20260820-admin-users-05", index)
+        self.assertIn("static/styles.css?v=20260820-admin-users-05", index)
+        self.assertIn("static/js/app.js?v=20260820-admin-users-05", entry)
+        self.assertIn("styles/components.css?v=20260820-admin-users-05", styles)
+        self.assertIn("screens/admin.js?v=20260820-admin-users-05", module)
+        self.assertIn("screens/user.js?v=20260820-admin-users-05", module)
 
 
 if __name__ == "__main__":
