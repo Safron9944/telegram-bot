@@ -14,7 +14,7 @@ export function renderAdminSection(ctx) {
   const actions = [
     ctx.cell({ title: "Основне", subtitle: "Назва, показ і ціна доступу", iconName: "settings", tint: "blue", screen: "admin-section-settings" }),
   ];
-  if (section.kind === "attestation") {
+  if (section.kind === "attestation" && section.bank_id) {
     actions.push(ctx.cell({ title: "Підрозділи", subtitle: "Перегляд і зміна назв", iconName: "folder", tint: "green", screen: "admin-section-topics" }));
     actions.push(ctx.cell({ title: "Питання", subtitle: `${section.questions_count || 0} питань`, iconName: "edit", tint: "purple", screen: "admin-section-questions" }));
   } else if (section.content_screen) {
@@ -55,6 +55,7 @@ export function renderAdminSectionSettings(ctx) {
   ctx.setChrome({ showBack: true });
   const section = selected(ctx);
   if (!section) return void ctx.goBack();
+  const isAttestation = section.kind === "attestation";
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
       <h1 class="page-title">Основне</h1>
@@ -62,6 +63,15 @@ export function renderAdminSectionSettings(ctx) {
       <form class="admin-section-form" id="admin-section-settings-form">
         <label class="field"><span class="field__label">Назва розділу</span><input class="input" id="admin-section-title" maxlength="160" value="${ctx.escapeHtml(section.title)}"></label>
         <label class="field"><span class="field__label">Ціна доступу, ⭐</span><input class="input" id="admin-section-price" type="number" min="0" step="1" value="${ctx.escapeHtml(section.price)}"><span class="field__hint">0 — безкоштовно. Покупка діє назавжди.</span></label>
+        ${isAttestation ? `
+          <div class="group__list">
+            <label class="cell admin-setting-row">
+              <span class="cell__body"><span class="cell__title">Показувати пункт «Тестування»</span><span class="cell__subtitle">Для користувачів цього розділу атестації</span></span>
+              <span class="switch"><input id="admin-section-test-enabled" type="checkbox" ${section.combined_test_enabled !== false ? "checked" : ""}><span class="switch__track"></span></span>
+            </label>
+          </div>
+          <label class="field"><span class="field__label">Питань у загальному тесті</span><input class="input" id="admin-section-test-count" type="number" min="4" max="800" step="1" value="${ctx.escapeHtml(section.combined_test_question_count || 100)}"><span class="field__hint">Питання беруться порівну з усіх підрозділів.</span></label>
+        ` : ""}
         <div class="group__list">
           <label class="cell admin-setting-row">
             <span class="cell__body"><span class="cell__title">Показувати користувачам</span><span class="cell__subtitle">Прихований розділ залишається в базі</span></span>
@@ -77,9 +87,18 @@ export function renderAdminSectionSettings(ctx) {
     const title = ctx.refs.mainPanel.querySelector("#admin-section-title").value.trim();
     const price = Number(ctx.refs.mainPanel.querySelector("#admin-section-price").value);
     const visible = ctx.refs.mainPanel.querySelector("#admin-section-visible").checked;
+    const testCountInput = ctx.refs.mainPanel.querySelector("#admin-section-test-count");
+    const testQuestionCount = testCountInput ? Number(testCountInput.value) : null;
+    const testEnabledInput = ctx.refs.mainPanel.querySelector("#admin-section-test-enabled");
     if (!title || !Number.isInteger(price) || price < 0) return ctx.setMessage("error", "Перевірте назву та ціну.");
+    if (testCountInput && (!Number.isInteger(testQuestionCount) || testQuestionCount < 4 || testQuestionCount > 800)) return ctx.setMessage("error", "Кількість питань має бути від 4 до 800.");
     try {
-      const payload = await ctx.api(sectionUrl(ctx), { method: "PATCH", body: { title, price, visible } });
+      const body = { title, price, visible };
+      if (testCountInput) {
+        body.combined_test_enabled = Boolean(testEnabledInput?.checked);
+        body.combined_test_question_count = testQuestionCount;
+      }
+      const payload = await ctx.api(sectionUrl(ctx), { method: "PATCH", body });
       const contact = ctx.refs.mainPanel.querySelector("#admin-section-contact")?.value.trim();
       if (contact !== undefined) await ctx.api("/api/admin/settings", { method: "POST", body: { admin_contact_url: contact } });
       ctx.state.selectedAdminSection = payload.section;
@@ -90,7 +109,9 @@ export function renderAdminSectionSettings(ctx) {
   });
   const contactInput = ctx.refs.mainPanel.querySelector("#admin-section-contact");
   if (contactInput) {
-    void ctx.api("/api/admin/settings").then((payload) => { contactInput.value = payload.admin_contact_url || ""; }).catch(() => {});
+    void ctx.api("/api/admin/settings").then((payload) => {
+      if (contactInput) contactInput.value = payload.admin_contact_url || "";
+    }).catch(() => {});
   }
 }
 

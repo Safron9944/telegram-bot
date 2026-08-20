@@ -1,9 +1,15 @@
 import json
 import re
 import unittest
+from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from questions import ATTESTATION_STAGE_1_SECTION, QuestionBank
+from fastapi import HTTPException
+
+from app import AuthContext, MiniAppService, StartAttestationRequest, StartAttestationStage1Request
+from questions import ATTESTATION_STAGE_1_SECTION, AttestationBank, QuestionBank
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,5 +116,86 @@ class AttestationStage1BankTests(unittest.TestCase):
         qids = self.bank.attestation_stage_1_block_qids(title, "random")
         self.assertEqual(50, len(qids))
         self.assertTrue(all(self.bank.by_id[qid].topic == title for qid in qids))
+
+    def test_combined_test_is_balanced_across_all_four_sections(self):
+        qids = self.bank.attestation_combined_test_qids("stage-1", 100)
+        counts = Counter(self.bank.by_id[qid].topic for qid in qids)
+        self.assertEqual(100, len(qids))
+        self.assertEqual({25}, set(counts.values()))
+
+
+class AttestationCombinedSessionTests(unittest.IsolatedAsyncioTestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.bank = QuestionBank(str(ROOT / "questions_flat.json"))
+        cls.bank.load()
+        cls.bank.load_attestation_stage_1(str(ROOT / "attestation_stage_1.json"))
+
+    async def test_combined_start_uses_admin_question_count(self):
+        settings = json.dumps({
+            "attestation_stage_1": {
+                "combined_test_enabled": True,
+                "combined_test_question_count": 100,
+            }
+        })
+        store = SimpleNamespace(get_setting=AsyncMock(return_value=settings))
+        service = MiniAppService(SimpleNamespace(store=store, qb=self.bank))
+        service.start_learning_session = AsyncMock()
+        service.build_session_view = AsyncMock(return_value={"mode": "learn"})
+        auth = AuthContext(telegram_user={"id": 1}, user={"user_id": 1, "is_admin": 1}, user_id=1, is_admin=True)
+
+        await service.start_attestation(auth, "stage-1", StartAttestationRequest(section="", block="combined"))
+
+        qids = service.start_learning_session.await_args.args[1]
+        counts = Counter(self.bank.by_id[qid].topic for qid in qids)
+        self.assertEqual(100, len(qids))
+        self.assertEqual({25}, set(counts.values()))
+
+    async def test_hidden_combined_test_is_rejected_for_user(self):
+        settings = json.dumps({"attestation_stage_1": {"combined_test_enabled": False}})
+        store = SimpleNamespace(get_setting=AsyncMock(return_value=settings))
+        service = MiniAppService(SimpleNamespace(store=store, qb=self.bank))
+        auth = AuthContext(
+            telegram_user={"id": 2},
+            user={"user_id": 2, "sub_infinite": True, "sub_tier": "full"},
+            user_id=2,
+            is_admin=False,
+        )
+
+        with self.assertRaisesRegex(HTTPException, "Загальний тест вимкнено"):
+            await service.start_attestation(auth, "stage-1", StartAttestationRequest(section="", block="combined"))
+
+    async def test_future_attestation_bank_uses_its_own_question_count(self):
+        self.bank.attestation_banks["stage-2"] = AttestationBank(
+            slug="stage-2",
+            title="Атестація — 2 етап",
+            qids=list(self.bank.attestation_stage_1),
+            db_id=7,
+        )
+        settings = json.dumps({"attestation:7": {"combined_test_question_count": 80}})
+        store = SimpleNamespace(get_setting=AsyncMock(return_value=settings))
+        service = MiniAppService(SimpleNamespace(store=store, qb=self.bank))
+        service.start_learning_session = AsyncMock()
+        service.build_session_view = AsyncMock(return_value={"mode": "learn"})
+        auth = AuthContext(telegram_user={"id": 1}, user={"user_id": 1}, user_id=1, is_admin=True)
+
+        try:
+            await service.start_attestation(auth, "stage-2", StartAttestationRequest(section="", block="combined"))
+        finally:
+            self.bank.attestation_banks.pop("stage-2", None)
+
+        qids = service.start_learning_session.await_args.args[1]
+        counts = Counter(self.bank.by_id[qid].topic for qid in qids)
+        self.assertEqual(80, len(qids))
+        self.assertEqual({20}, set(counts.values()))
+
+    def test_user_and_admin_ui_expose_combined_test_controls(self):
+        user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
+        admin = (ROOT / "static/js/admin_sections.js").read_text(encoding="utf-8")
+        self.assertIn('id="attestation-combined-start"', user)
+        self.assertIn('id="admin-section-test-count"', admin)
+        self.assertIn('id="admin-section-test-enabled"', admin)
+        self.assertIn("attestation_combined_tests", user)
+        self.assertEqual("combined", StartAttestationStage1Request(section="", block="combined").block)
 if __name__ == "__main__":
     unittest.main()

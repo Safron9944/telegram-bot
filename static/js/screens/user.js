@@ -925,8 +925,12 @@ export function renderAttestationStage1(ctx) {
   const bank = banks.find((item) => item.slug === slug) || banks[0];
   const sections = bank?.sections || [];
   const managedSection = (ctx.state.bootstrap.sections || []).find((item) => item.bank_slug === bank?.slug);
-  const hasFullBankAccess = bank?.system || Boolean(managedSection?.has_access);
+  const hasFullBankAccess = Boolean(ctx.state.bootstrap.user.is_admin || managedSection?.has_access || (bank?.system && !managedSection));
   const previewCount = Number(bank?.preview_count || managedSection?.preview_count || 0);
+  const testSections = sections.filter((item) => !item.practice);
+  const combinedTestSettings = ctx.state.bootstrap.attestation_combined_tests?.[bank?.slug] || {};
+  const combinedTestCount = Number(combinedTestSettings.question_count || 100);
+  const showCombinedTest = combinedTestSettings.enabled !== false && testSections.length > 1;
   if (bank) ctx.state.selectedAttestationBankSlug = bank.slug;
 
   ctx.setChrome({ showBack: true });
@@ -962,7 +966,16 @@ export function renderAttestationStage1(ctx) {
             </span>
             <span class="cell__chevron" aria-hidden="true"></span>
           </button>
-        `).join(""),
+        `).join("") + (showCombinedTest ? `
+          <button class="cell" type="button" id="attestation-combined-start">
+            <span class="cell__icon cell__icon--blue">${ctx.lineIcon("clipboard")}</span>
+            <span class="cell__body">
+              <span class="cell__title">Тестування</span>
+              <span class="cell__subtitle">${ctx.escapeHtml(combinedTestCount)} питань з усіх ${ctx.escapeHtml(testSections.length)} розділів</span>
+            </span>
+            <span class="cell__chevron" aria-hidden="true"></span>
+          </button>
+        ` : ""),
       })}
     </section>
   `;
@@ -971,17 +984,26 @@ export function renderAttestationStage1(ctx) {
     void startAttestationBlock(ctx, "", "preview");
   });
 
+  const ensureBankAccess = () => {
+    if (hasFullBankAccess || !managedSection) return true;
+    if (managedSection.manual_grant_only) {
+      ctx.setMessage("error", "Доступ до цього розділу надає адміністратор.");
+      return false;
+    }
+    ctx.state.selectedPurchaseSectionKey = managedSection.key;
+    ctx.navigate("purchase-options");
+    return false;
+  };
+
+  ctx.refs.mainPanel.querySelector("#attestation-combined-start")?.addEventListener("click", () => {
+    if (!ensureBankAccess()) return;
+    ctx.impact("light");
+    void startAttestationBlock(ctx, "", "combined");
+  });
+
   ctx.refs.mainPanel.querySelectorAll("[data-attestation-section]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (!hasFullBankAccess && managedSection) {
-        if (managedSection.manual_grant_only) {
-          ctx.setMessage("error", "Доступ до цього розділу надає адміністратор.");
-          return;
-        }
-        ctx.state.selectedPurchaseSectionKey = managedSection.key;
-        ctx.navigate("purchase-options");
-        return;
-      }
+      if (!ensureBankAccess()) return;
       const item = sections[Number(button.dataset.attestationSection)];
       if (!item) return;
       ctx.impact("light");

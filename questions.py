@@ -460,6 +460,31 @@ class QuestionBank:
             return []
         return pool[start - 1:end]
 
+    def attestation_combined_test_qids(self, slug: str, total: int) -> List[int]:
+        sections = [
+            item for item in self.attestation_sections(slug)
+            if not item.get("practice") and self.attestation_section_qids(slug, item["key"])
+        ]
+        pools = [self.attestation_section_qids(slug, item["key"]) for item in sections]
+        available_total = sum(len(pool) for pool in pools)
+        requested = min(max(len(pools), int(total)), available_total)
+        if not pools or requested < 1:
+            return []
+
+        per_section, remainder = divmod(requested, len(pools))
+        selected: List[int] = []
+        for index, pool in enumerate(pools):
+            quota = per_section + (1 if index < remainder else 0)
+            selected.extend(self.pick_random(pool, min(quota, len(pool))))
+
+        if len(selected) < requested:
+            selected_set = set(selected)
+            remaining = [qid for pool in pools for qid in pool if qid not in selected_set]
+            selected.extend(self.pick_random(remaining, requested - len(selected)))
+
+        random.shuffle(selected)
+        return selected
+
     def _iter_raw_questions(self, raw: Any):
         if isinstance(raw, list):
             for it in raw:

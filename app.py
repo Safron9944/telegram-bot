@@ -121,6 +121,7 @@ def format_dt(value: Any) -> str | None:
 
 
 DEFAULT_PRICES: dict[str, int] = {"cases": 100, "full": 250}
+DEFAULT_ATTESTATION_TEST_QUESTION_COUNT = 100
 SESSION_RESUME_TTL = timedelta(hours=24)
 HOME_VISIBILITY_DEFAULTS: dict[str, bool] = {
     "attestation": True,
@@ -138,6 +139,29 @@ async def get_payment_prices(store: "Storage") -> dict[str, int]:
     return {
         "cases": int(cases_raw) if cases_raw else DEFAULT_PRICES["cases"],
         "full": int(full_raw) if full_raw else DEFAULT_PRICES["full"],
+    }
+
+
+async def get_attestation_combined_test_settings(store: "Storage", bank: Any) -> dict[str, Any]:
+    if bank.slug == "stage-1":
+        section_key = ATTESTATION_STAGE_1_SECTION_KEY
+    elif bank.manual_grant_section_key:
+        section_key = bank.manual_grant_section_key
+    elif bank.db_id is not None:
+        section_key = f"attestation:{bank.db_id}"
+    else:
+        section_key = f"attestation:{bank.slug}"
+    config = await section_config(store)
+    saved = config.get(section_key, {})
+    if not isinstance(saved, dict):
+        saved = {}
+    try:
+        question_count = int(saved.get("combined_test_question_count", DEFAULT_ATTESTATION_TEST_QUESTION_COUNT))
+    except (TypeError, ValueError):
+        question_count = DEFAULT_ATTESTATION_TEST_QUESTION_COUNT
+    return {
+        "enabled": bool(saved.get("combined_test_enabled", True)),
+        "question_count": max(4, min(800, question_count)),
     }
 
 
@@ -349,7 +373,7 @@ class StartTestRequest(BaseModel):
 
 class StartAttestationStage1Request(BaseModel):
     section: str
-    block: Literal["1-50", "51-100", "101-150", "151-200", "random"]
+    block: Literal["1-50", "51-100", "101-150", "151-200", "random", "combined"]
 
 
 class StartAttestationRequest(BaseModel):
@@ -562,6 +586,8 @@ class MiniAppService:
                 if override:
                     return
                 require_http(403, "attestation_access_required", "Адміністратор закрив доступ до цього розділу.")
+        if bank_slug == "stage-1" and ATTESTATION_STAGE_1_SECTION_KEY in purchased:
+            return
         if has_attestation_access(auth.user) or (dynamic_key and dynamic_key in purchased):
             return
         require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
@@ -728,6 +754,14 @@ class MiniAppService:
         db_admin_url = await self.store.get_setting("admin_contact_url", "")
         admin_url = db_admin_url or get_admin_contact_url(self.runtime.admin_ids)
         sections = await build_sections(self.store, auth.user, is_admin=auth.is_admin)
+        attestation_combined_tests = {
+            str(section["bank_slug"]): {
+                "enabled": bool(section.get("combined_test_enabled", True)),
+                "question_count": int(section.get("combined_test_question_count", DEFAULT_ATTESTATION_TEST_QUESTION_COUNT)),
+            }
+            for section in sections
+            if section.get("kind") == "attestation" and section.get("bank_slug")
+        }
         return {
             "user": self.serialize_user(auth),
             "links": {
@@ -739,6 +773,7 @@ class MiniAppService:
             "stats": self.serialize_stats(stats),
             "saved_view": saved_view,
             "payment_prices": prices,
+            "attestation_combined_tests": attestation_combined_tests,
             "home_visibility": home_visibility,
             "test_questions_visible": tq_visible,
             "sections": sections,
@@ -1266,10 +1301,21 @@ class MiniAppService:
             require_http(503, "attestation_bank_empty", "У цьому розділі ще немає питань.")
 
         is_preview = payload.block == "preview" and bank.db_id is not None
+        is_combined_test = payload.block == "combined"
         if is_preview:
             qids = list(bank.qids[:50])
             section = "Ознайомчі питання"
             block_label = f"Перші {len(qids)}"
+        elif is_combined_test:
+            self.ensure_attestation_access(auth, clean_bank_slug)
+            combined_settings = await get_attestation_combined_test_settings(self.store, bank)
+            if not combined_settings["enabled"] and not auth.is_admin:
+                require_http(404, "attestation_combined_test_unavailable", "Загальний тест вимкнено адміністратором.")
+            qids = self.qb.attestation_combined_test_qids(bank.slug, combined_settings["question_count"])
+            if not qids:
+                require_http(404, "attestation_combined_test_empty", "Для загального тесту немає питань.")
+            section = "Усі розділи"
+            block_label = f"{len(qids)} питань"
         else:
             self.ensure_attestation_access(auth, clean_bank_slug)
             section = (payload.section or "").strip()
@@ -1291,10 +1337,11 @@ class MiniAppService:
         practice_qids = [qid for qid in qids if self.qb.by_id.get(qid) and self.qb.by_id[qid].is_open_practice]
         if practice_qids:
             require_http(400, "open_practice_browse_required", "Ці теми доступні для перегляду зі списку.")
+        session_header = f"{bank.title} • Загальний тест" if is_combined_test else f"{section} • {block_label}"
         await self.start_learning_session(
             auth.user_id,
             qids,
-            f"{section} • {block_label}",
+            session_header,
             session_meta,
         )
         return await self.build_session_view(auth)
@@ -2481,19 +2528,28 @@ async def api_admin_update_section(section_key: str, request: Request, auth: Aut
         if not title or len(title) > 160:
             require_http(400, "invalid_title", "Вкажіть назву до 160 символів.")
         changes["title"] = title
-        if current["kind"] == "attestation":
+        if current["kind"] == "attestation" and current.get("bank_id"):
             await runtime.store.update_attestation_bank_title(int(current["bank_id"]), title)
     if "visible" in body:
         if not isinstance(body["visible"], bool):
             require_http(400, "invalid_visibility", "Некоректне значення видимості.")
         changes["visible"] = body["visible"]
-        if current["kind"] == "attestation":
+        if current["kind"] == "attestation" and current.get("bank_id"):
             await runtime.store.set_attestation_bank_visibility(int(current["bank_id"]), visible=body["visible"])
     if "price" in body:
         price = body["price"]
         if isinstance(price, bool) or not isinstance(price, int) or price < 0 or price > 100000:
             require_http(400, "invalid_price", "Ціна має бути цілим числом від 0.")
         changes["price"] = price
+    if "combined_test_enabled" in body:
+        if current["kind"] != "attestation" or not isinstance(body["combined_test_enabled"], bool):
+            require_http(400, "invalid_combined_test_visibility", "Некоректне значення видимості загального тесту.")
+        changes["combined_test_enabled"] = body["combined_test_enabled"]
+    if "combined_test_question_count" in body:
+        question_count = body["combined_test_question_count"]
+        if current["kind"] != "attestation" or isinstance(question_count, bool) or not isinstance(question_count, int) or not 4 <= question_count <= 800:
+            require_http(400, "invalid_combined_test_question_count", "Кількість питань має бути цілим числом від 4 до 800.")
+        changes["combined_test_question_count"] = question_count
     section = await update_section(runtime.store, section_key, changes)
     if current["kind"] == "attestation" and ("title" in changes or "visible" in changes):
         await runtime.qb.load_published_attestation_banks(runtime.store)
