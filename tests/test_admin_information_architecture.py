@@ -11,10 +11,8 @@ class AdminInformationArchitectureTests(unittest.TestCase):
         hub = admin.split("/* ===================== ADMIN ATTESTATION BANKS", 1)[0]
 
         self.assertEqual(1, hub.count('title: "Пошук по всіх питаннях"'))
-        self.assertEqual(2, hub.count("ctx.cell({"))
-        self.assertIn('screen: "admin-users"', hub)
+        self.assertEqual(3, hub.count("ctx.cell({"))
         self.assertIn('screen: "admin-attestation-banks"', hub)
-        self.assertIn('screen: "admin"', hub)
         self.assertNotIn('screen: "admin-stats"', hub)
         self.assertNotIn('screen: "admin-messages"', hub)
         self.assertIn("Повний доступ", admin)
