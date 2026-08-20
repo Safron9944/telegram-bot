@@ -23,7 +23,7 @@ export function renderAdminSection(ctx) {
   actions.push(ctx.cell({ title: "Порядок", subtitle: "Перемістити на головному екрані", iconName: "document", tint: "gray", screen: "admin-section-order" }));
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
+    <section class="screen-content admin-section-menu-screen">
       <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
       <p class="page-subtitle">Оберіть, що саме потрібно змінити.</p>
       ${ctx.group({ children: actions.join("") })}
