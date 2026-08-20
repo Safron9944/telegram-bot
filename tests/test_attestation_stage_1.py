@@ -193,6 +193,8 @@ class AttestationCombinedSessionTests(unittest.IsolatedAsyncioTestCase):
         user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
         admin = (ROOT / "static/js/admin_sections.js").read_text(encoding="utf-8")
         self.assertIn('id="attestation-combined-start"', user)
+        self.assertIn('header: "Загальний тест"', user)
+        self.assertIn('class="cell cell--accent"', user)
         self.assertIn('id="admin-section-test-count"', admin)
         self.assertIn('id="admin-section-test-enabled"', admin)
         self.assertIn("attestation_combined_tests", user)

@@ -966,17 +966,23 @@ export function renderAttestationStage1(ctx) {
             </span>
             <span class="cell__chevron" aria-hidden="true"></span>
           </button>
-        `).join("") + (showCombinedTest ? `
-          <button class="cell" type="button" id="attestation-combined-start">
-            <span class="cell__icon cell__icon--blue">${ctx.lineIcon("clipboard")}</span>
+        `).join(""),
+      })}
+
+      ${showCombinedTest ? ctx.group({
+        header: "Загальний тест",
+        children: `
+          <button class="cell cell--accent" type="button" id="attestation-combined-start">
+            <span class="cell__icon cell__icon--indigo">${ctx.lineIcon("clipboard")}</span>
             <span class="cell__body">
-              <span class="cell__title">Тестування</span>
-              <span class="cell__subtitle">${ctx.escapeHtml(combinedTestCount)} питань з усіх ${ctx.escapeHtml(testSections.length)} розділів</span>
+              <span class="cell__title">Розпочати тестування</span>
+              <span class="cell__subtitle">${ctx.escapeHtml(combinedTestCount)} питань порівну з усіх ${ctx.escapeHtml(testSections.length)} розділів</span>
             </span>
+            <span class="cell__detail">Почати</span>
             <span class="cell__chevron" aria-hidden="true"></span>
           </button>
-        ` : ""),
-      })}
+        `,
+      }) : ""}
     </section>
   `;
 
