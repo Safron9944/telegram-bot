@@ -35,7 +35,8 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn("Видалити розділ", sections)
         self.assertIn("admin-section-order", sections)
         self.assertIn("admin-section-menu-screen", sections)
-        self.assertIn(".ui-prototype .admin-section-menu-screen > .page-hero + .group", prototype)
+        self.assertIn(".ui-prototype .admin-section-menu-screen > .group", prototype)
+        self.assertIn("margin-top: 12px", prototype)
         self.assertIn("attestation-managed-question-form", styles)
         self.assertIn("attestation-bank-filters", styles)
 
