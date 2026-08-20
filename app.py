@@ -371,7 +371,7 @@ class ReviewIndexRequest(BaseModel):
 
 
 class AdminAccessUpdateRequest(BaseModel):
-    access: Literal["cases", "full", "none"]
+    access: Literal["full", "none"]
 
 
 class AdminProtectedMaterialsUpdateRequest(BaseModel):
@@ -1751,15 +1751,7 @@ class MiniAppService:
         section_access = set(user.get("section_access", []) or [])
         overrides = dict(user.get("section_access_overrides", {}) or {})
         visibility_overrides = dict(user.get("section_visibility_overrides", {}) or {})
-        section_controls = [
-            {
-                "key": ATTESTATION_STAGE_1_SECTION_KEY,
-                "title": "Атестація посадових осіб — 1 етап",
-                "group": "primary",
-                "has_access": has_attestation_access(user),
-                "admin_decision": overrides.get(ATTESTATION_STAGE_1_SECTION_KEY),
-            }
-        ]
+        section_controls = []
         for section in await build_sections(self.store, user, is_admin=False):
             key = str(section["key"])
             is_managed = (
@@ -1805,13 +1797,10 @@ class MiniAppService:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         await self.store.set_admin_access(target_id, access)
         decisions = {
-            "cases": (True, False),
-            "full": (True, True),
-            "none": (False, False),
+            "full": True,
+            "none": False,
         }
-        stage_one, competencies = decisions[access]
-        await self.store.set_section_access_override(target_id, ATTESTATION_STAGE_1_SECTION_KEY, stage_one)
-        await self.store.set_section_access_override(target_id, CUSTOMS_COMPETENCIES_SECTION_KEY, competencies)
+        await self.store.set_section_access_override(target_id, CUSTOMS_COMPETENCIES_SECTION_KEY, decisions[access])
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_protected_materials(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:

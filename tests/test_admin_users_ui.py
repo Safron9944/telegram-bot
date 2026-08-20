@@ -15,16 +15,15 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertNotIn('id="admin-mini-app-notice"', users_screen)
         self.assertIn('id="admin-mini-app-notice"', admin)
 
-    def test_admin_has_mobile_bottom_navigation(self):
+    def test_admin_has_no_persistent_bottom_navigation(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles/prototype.css").read_text(encoding="utf-8")
         app = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("const ADMIN_TABS", admin)
-        self.assertIn('screen: "admin-users"', admin)
+        self.assertNotIn("const ADMIN_TABS", admin)
+        self.assertNotIn("mountAdminTabs", admin)
+        self.assertNotIn("admin-tab-bar", styles)
         self.assertIn('screen: "admin-attestation-banks"', admin)
-        self.assertIn('screen: "admin"', admin)
         self.assertNotIn('screen: "admin-stats"', admin)
-        self.assertIn(".ui-prototype .admin-tab-bar", styles)
         self.assertIn('case "admin-messages"', app)
         self.assertNotIn('case "admin-stats"', app)
 
@@ -36,10 +35,19 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn("admin-profile-hero", admin)
         self.assertIn("admin-quick-grid", admin)
         self.assertIn('label: "Немає"', admin)
-        self.assertIn('label: "1 етап"', admin)
         self.assertIn('label: "Повний"', admin)
+        self.assertNotIn('label: "1 етап"', admin)
         self.assertIn(".ui-prototype .admin-profile-hero", prototype)
         self.assertIn(".ui-prototype .admin-access-list", prototype)
+
+    def test_admin_access_uses_only_none_and_full_without_legacy_stage_duplicate(self):
+        server = (ROOT / "app.py").read_text(encoding="utf-8")
+        request_model = server.split("class AdminAccessUpdateRequest", 1)[1].split("class AdminProtectedMaterialsUpdateRequest", 1)[0]
+        detail = server.split("async def admin_user_detail", 1)[1].split("async def admin_set_access", 1)[0]
+        self.assertIn('Literal["full", "none"]', request_model)
+        self.assertNotIn('"cases"', request_model)
+        self.assertNotIn("ATTESTATION_STAGE_1_SECTION_KEY", detail)
+        self.assertNotIn("Атестація посадових осіб — 1 етап", detail)
 
     def test_user_detail_does_not_use_legacy_tabs(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
@@ -67,12 +75,12 @@ class AdminUsersUiTests(unittest.TestCase):
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20260820-admin-prototype-02", index)
-        self.assertIn("static/styles.css?v=20260820-admin-prototype-02", index)
-        self.assertIn("static/js/app.js?v=20260820-admin-prototype-02", entry)
-        self.assertIn("styles/components.css?v=20260820-admin-prototype-02", styles)
-        self.assertIn("screens/admin.js?v=20260820-admin-prototype-02", module)
-        self.assertIn("screens/user.js?v=20260820-admin-prototype-02", module)
+        self.assertIn("static/app.js?v=20260820-admin-access-03", index)
+        self.assertIn("static/styles.css?v=20260820-admin-access-03", index)
+        self.assertIn("static/js/app.js?v=20260820-admin-access-03", entry)
+        self.assertIn("styles/components.css?v=20260820-admin-access-03", styles)
+        self.assertIn("screens/admin.js?v=20260820-admin-access-03", module)
+        self.assertIn("screens/user.js?v=20260820-admin-access-03", module)
 
 
 if __name__ == "__main__":

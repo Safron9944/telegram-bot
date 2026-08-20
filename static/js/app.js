@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260820-admin-prototype-02";
+import { state } from "./core/state.js?v=20260820-admin-access-03";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-browse-03";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -13,7 +13,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260820-admin-prototype-02";
+} from "./core/ui.js?v=20260820-admin-access-03";
 import {
   loadCaseDetail,
   loadCases,
@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260820-admin-prototype-02";
+} from "./screens/user.js?v=20260820-admin-access-03";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -64,7 +64,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260820-admin-prototype-02";
+} from "./screens/admin.js?v=20260820-admin-access-03";
 import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
 import {
   cleanupAdminApkImport,

@@ -696,7 +696,7 @@ body.ui-prototype {
 
 /* Modern mobile administration */
 .ui-prototype .admin-top-level-screen {
-  padding-bottom: 86px;
+  padding-bottom: 24px;
 }
 
 .ui-prototype .admin-mobile-header {
@@ -728,58 +728,6 @@ body.ui-prototype {
   color: var(--label-secondary);
   font-size: 13px;
   line-height: 1.45;
-}
-
-.ui-prototype .admin-tab-bar {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 50%;
-  z-index: 40;
-  display: grid;
-  width: min(100%, 430px);
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  padding: 7px 6px calc(7px + var(--content-safe-bottom));
-  border-top: 1px solid rgba(16, 24, 40, .08);
-  background: rgba(255, 255, 255, .94);
-  box-shadow: 0 -8px 30px rgba(16, 24, 40, .07);
-  backdrop-filter: blur(18px) saturate(150%);
-  transform: translateX(-50%);
-}
-
-.ui-prototype .admin-tab-bar__item {
-  display: grid;
-  place-items: center;
-  min-width: 0;
-  gap: 3px;
-  padding: 4px 1px;
-  border: 0;
-  background: transparent;
-  color: var(--label-tertiary);
-  font-size: 9px;
-  font-weight: 720;
-  line-height: 1.1;
-}
-
-.ui-prototype .admin-tab-bar__item.is-active {
-  color: var(--navy);
-}
-
-.ui-prototype .admin-tab-bar__icon {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 25px;
-  border-radius: 9px;
-}
-
-.ui-prototype .admin-tab-bar__item.is-active .admin-tab-bar__icon {
-  background: var(--accent-fill);
-}
-
-.ui-prototype .admin-tab-bar__icon svg {
-  width: 20px;
-  height: 20px;
 }
 
 .ui-prototype .admin-users-overview {
@@ -1508,7 +1456,7 @@ body.ui-prototype {
 }
 
 .ui-prototype .admin-top-level-screen {
-  padding-bottom: calc(92px + var(--content-safe-bottom));
+  padding-bottom: calc(24px + var(--content-safe-bottom));
 }
 
 .ui-prototype .admin-mobile-header {
@@ -1572,23 +1520,6 @@ body.ui-prototype {
 .ui-prototype .admin-prototype-meta {
   color: var(--label-secondary);
   font-size: 12px;
-}
-
-.ui-prototype .admin-tab-bar {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 8px 10px calc(8px + var(--content-safe-bottom));
-}
-
-.ui-prototype .admin-tab-bar__item {
-  gap: 3px;
-  padding: 5px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.ui-prototype .admin-tab-bar__icon {
-  width: 34px;
-  height: 24px;
 }
 
 .ui-prototype .admin-user-search-wrap {
@@ -1771,7 +1702,7 @@ body.ui-prototype {
 .ui-prototype .admin-message-fab {
   position: fixed;
   right: max(18px, calc((100vw - 430px) / 2 + 18px));
-  bottom: calc(84px + var(--content-safe-bottom));
+  bottom: calc(24px + var(--content-safe-bottom));
   z-index: 35;
   display: grid;
   place-items: center;
@@ -1979,7 +1910,7 @@ body.ui-prototype {
 
 .ui-prototype .admin-access-tier-chips {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 14px 0 0;
 }
 

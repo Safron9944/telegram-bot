@@ -670,7 +670,7 @@ class Storage:
                 f"OR CONCAT_WS(' ', first_name, last_name) ILIKE {placeholder})"
             )
 
-        active_sql = "(COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))"
+        active_sql = "((COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW())) AND COALESCE(sub_tier, 'full')='full')"
         if access_filter == "active":
             conditions.append(active_sql)
         elif access_filter == "inactive":
@@ -701,10 +701,14 @@ class Storage:
         row = await self._fetchrow("""
             SELECT
                 COUNT(*) FILTER (
-                    WHERE COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW())
+                    WHERE (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                      AND COALESCE(sub_tier, 'full')='full'
                 ) AS active,
                 COUNT(*) FILTER (
-                    WHERE NOT (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                    WHERE NOT (
+                        (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                        AND COALESCE(sub_tier, 'full')='full'
+                    )
                 ) AS expired
             FROM users
         """)

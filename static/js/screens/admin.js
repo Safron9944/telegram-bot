@@ -1,9 +1,3 @@
-const ADMIN_TABS = [
-  { key: "users", label: "Користувачі", icon: "users", screen: "admin-users" },
-  { key: "sections", label: "Розділи", icon: "document", screen: "admin-attestation-banks" },
-  { key: "tools", label: "Налаштування", icon: "settings", screen: "admin" },
-];
-
 let adminUserSearchTimer = null;
 
 function adminMobileHeader(title, { actionId = "", actionLabel = "", actionAria = "" } = {}) {
@@ -30,22 +24,6 @@ function adminBackHeader(title, buttonId) {
   `;
 }
 
-function mountAdminTabs(ctx, active) {
-  const nav = document.createElement("nav");
-  nav.className = "admin-tab-bar";
-  nav.setAttribute("aria-label", "Навігація адмін-панелі");
-  nav.innerHTML = ADMIN_TABS.map((item) => `
-    <button class="admin-tab-bar__item${item.key === active ? " is-active" : ""}" type="button" data-admin-screen="${item.screen}">
-      <span class="admin-tab-bar__icon">${ctx.lineIcon(item.icon)}</span>
-      <span>${item.label}</span>
-    </button>
-  `).join("");
-  nav.querySelectorAll("[data-admin-screen]").forEach((button) => {
-    button.addEventListener("click", () => ctx.navigate(button.dataset.adminScreen, { replace: true }));
-  });
-  ctx.refs.mainPanel.append(nav);
-}
-
 /* ===================== ADMIN HUB ===================== */
 export function renderAdminHub(ctx) {
   ctx.setChrome({ showBack: true });
@@ -53,6 +31,17 @@ export function renderAdminHub(ctx) {
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-top-level-screen">
       ${adminMobileHeader("Налаштування")}
+
+      ${ctx.group({
+        header: "Керування",
+        children: ctx.cell({
+          title: "Розділи",
+          subtitle: "Ціни, порядок і видимість",
+          iconName: "document",
+          tint: "blue",
+          screen: "admin-attestation-banks",
+        }),
+      })}
 
       ${ctx.group({
         header: "Контент",
@@ -77,7 +66,6 @@ export function renderAdminHub(ctx) {
   `;
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
-  mountAdminTabs(ctx, "tools");
 }
 
 /* ===================== ADMIN ATTESTATION BANKS ===================== */
@@ -162,7 +150,6 @@ export function renderAdminAttestationBanks(ctx) {
     }
   });
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
-  mountAdminTabs(ctx, "sections");
 }
 
 function enableSectionDrag(ctx, groupList, groupName) {
@@ -290,8 +277,6 @@ export async function loadAdminAttestationBanks(ctx) {
 function adminUserStatus(access, isAdmin = false) {
   if (isAdmin) return { label: "Адмін", tone: "admin", tint: "blue" };
   if (access?.tier === "full") return { label: "Повний", tone: "full", tint: "green" };
-  if (access?.tier === "cases") return { label: "1 етап", tone: "stage", tint: "blue" };
-  if (access?.has_access) return { label: access.label || "Активний", tone: "full", tint: "green" };
   return { label: "Без доступу", tone: "none", tint: "gray" };
 }
 
@@ -354,7 +339,6 @@ export function renderAdminUsers(ctx) {
       void loadAdminUsers(ctx, 0);
     });
   });
-  mountAdminTabs(ctx, "users");
 }
 
 export function renderAdminMessages(ctx) {
@@ -711,7 +695,7 @@ export function renderAdminUserDetail(ctx) {
           <div class="admin-profile-block__head">
             <div>
               <strong>Доступ</strong>
-              <small>${payload.access?.has_access ? ctx.escapeHtml(payload.access.label) : "Користувач не має доступу"}</small>
+              <small>${payload.access?.tier === "full" ? ctx.escapeHtml(payload.access.label) : "Користувач не має повного доступу"}</small>
             </div>
             <button class="admin-link-button" id="admin-manage-access" type="button">Керувати</button>
           </div>
@@ -777,7 +761,8 @@ export function renderAdminUserAccess(ctx) {
     return;
   }
 
-  const currentTier = payload.access?.tier || "none";
+  const actualTier = payload.access?.tier || "none";
+  const currentTier = actualTier === "full" ? "full" : "none";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-user-access-screen">
@@ -821,10 +806,9 @@ export function renderAdminUserAccess(ctx) {
   const actions = ctx.refs.mainPanel.querySelector("#admin-user-actions");
   const tierOptions = [
     { key: "none", label: "Немає", message: "Доступ скасовано." },
-    { key: "cases", label: "1 етап", message: "Доступ до першого етапу активовано." },
     { key: "full", label: "Повний", message: "Повний доступ активовано." },
   ];
-  const tierRank = { none: 0, cases: 1, full: 2 };
+  const tierRank = { none: 0, full: 1 };
   tierOptions.forEach((option) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -833,8 +817,9 @@ export function renderAdminUserAccess(ctx) {
     button.classList.toggle("is-active", option.key === currentTier);
     button.setAttribute("aria-pressed", option.key === currentTier ? "true" : "false");
     button.addEventListener("click", async () => {
-      if (option.key === currentTier) return;
-      const isDowngrade = (tierRank[option.key] ?? 0) < (tierRank[currentTier] ?? 0);
+      if (option.key === actualTier) return;
+      const actualRank = actualTier === "full" ? tierRank.full : (actualTier === "none" ? tierRank.none : 1);
+      const isDowngrade = (tierRank[option.key] ?? 0) < actualRank;
       if (isDowngrade && !window.confirm(`Змінити доступ на «${option.label}»?`)) return;
       await updateAccess(option.key, option.message);
     });
