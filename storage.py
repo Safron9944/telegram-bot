@@ -649,12 +649,48 @@ class Storage:
         last = dict(rows[0])
         return {"count": len(rows), "avg": sum(perc) / len(perc), "last": last}
 
-    async def list_users(self, offset: int, limit: int) -> list[dict]:
-        rows = await self._fetch("""
+    async def list_users(
+        self,
+        offset: int,
+        limit: int,
+        query: str = "",
+        access_filter: str = "all",
+    ) -> list[dict]:
+        args: list[Any] = []
+        conditions: list[str] = []
+        query = query.strip()
+
+        if query:
+            args.append(f"%{query}%")
+            placeholder = f"${len(args)}"
+            conditions.append(
+                f"(CAST(user_id AS TEXT) ILIKE {placeholder} "
+                f"OR COALESCE(first_name, '') ILIKE {placeholder} "
+                f"OR COALESCE(last_name, '') ILIKE {placeholder} "
+                f"OR CONCAT_WS(' ', first_name, last_name) ILIKE {placeholder})"
+            )
+
+        active_sql = "(COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))"
+        if access_filter == "active":
+            conditions.append(active_sql)
+        elif access_filter == "inactive":
+            conditions.append(f"NOT {active_sql}")
+
+        where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        args.extend([limit, offset])
+        limit_placeholder = f"${len(args) - 1}"
+        offset_placeholder = f"${len(args)}"
+        rows = await self._fetch(
+            f"""
             SELECT user_id, first_name, last_name, is_admin, trial_start, trial_end,
                    sub_end, sub_infinite, sub_tier, created_at
-            FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2
-        """, limit, offset)
+            FROM users
+            {where_sql}
+            ORDER BY created_at DESC
+            LIMIT {limit_placeholder} OFFSET {offset_placeholder}
+            """,
+            *args,
+        )
         return [dict(r) for r in rows]
 
     async def list_user_ids(self) -> list[int]:

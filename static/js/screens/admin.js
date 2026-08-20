@@ -1,17 +1,31 @@
 const ADMIN_TABS = [
   { key: "users", label: "Користувачі", icon: "users", screen: "admin-users" },
   { key: "sections", label: "Розділи", icon: "document", screen: "admin-attestation-banks" },
-  { key: "stats", label: "Статистика", icon: "chart", screen: "admin-stats" },
-  { key: "messages", label: "Повідомлення", icon: "message", screen: "admin-messages" },
-  { key: "tools", label: "Інструменти", icon: "settings", screen: "admin" },
+  { key: "tools", label: "Налаштування", icon: "settings", screen: "admin" },
 ];
 
-function adminMobileHeader(title, subtitle = "") {
+let adminUserSearchTimer = null;
+
+function adminMobileHeader(title, { actionId = "", actionLabel = "", actionAria = "" } = {}) {
   return `
     <header class="admin-mobile-header">
-      <span class="admin-mobile-header__eyebrow">Адмін-панель</span>
+      <div class="admin-mobile-header__row">
+        <span></span>
+        ${actionId ? `<button class="admin-icon-button" id="${actionId}" type="button" aria-label="${actionAria || actionLabel}">${actionLabel}</button>` : "<span></span>"}
+      </div>
       <h1>${title}</h1>
-      ${subtitle ? `<p>${subtitle}</p>` : ""}
+    </header>
+  `;
+}
+
+function adminBackHeader(title, buttonId) {
+  return `
+    <header class="admin-mobile-header admin-mobile-header--detail">
+      <div class="admin-mobile-header__row">
+        <button class="admin-icon-button admin-icon-button--back" id="${buttonId}" type="button" aria-label="Назад">←</button>
+        <span></span>
+      </div>
+      ${title ? `<h1>${title}</h1>` : ""}
     </header>
   `;
 }
@@ -38,7 +52,7 @@ export function renderAdminHub(ctx) {
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-top-level-screen">
-      ${adminMobileHeader("Інструменти", "Рідше використовувані дії зібрані окремо.")}
+      ${adminMobileHeader("Налаштування")}
 
       ${ctx.group({
         header: "Контент",
@@ -71,30 +85,59 @@ export function renderAdminAttestationBanks(ctx) {
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-attestation-overview admin-top-level-screen">
-      ${adminMobileHeader("Розділи", "Порядок, видимість і ціни навчальних розділів.")}
+      ${adminMobileHeader("Розділи", { actionId: "admin-add-section", actionLabel: "+", actionAria: "Додати розділ" })}
 
-      <form class="admin-section-form" id="admin-full-price-form">
+      <div class="admin-prototype-body">
+        <div class="admin-sections-top">
+          <div>
+            <div class="admin-prototype-meta">Повний доступ</div>
+            <div class="admin-price-big" id="admin-full-price-value">… ⭐</div>
+          </div>
+          <button class="admin-filter-chip is-active" id="admin-edit-full-price" type="button">Змінити</button>
+        </div>
+
+        <div id="admin-attestation-list">
+          <div class="admin-section-list">
+          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="admin-sheet-backdrop" id="admin-price-sheet" hidden>
+      <form class="admin-sheet" id="admin-full-price-form">
+        <div class="admin-sheet__handle"></div>
+        <h2>Ціна повного доступу</h2>
         <label class="field">
-          <span class="field__label">Ціна повного доступу до всіх розділів, ⭐</span>
+          <span class="field__label">Вартість, ⭐</span>
           <input class="input" id="admin-price-full" type="number" min="1" step="1" disabled>
           <span class="field__hint">Ціни окремих розділів змінюються в їхніх налаштуваннях.</span>
         </label>
-        <button class="btn btn--primary btn--block" id="admin-full-price-save" type="submit" disabled>Зберегти ціну</button>
+        <button class="btn btn--primary btn--block" id="admin-full-price-save" type="submit" disabled>Зберегти</button>
+        <button class="btn btn--ghost btn--block" id="admin-price-sheet-close" type="button">Скасувати</button>
       </form>
-
-      <div id="admin-attestation-list">
-        <div class="group"><div class="group__list">
-          <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
-        </div></div>
-      </div>
-      <div class="group__footer">Порядок у цих групах повторюється на головному екрані. 0 ⭐ — безкоштовно.</div>
-    </section>
+    </div>
   `;
   const priceForm = ctx.refs.mainPanel.querySelector("#admin-full-price-form");
   const fullPriceInput = ctx.refs.mainPanel.querySelector("#admin-price-full");
   const priceSaveButton = ctx.refs.mainPanel.querySelector("#admin-full-price-save");
+  const priceValue = ctx.refs.mainPanel.querySelector("#admin-full-price-value");
+  const priceSheet = ctx.refs.mainPanel.querySelector("#admin-price-sheet");
+  const closePriceSheet = () => {
+    if (priceSheet) priceSheet.hidden = true;
+  };
+  ctx.refs.mainPanel.querySelector("#admin-add-section")?.addEventListener("click", () => ctx.navigate("admin-apk-import"));
+  ctx.refs.mainPanel.querySelector("#admin-edit-full-price")?.addEventListener("click", () => {
+    if (priceSheet) priceSheet.hidden = false;
+  });
+  ctx.refs.mainPanel.querySelector("#admin-price-sheet-close")?.addEventListener("click", closePriceSheet);
+  priceSheet?.addEventListener("click", (event) => {
+    if (event.target === priceSheet) closePriceSheet();
+  });
   void ctx.api("/api/admin/settings").then((payload) => {
-    fullPriceInput.value = Number(payload.price_full || 250);
+    const priceFull = Number(payload.price_full || 250);
+    fullPriceInput.value = priceFull;
+    if (priceValue) priceValue.textContent = `${priceFull} ⭐`;
     fullPriceInput.disabled = false;
     priceSaveButton.disabled = false;
   }).catch((error) => ctx.setMessage("error", error.message));
@@ -109,6 +152,8 @@ export function renderAdminAttestationBanks(ctx) {
       priceSaveButton.disabled = true;
       await ctx.api("/api/admin/settings", { method: "POST", body: { price_full: priceFull } });
       ctx.state.bootstrap.payment_prices.full = priceFull;
+      if (priceValue) priceValue.textContent = `${priceFull} ⭐`;
+      closePriceSheet();
       ctx.setMessage("success", "Ціну повного доступу збережено.");
     } catch (error) {
       ctx.setMessage("error", error.message);
@@ -207,20 +252,20 @@ export async function loadAdminAttestationBanks(ctx) {
     payload.items.forEach((bank) => {
       if (!groupLists.has(bank.group)) {
         const group = document.createElement("section");
-        group.className = "group";
-        group.innerHTML = `<div class="group__label">${ctx.escapeHtml(groupLabels[bank.group] || "Інші")}</div><div class="group__list"></div>`;
+        group.className = "admin-section-group-list";
+        group.innerHTML = `<div class="admin-section-kicker">${ctx.escapeHtml(groupLabels[bank.group] || "Інші")}</div><div class="admin-section-list"></div>`;
         list.append(group);
-        groupLists.set(bank.group, group.querySelector(".group__list"));
+        groupLists.set(bank.group, group.querySelector(".admin-section-list"));
       }
       const row = document.createElement("button");
       row.type = "button";
-      row.className = "cell admin-attestation-bank-cell";
+      row.className = "admin-section-row admin-attestation-bank-cell";
       row.dataset.sectionKey = bank.key;
       row.innerHTML = `
-        <span class="cell__icon cell__icon--purple">${ctx.lineIcon(bank.icon || "document")}</span>
-        <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(bank.title)}</span>
-          <span class="cell__subtitle">${bank.questions_count == null ? "Системний розділ" : `${ctx.escapeHtml(bank.questions_count)} питань`} · ${bank.visible ? "показується" : "приховано"} · ${ctx.escapeHtml(bank.price)} ⭐</span>
+        <span class="admin-section-row__icon">${ctx.lineIcon(bank.icon || "document")}</span>
+        <span class="admin-section-row__body">
+          <strong>${ctx.escapeHtml(bank.title)}</strong>
+          <small>${bank.questions_count == null ? "Системний розділ" : `${ctx.escapeHtml(bank.questions_count)} питань`} · ${Number(bank.price) ? `${ctx.escapeHtml(bank.price)} ⭐` : "Безкоштовно"} · ${bank.visible ? "показується" : "приховано"}</small>
         </span>
         <span class="admin-section-drag-handle" aria-hidden="true" title="Перетягнути">⠿</span>
       `;
@@ -243,8 +288,10 @@ export async function loadAdminAttestationBanks(ctx) {
 }
 
 function adminUserStatus(access, isAdmin = false) {
-  if (isAdmin) return { label: "Адмін", tone: "active", tint: "blue" };
-  if (access?.has_access) return { label: "Активний", tone: "active", tint: "green" };
+  if (isAdmin) return { label: "Адмін", tone: "admin", tint: "blue" };
+  if (access?.tier === "full") return { label: "Повний", tone: "full", tint: "green" };
+  if (access?.tier === "cases") return { label: "1 етап", tone: "stage", tint: "blue" };
+  if (access?.has_access) return { label: access.label || "Активний", tone: "full", tint: "green" };
   return { label: "Без доступу", tone: "none", tint: "gray" };
 }
 
@@ -264,20 +311,49 @@ export function renderAdminUsers(ctx) {
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-users-screen admin-top-level-screen">
-      ${adminMobileHeader("Користувачі", "Оберіть профіль, щоб переглянути доступ та результати.")}
-      <div id="admin-users-summary"></div>
-      <div class="group admin-users-list-group">
-        <div class="group__label" id="admin-users-list-label">Останні користувачі</div>
-        <div class="group__list" id="admin-users-list">
+      ${adminMobileHeader("Користувачі", { actionId: "admin-users-more", actionLabel: "⋯", actionAria: "Налаштування" })}
+      <div class="admin-prototype-body">
+        <div class="admin-user-search-wrap">
+          <span class="admin-user-search-icon">⌕</span>
+          <input class="admin-user-search" id="admin-user-search" type="search" value="${ctx.escapeHtml(ctx.state.adminUsersQuery || "")}" placeholder="Пошук за ім’ям або ID">
+        </div>
+
+        <div class="admin-filter-chips" id="admin-user-filter-chips">
+          <button class="admin-filter-chip" data-user-filter="all" type="button">Усі</button>
+          <button class="admin-filter-chip" data-user-filter="active" type="button">З доступом</button>
+          <button class="admin-filter-chip" data-user-filter="inactive" type="button">Без доступу</button>
+        </div>
+
+        <div class="admin-section-kicker" id="admin-users-list-label">Список</div>
+        <div class="admin-user-list" id="admin-users-list">
           <div class="empty empty--inline">
             <h2>Завантажуємо…</h2>
           </div>
         </div>
+        <div class="row admin-list-pagination" id="admin-users-pagination"></div>
       </div>
-
-      <div class="row" id="admin-users-pagination" style="justify-content: center; gap: 8px;"></div>
+      <button class="admin-message-fab" id="admin-message-fab" type="button" aria-label="Надіслати повідомлення">${ctx.lineIcon("message")}</button>
     </section>
   `;
+  ctx.refs.mainPanel.querySelector("#admin-users-more")?.addEventListener("click", () => ctx.navigate("admin"));
+  ctx.refs.mainPanel.querySelector("#admin-message-fab")?.addEventListener("click", () => ctx.navigate("admin-messages"));
+  ctx.refs.mainPanel.querySelector("#admin-user-search")?.addEventListener("input", (event) => {
+    ctx.state.adminUsersQuery = event.currentTarget.value;
+    ctx.state.adminUsersOffset = 0;
+    window.clearTimeout(adminUserSearchTimer);
+    adminUserSearchTimer = window.setTimeout(() => void loadAdminUsers(ctx, 0), 250);
+  });
+  ctx.refs.mainPanel.querySelectorAll("[data-user-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.userFilter === ctx.state.adminUsersFilter);
+    button.addEventListener("click", () => {
+      ctx.state.adminUsersFilter = button.dataset.userFilter;
+      ctx.state.adminUsersOffset = 0;
+      ctx.refs.mainPanel.querySelectorAll("[data-user-filter]").forEach((item) => {
+        item.classList.toggle("is-active", item === button);
+      });
+      void loadAdminUsers(ctx, 0);
+    });
+  });
   mountAdminTabs(ctx, "users");
 }
 
@@ -286,7 +362,7 @@ export function renderAdminMessages(ctx) {
   const selectingRecipients = ctx.state.adminNoticeAudience === "selected";
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-messages-screen admin-top-level-screen">
-      ${adminMobileHeader("Повідомлення", "Створіть повідомлення і виберіть отримувачів.")}
+      ${adminBackHeader("Повідомлення", "admin-messages-back")}
 
       <section class="admin-compose-card">
         <div class="segmented" role="group" aria-label="Кому надіслати повідомлення">
@@ -317,6 +393,8 @@ export function renderAdminMessages(ctx) {
       ` : ""}
     </section>
   `;
+
+  ctx.refs.mainPanel.querySelector("#admin-messages-back")?.addEventListener("click", () => void ctx.goBack());
 
   document.querySelector("#admin-notice-all")?.addEventListener("click", () => {
     ctx.state.adminNoticeAudience = "all";
@@ -368,7 +446,6 @@ export function renderAdminMessages(ctx) {
     }
   });
   updateMiniAppNoticeControls(ctx);
-  mountAdminTabs(ctx, "messages");
 }
 
 function updateMiniAppNoticeControls(ctx) {
@@ -418,31 +495,28 @@ export async function loadAdminUsers(ctx, offset = 0) {
   if (ctx.state.currentScreen !== "admin-users") return;
 
   try {
-    void pollMiniAppNotice(ctx).catch(() => {});
-    const payload = await ctx.api(`/api/admin/users?offset=${offset}&limit=10`);
+    const query = String(ctx.state.adminUsersQuery || "").trim();
+    const accessFilter = ctx.state.adminUsersFilter || "all";
+    const payload = await ctx.api(
+      `/api/admin/users?offset=${offset}&limit=10&q=${encodeURIComponent(query)}&status=${encodeURIComponent(accessFilter)}`,
+    );
     if (ctx.state.currentScreen !== "admin-users") return;
+    if (query !== String(ctx.state.adminUsersQuery || "").trim() || accessFilter !== ctx.state.adminUsersFilter) return;
 
     ctx.state.adminUsersOffset = payload.offset;
     ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.expired);
 
     const listLabel = document.querySelector("#admin-users-list-label");
-    if (listLabel) listLabel.textContent = `Останні користувачі · ${ctx.state.adminUsersTotal}`;
-
-    const summary = document.querySelector("#admin-users-summary");
-    if (summary) {
-      summary.innerHTML = `
-        <div class="admin-users-overview">
-          <div class="admin-users-overview__total">
-            <strong>${ctx.state.adminUsersTotal}</strong>
-            <span>усього користувачів</span>
-          </div>
-          <div class="admin-users-overview__statuses">
-            <span><i class="is-active"></i>${payload.counts.active} активних</span>
-            <span><i></i>${payload.counts.expired} без доступу</span>
-          </div>
-        </div>
-      `;
-    }
+    if (listLabel) listLabel.textContent = query || accessFilter !== "all" ? "Результати" : "Список";
+    const chipLabels = {
+      all: `Усі ${ctx.state.adminUsersTotal}`,
+      active: `З доступом ${payload.counts.active}`,
+      inactive: `Без доступу ${payload.counts.expired}`,
+    };
+    document.querySelectorAll("[data-user-filter]").forEach((button) => {
+      button.textContent = chipLabels[button.dataset.userFilter] || button.textContent;
+      button.classList.toggle("is-active", button.dataset.userFilter === accessFilter);
+    });
 
     const list = document.querySelector("#admin-users-list");
     if (!list) return;
@@ -458,18 +532,20 @@ export async function loadAdminUsers(ctx, offset = 0) {
       list.innerHTML = "";
       payload.items.forEach((item) => {
         const status = adminUserStatus(item.access, item.is_admin);
+        const displayName = item.display_name || "Без імені";
+        const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "U";
 
         const row = document.createElement("button");
         row.type = "button";
-        row.className = "cell cell--admin-user";
+        row.className = "admin-user-row";
         row.innerHTML = `
-          <span class="cell__icon cell__icon--${status.tint}">${ctx.escapeHtml((item.display_name || "U").slice(0, 1).toUpperCase())}</span>
-          <span class="cell__body">
-            <span class="cell__title">${ctx.escapeHtml(item.display_name)}</span>
-            <span class="cell__subtitle">ID ${item.user_id} · ${ctx.escapeHtml(item.access.label)}</span>
+          <span class="admin-user-avatar">${ctx.escapeHtml(initials)}</span>
+          <span class="admin-user-row__body">
+            <strong>${ctx.escapeHtml(displayName)}</strong>
+            <small>${item.user_id}</small>
           </span>
-          <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
-          <span class="cell__chevron" aria-hidden="true"></span>
+          <span class="admin-user-status admin-user-status--${status.tone}">${ctx.escapeHtml(status.label)}</span>
+          <span class="admin-user-row__chevron" aria-hidden="true">›</span>
         `;
         row.addEventListener("click", () => {
           ctx.state.selectedAdminUserId = item.user_id;
@@ -583,59 +659,18 @@ function renderAdminMessageRecipients(ctx, payload) {
   }
 }
 
-export function renderAdminStats(ctx) {
-  ctx.setChrome({ showBack: true });
-  ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content admin-stats-screen admin-top-level-screen">
-      ${adminMobileHeader("Статистика", "Короткий огляд стану доступів.")}
-      <div id="admin-stats-overview" class="admin-stats-overview">
-        <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
-      </div>
-    </section>
-  `;
-  mountAdminTabs(ctx, "stats");
-}
-
-export async function loadAdminStats(ctx) {
-  if (ctx.state.currentScreen !== "admin-stats") return;
-  try {
-    const payload = await ctx.api("/api/admin/users?offset=0&limit=1");
-    if (ctx.state.currentScreen !== "admin-stats") return;
-    const active = Number(payload.counts.active || 0);
-    const expired = Number(payload.counts.expired || 0);
-    const total = active + expired;
-    const activePercent = total ? Math.round((active / total) * 100) : 0;
-    const target = document.querySelector("#admin-stats-overview");
-    if (target) {
-      target.innerHTML = `
-        <section class="admin-stat-hero">
-          <span>Усього користувачів</span>
-          <strong>${total}</strong>
-          <div class="admin-stat-progress"><i style="width: ${activePercent}%"></i></div>
-          <small>${activePercent}% мають активний доступ</small>
-        </section>
-        <section class="admin-stat-list">
-          <div><span><i class="is-active"></i>Активний доступ</span><strong>${active}</strong></div>
-          <div><span><i></i>Без доступу</span><strong>${expired}</strong></div>
-        </section>
-      `;
-    }
-  } catch (error) {
-    ctx.setMessage("error", error.message);
-  }
-}
-
 export function renderAdminUserDetail(ctx) {
   ctx.setChrome({ showBack: true });
   const payload = ctx.state.adminUserDetail;
 
   if (!payload) {
     ctx.refs.mainPanel.innerHTML = `
-      <section class="screen-content">
-        ${adminMobileHeader("Користувач")}
+      <section class="screen-content admin-user-detail">
+        ${adminBackHeader("", "admin-profile-back")}
         <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
       </section>
     `;
+    ctx.refs.mainPanel.querySelector("#admin-profile-back")?.addEventListener("click", () => void ctx.goBack());
     return;
   }
 
@@ -645,89 +680,129 @@ export function renderAdminUserDetail(ctx) {
     : name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const status = adminUserStatus(payload.access, payload.is_admin);
   const stats = payload.stats || { count: 0, avg: 0, last: null };
+  const sectionControls = Array.isArray(payload.section_controls) ? payload.section_controls : [];
+  const sectionEnabled = (section) => section.control_mode === "visibility"
+    ? Boolean(section.visible)
+    : Boolean(section.has_access);
+  const enabledSections = sectionControls.filter(sectionEnabled).length;
+  const accessPercent = sectionControls.length ? Math.round((enabledSections / sectionControls.length) * 100) : 0;
   const protectedAccount = payload.is_admin || payload.user_id === ctx.state.bootstrap.user.id;
-  const currentTier = payload.access?.tier || "none";
-  const activeTab = ["access", "results", "info"].includes(ctx.state.adminUserTab)
-    ? ctx.state.adminUserTab
-    : "access";
+  const lastActivity = stats.last?.finished_at || stats.last?.started_at || null;
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-user-detail">
-      ${adminMobileHeader("Користувач")}
+      ${adminBackHeader("", "admin-profile-back")}
 
-      <section class="admin-user-profile">
-        <div class="admin-user-profile__avatar">${ctx.escapeHtml(initials)}</div>
-        <div class="admin-user-profile__body">
-          <div class="admin-user-profile__name">${ctx.escapeHtml(name)}</div>
-          <div class="admin-user-profile__id">Telegram ID ${payload.user_id}</div>
-        </div>
-        <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
+      <section class="admin-profile-hero">
+        <div class="admin-user-avatar admin-user-avatar--large">${ctx.escapeHtml(initials)}</div>
+        <h1>${ctx.escapeHtml(name)}</h1>
+        <div class="admin-prototype-meta">Telegram ID ${payload.user_id}</div>
+        <span class="admin-user-status admin-user-status--${status.tone}">${ctx.escapeHtml(status.label)}</span>
       </section>
 
-      <nav class="admin-profile-tabs" aria-label="Розділи профілю">
-        <button type="button" data-admin-user-tab="access" class="${activeTab === "access" ? "is-active" : ""}">Доступ</button>
-        <button type="button" data-admin-user-tab="results" class="${activeTab === "results" ? "is-active" : ""}">Результати</button>
-        <button type="button" data-admin-user-tab="info" class="${activeTab === "info" ? "is-active" : ""}">Інформація</button>
-      </nav>
+      <div class="admin-prototype-body admin-profile-body">
+        <section class="admin-quick-grid">
+          <div class="admin-quick-stat"><strong>${stats.count || 0}</strong><span>тестів</span></div>
+          <div class="admin-quick-stat"><strong>${Number(stats.avg || 0).toFixed(0)}%</strong><span>середній</span></div>
+          <div class="admin-quick-stat"><strong>${stats.last ? `${stats.last.correct}/${stats.last.total}` : "—"}</strong><span>останній</span></div>
+        </section>
 
-      ${activeTab === "access" ? `
-        <section class="admin-access-controls">
-          <div class="admin-access-controls__heading-row">
-            <div class="admin-access-controls__header">
-              <span class="admin-access-controls__title">Рівень доступу</span>
-              <span class="admin-access-controls__hint">Оберіть потрібний пакет</span>
+        <section class="admin-profile-block">
+          <div class="admin-profile-block__head">
+            <div>
+              <strong>Доступ</strong>
+              <small>${payload.access?.has_access ? ctx.escapeHtml(payload.access.label) : "Користувач не має доступу"}</small>
             </div>
-            <span class="admin-access-current">${ctx.escapeHtml(payload.access.label)}</span>
+            <button class="admin-link-button" id="admin-manage-access" type="button">Керувати</button>
           </div>
-          <div id="admin-user-actions" class="admin-tier-selector" role="group" aria-label="Рівень доступу"></div>
+          <div class="admin-access-summary-card">
+            <div class="admin-access-summary-card__body">
+              <strong>${enabledSections} з ${sectionControls.length} розділів</strong>
+              <div class="admin-access-progress"><span style="width:${accessPercent}%"></span></div>
+            </div>
+            <span class="admin-user-status admin-user-status--${status.tone}">${ctx.escapeHtml(status.label)}</span>
+          </div>
         </section>
 
-        <section class="admin-access-controls">
-          <div class="admin-access-controls__header">
-            <span class="admin-access-controls__title">Розділи</span>
-            <span class="admin-access-controls__hint">Керуйте окремими розділами перемикачами</span>
-          </div>
-          <div id="admin-section-access-list" class="admin-section-access-list"></div>
+        <section class="admin-profile-block">
+          <div class="admin-profile-block__title">Інформація</div>
+          <div class="admin-profile-row"><div><strong>Дата реєстрації</strong><small>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</small></div><span>›</span></div>
+          <div class="admin-profile-row"><div><strong>Остання активність</strong><small>${ctx.escapeHtml(lastActivity ? formatAdminDate(lastActivity) : "Немає даних")}</small></div><span>›</span></div>
+          <div class="admin-profile-row"><div><strong>Telegram ID</strong><small>${payload.user_id}</small></div><span></span></div>
         </section>
-      ` : ""}
 
-      ${activeTab === "results" ? `
-        <section class="admin-results-view">
-          <div class="admin-results-view__hero">
-            <span>Середній результат</span>
-            <strong>${Number(stats.avg || 0).toFixed(0)}%</strong>
-          </div>
-          <div class="admin-results-view__list">
-            <div><span>Пройдено тестів</span><strong>${stats.count || 0}</strong></div>
-            <div><span>Останній результат</span><strong>${stats.last ? `${stats.last.correct}/${stats.last.total}` : "—"}</strong></div>
-          </div>
+        <section class="admin-profile-block">
+          <button class="admin-profile-row admin-profile-row--button" id="admin-delete-user" type="button" ${protectedAccount ? "disabled" : ""}>
+            <div><strong class="is-danger">Видалити користувача</strong><small>${protectedAccount ? "Адміністраторський профіль захищено" : "Дію не можна скасувати"}</small></div>
+            <span class="is-danger">›</span>
+          </button>
         </section>
-      ` : ""}
-
-      ${activeTab === "info" ? `
-        <section class="admin-info-list">
-          <div><span>Telegram ID</span><strong>${payload.user_id}</strong></div>
-          <div><span>Реєстрація</span><strong>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</strong></div>
-          <div><span>Компетенції</span><strong>${payload.ok_modules?.length || 0} модулів</strong></div>
-        </section>
-        <details class="admin-danger-zone">
-          <summary class="admin-danger-zone__title">Видалення користувача</summary>
-          <div class="admin-danger-zone__content">
-            <p>Буде видалено профіль, підписку, прогрес, помилки, результати тестів і збережену сесію.</p>
-            <div id="admin-user-delete-wrap"></div>
-            ${protectedAccount ? '<div class="admin-danger-zone__note">Адміністраторські облікові записи захищені від видалення.</div>' : ""}
-          </div>
-        </details>
-      ` : ""}
+      </div>
     </section>
   `;
 
-  ctx.refs.mainPanel.querySelectorAll("[data-admin-user-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      ctx.state.adminUserTab = button.dataset.adminUserTab;
-      ctx.render();
-    });
+  ctx.refs.mainPanel.querySelector("#admin-profile-back")?.addEventListener("click", () => void ctx.goBack());
+  ctx.refs.mainPanel.querySelector("#admin-manage-access")?.addEventListener("click", () => ctx.navigate("admin-user-access"));
+  ctx.refs.mainPanel.querySelector("#admin-delete-user")?.addEventListener("click", async () => {
+    const confirmed = window.confirm(
+      `Видалити користувача «${name}» (ID ${payload.user_id}) разом з усіма його даними? Цю дію неможливо скасувати.`,
+    );
+    if (!confirmed) return;
+    try {
+      await ctx.api(`/api/admin/users/${payload.user_id}`, { method: "DELETE" });
+      ctx.state.selectedAdminUserId = null;
+      ctx.state.adminUserDetail = null;
+      ctx.state.adminUsersOffset = 0;
+      ctx.impact("medium");
+      ctx.setMessage("success", "Користувача та його дані видалено.");
+      await ctx.goBack();
+    } catch (error) {
+      ctx.setMessage("error", error.message);
+    }
   });
+}
+
+export function renderAdminUserAccess(ctx) {
+  ctx.setChrome({ showBack: true });
+  const payload = ctx.state.adminUserDetail;
+
+  if (!payload) {
+    ctx.refs.mainPanel.innerHTML = `
+      <section class="screen-content admin-user-access-screen">
+        ${adminBackHeader("Керування доступом", "admin-access-back")}
+        <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+      </section>
+    `;
+    ctx.refs.mainPanel.querySelector("#admin-access-back")?.addEventListener("click", () => void ctx.goBack());
+    return;
+  }
+
+  const currentTier = payload.access?.tier || "none";
+
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content admin-user-access-screen">
+      ${adminBackHeader("Керування доступом", "admin-access-back")}
+      <div class="admin-prototype-body">
+        <section class="admin-profile-block admin-access-package-block">
+          <div class="admin-profile-block__head">
+            <div>
+              <strong>Пакет доступу</strong>
+              <small>Швидке налаштування всіх розділів</small>
+            </div>
+          </div>
+          <div id="admin-user-actions" class="admin-filter-chips admin-access-tier-chips" role="group" aria-label="Рівень доступу"></div>
+        </section>
+
+        <div id="admin-section-access-list" class="admin-access-page-list"></div>
+      </div>
+
+      <div class="admin-sticky-action">
+        <button class="btn btn--primary btn--block" id="admin-access-done" type="button">Готово</button>
+      </div>
+    </section>
+  `;
+  ctx.refs.mainPanel.querySelector("#admin-access-back")?.addEventListener("click", () => void ctx.goBack());
+  ctx.refs.mainPanel.querySelector("#admin-access-done")?.addEventListener("click", () => void ctx.goBack());
 
   const updateAccess = async (access, message) => {
     try {
@@ -753,7 +828,7 @@ export function renderAdminUserDetail(ctx) {
   tierOptions.forEach((option) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "admin-tier-selector__button";
+    button.className = "admin-filter-chip";
     button.textContent = option.label;
     button.classList.toggle("is-active", option.key === currentTier);
     button.setAttribute("aria-pressed", option.key === currentTier ? "true" : "false");
@@ -769,7 +844,6 @@ export function renderAdminUserDetail(ctx) {
   const sectionList = ctx.refs.mainPanel.querySelector("#admin-section-access-list");
   const sectionControls = Array.isArray(payload.section_controls) ? payload.section_controls : [];
   const groupLabels = { primary: "Основні розділи", materials: "Додаткові матеріали" };
-  const openSectionGroups = new Set(ctx.state.adminUserSectionGroupsOpen || []);
   const groupedSections = new Map();
   sectionControls.forEach((section) => {
     const group = section.group || "primary";
@@ -783,28 +857,13 @@ export function renderAdminUserDetail(ctx) {
 
   groupedSections.forEach((sections, group) => {
     if (!sectionList) return;
-    const enabledCount = sections.filter(sectionEnabled).length;
-    const disclosure = document.createElement("details");
-    disclosure.className = "admin-section-group";
-    disclosure.dataset.sectionGroup = group;
-    disclosure.open = openSectionGroups.has(group);
-    disclosure.innerHTML = `
-      <summary class="admin-section-group__summary">
-        <span>
-          <strong>${ctx.escapeHtml(groupLabels[group] || "Інші розділи")}</strong>
-          <small>Активно ${enabledCount} з ${sections.length}</small>
-        </span>
-        <span class="admin-disclosure-chevron" aria-hidden="true"></span>
-      </summary>
-      <div class="admin-section-group__content"></div>
+    const groupSection = document.createElement("section");
+    groupSection.className = "admin-access-group";
+    groupSection.innerHTML = `
+      <div class="admin-section-kicker">${ctx.escapeHtml(groupLabels[group] || "Інші розділи")}</div>
+      <div class="admin-access-list"></div>
     `;
-    disclosure.addEventListener("toggle", () => {
-      const openGroups = new Set(ctx.state.adminUserSectionGroupsOpen || []);
-      if (disclosure.open) openGroups.add(group);
-      else openGroups.delete(group);
-      ctx.state.adminUserSectionGroupsOpen = [...openGroups];
-    });
-    const groupContent = disclosure.querySelector(".admin-section-group__content");
+    const groupContent = groupSection.querySelector(".admin-access-list");
 
     sections.forEach((section) => {
       const visibilityMode = section.control_mode === "visibility";
@@ -817,13 +876,13 @@ export function renderAdminUserDetail(ctx) {
           ? (decision === true ? "Відкрито адміном" : "Є доступ")
           : (decision === false ? "Закрито адміном" : "Немає доступу"));
       const row = document.createElement("div");
-      row.className = "admin-section-access-row";
+      row.className = "admin-access-row";
       row.innerHTML = `
-        <div class="admin-section-access-row__body">
+        <div class="admin-access-row__body">
           <strong>${ctx.escapeHtml(section.title || section.key)}</strong>
-          <span class="admin-materials-status admin-materials-status--${enabled ? "on" : "off"}">${statusText}</span>
+          <small>${statusText}</small>
         </div>
-        <label class="switch admin-section-access-row__switch" aria-label="${enabled ? "Вимкнути" : "Увімкнути"} ${ctx.escapeHtml(section.title || section.key)}">
+        <label class="switch admin-access-row__switch" aria-label="${enabled ? "Вимкнути" : "Увімкнути"} ${ctx.escapeHtml(section.title || section.key)}">
           <input type="checkbox" ${enabled ? "checked" : ""}>
           <span class="switch__track"><span class="switch__thumb"></span></span>
         </label>
@@ -852,38 +911,16 @@ export function renderAdminUserDetail(ctx) {
       });
       groupContent?.append(row);
     });
-    sectionList.append(disclosure);
+    sectionList.append(groupSection);
   });
-
-  const deleteWrap = ctx.refs.mainPanel.querySelector("#admin-user-delete-wrap");
-  if (deleteWrap && !protectedAccount) {
-    const deleteButton = ctx.actionButton("Видалити користувача", async () => {
-      const confirmed = window.confirm(
-        `Видалити користувача «${name}» (ID ${payload.user_id}) разом з усіма його даними? Цю дію неможливо скасувати.`,
-      );
-      if (!confirmed) return;
-      try {
-        await ctx.api(`/api/admin/users/${payload.user_id}`, { method: "DELETE" });
-        ctx.state.selectedAdminUserId = null;
-        ctx.state.adminUserDetail = null;
-        ctx.state.adminUsersOffset = 0;
-        ctx.impact("medium");
-        ctx.setMessage("success", "Користувача та його дані видалено.");
-        await ctx.goBack();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    }, "block");
-    deleteButton.classList.add("btn--danger");
-    deleteWrap.append(deleteButton);
-  }
 }
 
 export async function loadAdminUserDetail(ctx, userId = ctx.state.selectedAdminUserId) {
-  if (ctx.state.currentScreen !== "admin-user-detail" || !userId) return;
+  const detailScreens = new Set(["admin-user-detail", "admin-user-access"]);
+  if (!detailScreens.has(ctx.state.currentScreen) || !userId) return;
   try {
     const payload = await ctx.api(`/api/admin/users/${userId}`);
-    if (ctx.state.currentScreen !== "admin-user-detail") return;
+    if (!detailScreens.has(ctx.state.currentScreen)) return;
     ctx.state.selectedAdminUserId = userId;
     ctx.state.adminUserDetail = payload;
     ctx.render();
