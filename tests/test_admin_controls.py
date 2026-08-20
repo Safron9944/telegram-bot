@@ -11,7 +11,6 @@ from app import (
     MiniAppService,
     get_home_visibility,
 )
-from access import ATTESTATION_STAGE_1_SECTION_KEY
 from sections import UKRAINIAN_LANGUAGE_SECTION_KEY
 from storage import Storage
 
@@ -97,26 +96,6 @@ class AdminUkrainianLanguageAccessTests(unittest.IsolatedAsyncioTestCase):
 
 
 class AdminSectionAccessTests(unittest.IsolatedAsyncioTestCase):
-    async def test_admin_can_explicitly_close_stage_one(self):
-        store = SimpleNamespace(set_section_access_override=AsyncMock(return_value=True))
-        service = MiniAppService(SimpleNamespace(store=store))
-        service.admin_user_detail = AsyncMock(return_value={"section_controls": []})
-
-        result = await service.admin_set_section_access(
-            admin_auth(),
-            42,
-            ATTESTATION_STAGE_1_SECTION_KEY,
-            False,
-        )
-
-        self.assertEqual({"section_controls": []}, result)
-        store.set_section_access_override.assert_awaited_once_with(
-            42,
-            ATTESTATION_STAGE_1_SECTION_KEY,
-            False,
-        )
-        service.admin_user_detail.assert_awaited_once_with(admin_auth(), 42)
-
     async def test_admin_controls_protected_section_visibility_without_granting_access(self):
         store = SimpleNamespace(
             set_section_visibility=AsyncMock(return_value=True),

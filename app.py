@@ -38,7 +38,7 @@ from customs_code import repository as customs_code_repository
 
 from questions import QuestionBank, open_practice_title
 from storage import Storage
-from access import ATTESTATION_STAGE_1_SECTION_KEY, CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access, section_access_override
+from access import CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access, section_access_override
 from sections import ALWAYS_FREE_SECTION_KEYS, PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_BANK_SLUG, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
@@ -79,14 +79,6 @@ def parse_admin_ids(raw: str) -> set[int]:
 
 def resolve_questions_path() -> Path:
     raw = (os.getenv("QUESTIONS_PATH") or "questions_flat.json").strip()
-    path = Path(raw)
-    if not path.is_absolute():
-        path = BASE_DIR / path
-    return path
-
-
-def resolve_attestation_stage_1_path() -> Path:
-    raw = (os.getenv("ATTESTATION_STAGE_1_PATH") or "attestation_stage_1.json").strip()
     path = Path(raw)
     if not path.is_absolute():
         path = BASE_DIR / path
@@ -143,9 +135,7 @@ async def get_payment_prices(store: "Storage") -> dict[str, int]:
 
 
 async def get_attestation_combined_test_settings(store: "Storage", bank: Any) -> dict[str, Any]:
-    if bank.slug == "stage-1":
-        section_key = ATTESTATION_STAGE_1_SECTION_KEY
-    elif bank.manual_grant_section_key:
+    if bank.manual_grant_section_key:
         section_key = bank.manual_grant_section_key
     elif bank.db_id is not None:
         section_key = f"attestation:{bank.db_id}"
@@ -371,11 +361,6 @@ class StartTestRequest(BaseModel):
     module_levels: dict[str, list[int]] = Field(default_factory=dict)
 
 
-class StartAttestationStage1Request(BaseModel):
-    section: str
-    block: Literal["1-50", "51-100", "101-150", "151-200", "random", "combined"]
-
-
 class StartAttestationRequest(BaseModel):
     section: str
     block: str
@@ -586,8 +571,6 @@ class MiniAppService:
                 if override:
                     return
                 require_http(403, "attestation_access_required", "Адміністратор закрив доступ до цього розділу.")
-        if bank_slug == "stage-1" and ATTESTATION_STAGE_1_SECTION_KEY in purchased:
-            return
         if has_attestation_access(auth.user) or (dynamic_key and dynamic_key in purchased):
             return
         require_http(403, "attestation_access_required", "Атестація доступна за 100 ⭐ або з повним доступом.")
@@ -596,7 +579,7 @@ class MiniAppService:
         meta = dict(state.get("meta", {}) or {})
         if meta.get("kind") == "customs_preview" and meta.get("preview") is True:
             return
-        if meta.get("kind") in {"attestation_stage_1", "attestation"}:
+        if meta.get("kind") == "attestation":
             if meta.get("preview") is True:
                 return
             self.ensure_attestation_access(auth, str(meta.get("bank_slug") or ""))
@@ -653,7 +636,7 @@ class MiniAppService:
             else None,
         }
 
-    def serialize_catalog(self, auth: AuthContext, *, include_stage_1: bool = True) -> dict[str, Any]:
+    def serialize_catalog(self, auth: AuthContext) -> dict[str, Any]:
         law_groups = []
         for key, qids in self.qb.law_groups.items():
             law_groups.append(
@@ -686,24 +669,9 @@ class MiniAppService:
                 }
             )
 
-        attestation_sections = self.qb.attestation_stage_1_sections()
         attestation_banks = []
-        if include_stage_1:
-            attestation_banks.append({
-                "slug": "stage-1",
-                "title": "Атестація посадових осіб — 1 етап",
-                "count": len(self.qb.attestation_stage_1),
-                "topics": len(attestation_sections),
-                "sections": attestation_sections,
-                "system": True,
-            })
-        visible_attestation_banks = [
-            bank for bank in self.qb.published_attestation_banks()
-            if include_stage_1 or bank.slug != "stage-1"
-        ]
+        visible_attestation_banks = self.qb.published_attestation_banks()
         for bank in visible_attestation_banks:
-            if bank.slug == "stage-1":
-                continue
             attestation_banks.append({
                 "slug": bank.slug,
                 "title": bank.title,
@@ -722,18 +690,11 @@ class MiniAppService:
         return {
             "law_groups": sort_law_groups(law_groups),
             "ok_modules": ok_modules,
-            "attestation_stage_1": {
-                "title": "Атестація посадових осіб — 1 етап",
-                "count": len(self.qb.attestation_stage_1) if include_stage_1 else 0,
-                "topics": len(attestation_sections) if include_stage_1 else 0,
-                "sections": attestation_sections if include_stage_1 else [],
-            },
             "attestation_banks": attestation_banks,
             "counts": {
                 "questions": len(self.qb.by_id),
                 "law": len(self.qb.law),
                 "ok_modules": len(self.qb.ok_modules),
-                "attestation_stage_1": len(self.qb.attestation_stage_1) if include_stage_1 else 0,
                 "attestation": sum(len(bank.qids) for bank in visible_attestation_banks),
             },
         }
@@ -750,7 +711,6 @@ class MiniAppService:
         prices = await get_payment_prices(self.store)
         home_visibility = await get_home_visibility(self.store)
         tq_visible = (await self.store.get_setting("test_questions_visible", "0")) == "1"
-        include_stage_1 = (await self.store.get_setting("attestation_stage_1_deleted", "0")) != "1"
         db_admin_url = await self.store.get_setting("admin_contact_url", "")
         admin_url = db_admin_url or get_admin_contact_url(self.runtime.admin_ids)
         sections = await build_sections(self.store, auth.user, is_admin=auth.is_admin)
@@ -769,7 +729,7 @@ class MiniAppService:
                 "admin_url": admin_url,
                 "webapp_url": self.runtime.webapp_url,
             },
-            "catalog": self.serialize_catalog(auth, include_stage_1=include_stage_1),
+            "catalog": self.serialize_catalog(auth),
             "stats": self.serialize_stats(stats),
             "saved_view": saved_view,
             "payment_prices": prices,
@@ -1152,10 +1112,9 @@ class MiniAppService:
         cleaned = [name for name in payload.modules if name in available]
         await self.store.set_ok_modules(auth.user_id, cleaned)
         auth.user = await self.store.get_user(auth.user_id)
-        include_stage_1 = (await self.store.get_setting("attestation_stage_1_deleted", "0")) != "1"
         return {
             "user": self.serialize_user(auth),
-            "catalog": self.serialize_catalog(auth, include_stage_1=include_stage_1),
+            "catalog": self.serialize_catalog(auth),
         }
 
     async def start_test(self, auth: AuthContext, payload: StartTestRequest) -> dict[str, Any]:
@@ -1232,20 +1191,6 @@ class MiniAppService:
         )
         return await self.build_session_view(auth)
 
-    async def start_attestation_stage_1(
-        self,
-        auth: AuthContext,
-        payload: StartAttestationStage1Request,
-    ) -> dict[str, Any]:
-        if (await self.store.get_setting("attestation_stage_1_deleted", "0")) == "1":
-            require_http(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
-        return await self.start_attestation(
-            auth,
-            "stage-1",
-            StartAttestationRequest(section=payload.section, block=payload.block),
-            legacy=True,
-        )
-
     async def attestation_practice_detail(
         self,
         auth: AuthContext,
@@ -1254,7 +1199,7 @@ class MiniAppService:
     ) -> dict[str, Any]:
         clean_bank_slug = (bank_slug or "").strip()
         bank = self.qb.attestation_banks.get(clean_bank_slug)
-        if (not bank or not bank.published) and clean_bank_slug != "stage-1":
+        if not bank or not bank.published:
             await self.qb.load_published_attestation_banks(self.store)
             bank = self.qb.attestation_banks.get(clean_bank_slug)
         if not bank or not bank.published:
@@ -1284,12 +1229,10 @@ class MiniAppService:
         auth: AuthContext,
         bank_slug: str,
         payload: StartAttestationRequest,
-        *,
-        legacy: bool = False,
     ) -> dict[str, Any]:
         clean_bank_slug = (bank_slug or "").strip()
         bank = self.qb.attestation_banks.get(clean_bank_slug)
-        if (not bank or not bank.published) and clean_bank_slug != "stage-1":
+        if not bank or not bank.published:
             # A newly published bank may be missing in this worker's memory
             # (for example after an admin action handled by another worker).
             # Refresh once from the shared database before returning 404.
@@ -1328,7 +1271,7 @@ class MiniAppService:
                 require_http(404, "attestation_block_not_found", "Обрану частину тесту не знайдено.")
             block_label = "Випадкові 50" if payload.block == "random" else payload.block
         session_meta = {
-            "kind": "attestation_stage_1" if legacy else "attestation",
+            "kind": "attestation",
             "bank_slug": bank.slug,
             "section": section,
             "block": payload.block,
@@ -1869,20 +1812,19 @@ class MiniAppService:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
         clean_key = (section_key or "").strip()
-        if clean_key != ATTESTATION_STAGE_1_SECTION_KEY:
-            section = await get_section(self.store, clean_key, is_admin=True)
-            if not section:
-                require_http(404, "section_not_found", "Розділ не знайдено.")
-            if clean_key in PROTECTED_SECTION_KEYS:
-                if not await self.store.set_section_visibility(target_id, clean_key, enabled):
-                    require_http(404, "user_not_found", "Користувача не знайдено.")
-                return await self.admin_user_detail(auth, target_id)
-            if clean_key in ALWAYS_FREE_SECTION_KEYS or not (
-                int(section.get("price") or 0) > 0
-                or bool(section.get("manual_grant_only"))
-                or clean_key in PROTECTED_SECTION_KEYS
-            ):
-                require_http(400, "section_is_free", "Цей розділ не потребує керування доступом.")
+        section = await get_section(self.store, clean_key, is_admin=True)
+        if not section:
+            require_http(404, "section_not_found", "Розділ не знайдено.")
+        if clean_key in PROTECTED_SECTION_KEYS:
+            if not await self.store.set_section_visibility(target_id, clean_key, enabled):
+                require_http(404, "user_not_found", "Користувача не знайдено.")
+            return await self.admin_user_detail(auth, target_id)
+        if clean_key in ALWAYS_FREE_SECTION_KEYS or not (
+            int(section.get("price") or 0) > 0
+            or bool(section.get("manual_grant_only"))
+            or clean_key in PROTECTED_SECTION_KEYS
+        ):
+            require_http(400, "section_is_free", "Цей розділ не потребує керування доступом.")
         if not await self.store.set_section_access_override(target_id, clean_key, enabled):
             require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
@@ -2115,10 +2057,8 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
             return
         user_id = message.from_user.id
         await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
-        paid_sections = [ATTESTATION_STAGE_1_SECTION_KEY]
         if tier == "full":
-            paid_sections.append(CUSTOMS_COMPETENCIES_SECTION_KEY)
-        await runtime.store.clear_section_access_overrides(user_id, paid_sections)
+            await runtime.store.clear_section_access_overrides(user_id, [CUSTOMS_COMPETENCIES_SECTION_KEY])
         label = "атестації" if tier == "cases" else "повного доступу"
         await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 
@@ -2196,11 +2136,6 @@ async def lifespan(app: FastAPI):
     await qb.load_from_db(store)
     if not qb.by_id:
         raise RuntimeError("No questions loaded from DB.")
-    attestation_stage_1_path = resolve_attestation_stage_1_path()
-    if not attestation_stage_1_path.exists():
-        raise RuntimeError(f"Attestation question file not found: {attestation_stage_1_path}")
-    qb.load_attestation_stage_1(str(attestation_stage_1_path))
-
     ukrainian_language_path = BASE_DIR / "data" / "ukrainian_language_questions"
     if not ukrainian_language_path.exists():
         raise RuntimeError(f"Ukrainian language question file not found: {ukrainian_language_path}")
@@ -2344,15 +2279,6 @@ async def api_session_leave(auth: AuthContext = Depends(get_auth_context), runti
 @app.post("/api/test/start")
 async def api_test_start(payload: StartTestRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).start_test(auth, payload)
-
-
-@app.post("/api/attestation/stage-1/start")
-async def api_attestation_stage_1_start(
-    payload: StartAttestationStage1Request,
-    auth: AuthContext = Depends(get_auth_context),
-    runtime: RuntimeContext = Depends(get_runtime),
-):
-    return await MiniAppService(runtime).start_attestation_stage_1(auth, payload)
 
 
 @app.post("/api/attestation/{bank_slug}/start")
@@ -2817,11 +2743,10 @@ async def api_admin_global_search(q: str = "", limit: int = 10, auth: AuthContex
         require_http(400, "short_query", "Введіть щонайменше 3 символи для пошуку.")
     per = max(1, min(int(limit), 20))
 
-    case_rows, test_data, managed_attestation_rows, stage_one_deleted = await asyncio.gather(
+    case_rows, test_data, managed_attestation_rows = await asyncio.gather(
         runtime.store.search_case_questions_all(q, limit=per),
         runtime.store.search_test_exam_questions(q, limit=per),
         runtime.store.search_attestation_questions_all(q, limit=per),
-        runtime.store.get_setting("attestation_stage_1_deleted", "0"),
     )
 
     runtime_attestation = {
@@ -2843,8 +2768,6 @@ async def api_admin_global_search(q: str = "", limit: int = 10, auth: AuthContex
         if not qobj:
             continue
         bank = runtime_attestation.get(int(qid))
-        if bank and bank.slug == "stage-1" and stage_one_deleted == "1":
-            continue
         item = {"id": int(qid), "question": qobj.question, "topic": qobj.topic, "ok": qobj.ok, "level": qobj.level, "qnum": qobj.qnum}
         if bank:
             bundled_attestation_items.append(item | {"bank_slug": bank.slug, "bank_title": bank.title})

@@ -115,22 +115,11 @@ class AttestationManagementApiTests(unittest.TestCase):
         moved = client.post("/api/admin/attestation-banks/7/move", json={"direction": "up"})
         deleted = client.delete("/api/admin/attestation-banks/7")
 
-        self.assertEqual("stage-1", listed.json()["items"][0]["slug"])
-        self.assertTrue(listed.json()["items"][0]["system"])
+        self.assertEqual("stage-2", listed.json()["items"][0]["slug"])
+        self.assertFalse(listed.json()["items"][0]["system"])
         self.assertEqual([("visibility", 7, False), ("move", 7, "up"), ("delete", 7)], store.calls)
         self.assertEqual(3, qb.reloads)
         self.assertEqual([200, 200, 204], [hidden.status_code, moved.status_code, deleted.status_code])
-
-    def test_admin_can_delete_bundled_stage_1(self):
-        app, store, _ = make_app()
-        client = TestClient(app)
-
-        deleted = client.delete("/api/admin/attestation-banks/stage-1")
-        listed = client.get("/api/admin/attestation-banks")
-
-        self.assertEqual(204, deleted.status_code)
-        self.assertEqual(("setting", "attestation_stage_1_deleted", "1"), store.calls[-1])
-        self.assertNotIn("stage-1", [item["slug"] for item in listed.json()["items"]])
 
     def test_admin_can_manage_bank_and_questions(self):
         app, store, qb = make_app()

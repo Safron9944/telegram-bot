@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ATTESTATION_STAGE_1_SECTION = "Атестація посадових осіб — 1 етап"
+LEGACY_ATTESTATION_STAGE_1_SECTION = "Атестація посадових осіб — 1 етап"
 
 
 def open_practice_title(question_text: str) -> str:
@@ -66,7 +66,6 @@ class QuestionBank:
         self.law: List[int] = []
         self.law_groups: Dict[str, List[int]] = {}
         self.ok_modules: Dict[str, Dict[int, List[int]]] = {}
-        self.attestation_stage_1: List[int] = []
         self.attestation_banks: Dict[str, AttestationBank] = {}
         self._law_group_titles: Dict[str, str] = {}
 
@@ -78,7 +77,6 @@ class QuestionBank:
         self.law.clear()
         self.law_groups.clear()
         self.ok_modules.clear()
-        self.attestation_stage_1.clear()
         self._law_group_titles.clear()
 
         for item in self._iter_raw_questions(raw):
@@ -108,7 +106,6 @@ class QuestionBank:
         self.law.clear()
         self.law_groups.clear()
         self.ok_modules.clear()
-        self.attestation_stage_1.clear()
         self._law_group_titles.clear()
 
         def _norm_json(v: Any):
@@ -120,6 +117,8 @@ class QuestionBank:
             return v
 
         for r in rows:
+            if (r.get("section") or "").strip() == LEGACY_ATTESTATION_STAGE_1_SECTION:
+                continue
             rid = int(r.get("id"))
             q = Q(
                 id=rid, section=(r.get("section") or ""), topic=(r.get("topic") or ""),
@@ -141,7 +140,7 @@ class QuestionBank:
         rows = await store.list_published_attestation_banks()
 
         for slug, bank in list(self.attestation_banks.items()):
-            if slug == "stage-1" or (bank.db_id is None and bank.source_id.startswith("bundled-")):
+            if bank.db_id is None and bank.source_id.startswith("bundled-"):
                 continue
             for qid in bank.qids:
                 self.by_id.pop(qid, None)
@@ -181,33 +180,6 @@ class QuestionBank:
                 published=True,
                 db_id=int(row["id"]) if row.get("id") is not None else None,
             )
-
-    def load_attestation_stage_1(self, path: str) -> None:
-        with open(path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-
-        for item in self._iter_raw_questions(raw):
-            norm = self._normalize_item(item)
-            if not norm:
-                continue
-            q = Q(
-                id=norm["id"], section=norm.get("section", ""), topic=norm.get("topic", ""),
-                ok=norm.get("ok"), level=norm.get("level"), qnum=norm.get("qnum"),
-                question=norm.get("question", ""), choices=norm.get("choices", []),
-                correct=norm.get("correct", []), correct_texts=norm.get("correct_texts", []),
-                shuffle_choices=bool(norm.get("shuffle_choices", True)),
-            )
-            if q.id in self.by_id:
-                raise ValueError(f"Duplicate attestation question id: {q.id}")
-            self.by_id[q.id] = q
-
-        self._build_indexes()
-        self.attestation_banks["stage-1"] = AttestationBank(
-            slug="stage-1",
-            title=ATTESTATION_STAGE_1_SECTION,
-            qids=list(self.attestation_stage_1),
-            source_id="bundled-stage-1",
-        )
 
     def load_bundled_attestation_bank(
         self,
@@ -278,14 +250,12 @@ class QuestionBank:
         self.law.clear()
         self.law_groups.clear()
         self.ok_modules.clear()
-        self.attestation_stage_1.clear()
         self._law_group_titles.clear()
 
         for qid, q in self.by_id.items():
             if not q.is_valid_mcq:
                 continue
-            if (q.section or "").strip() == ATTESTATION_STAGE_1_SECTION:
-                self.attestation_stage_1.append(qid)
+            if (q.section or "").strip() == LEGACY_ATTESTATION_STAGE_1_SECTION:
                 continue
             sec = (q.section or "").lower()
             is_ok = bool(q.ok) or ("операцій" in sec and "компет" in sec)
@@ -307,7 +277,6 @@ class QuestionBank:
         for k in self.law_groups:
             self.law_groups[k].sort(key=_ord_key)
         self.law.sort(key=_ord_key)
-        self.attestation_stage_1.sort(key=lambda qid: (self.by_id[qid].topic, *_ord_key(qid)))
         for ok in self.ok_modules:
             for lvl in self.ok_modules[ok]:
                 self.ok_modules[ok][lvl].sort(key=_ord_key)
@@ -327,45 +296,6 @@ class QuestionBank:
             return list(qids)
         return random.sample(qids, n)
 
-    def attestation_stage_1_sections(self) -> List[Dict[str, Any]]:
-        counts: Dict[str, int] = {}
-        for qid in sorted(self.attestation_stage_1):
-            title = (self.by_id[qid].topic or "Інші питання").strip()
-            counts[title] = counts.get(title, 0) + 1
-        return [
-            {
-                "key": title,
-                "title": title,
-                "count": count,
-                "blocks": [
-                    {"key": f"{start}-{min(start + 49, count)}", "title": f"{start}-{min(start + 49, count)}"}
-                    for start in range(1, count + 1, 50)
-                ],
-            }
-            for title, count in counts.items()
-        ]
-
-    def attestation_stage_1_section_qids(self, section: str) -> List[int]:
-        qids = [
-            qid for qid in self.attestation_stage_1
-            if (self.by_id[qid].topic or "").strip() == section.strip()
-        ]
-        qids.sort(key=lambda qid: (self.by_id[qid].qnum or 10 ** 9, qid))
-        return qids
-
-    def attestation_stage_1_block_qids(self, section: str, block: str) -> List[int]:
-        pool = self.attestation_stage_1_section_qids(section)
-        if block == "random":
-            return self.pick_random(pool, 50)
-        ranges = {
-            "1-50": (0, 50),
-            "51-100": (50, 100),
-            "101-150": (100, 150),
-            "151-200": (150, 200),
-        }
-        start, end = ranges.get(block, (0, 0))
-        return pool[start:end]
-
     def register_attestation_bank(
         self,
         slug: str,
@@ -383,8 +313,7 @@ class QuestionBank:
         previous = self.attestation_banks.get(slug)
         if previous:
             for qid in previous.qids:
-                if qid not in self.attestation_stage_1:
-                    self.by_id.pop(qid, None)
+                self.by_id.pop(qid, None)
         qids: List[int] = []
         for question in questions:
             if question.id in self.by_id and question.id not in (previous.qids if previous else []):
