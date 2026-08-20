@@ -15,6 +15,8 @@ export const state = {
   attestationAdminQuery: "",
   attestationAdminOffset: 0,
   adminUsersOffset: 0,
+  adminUsersQuery: "",
+  adminUsersFilter: "all",
   adminNoticeAudience: "all",
   adminNoticeUserIds: [],
   adminNoticeOpen: false,

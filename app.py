@@ -1697,11 +1697,19 @@ class MiniAppService:
             require_http(404, "case_not_found", "Кейс не знайдено.")
         return {"ok": True}
 
-    async def list_admin_users(self, auth: AuthContext, offset: int, limit: int = 10) -> dict[str, Any]:
+    async def list_admin_users(
+        self,
+        auth: AuthContext,
+        offset: int,
+        limit: int = 10,
+        query: str = "",
+        access_filter: str = "all",
+    ) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
 
-        items = await self.store.list_users(offset, limit + 1)
+        access_filter = access_filter if access_filter in {"all", "active", "inactive"} else "all"
+        items = await self.store.list_users(offset, limit + 1, query[:100], access_filter)
         has_next = len(items) > limit
         page_items = items[:limit]
         counts = await self.store.users_access_counts()
@@ -2638,8 +2646,21 @@ async def api_admin_case_delete(case_id: int, auth: AuthContext = Depends(get_au
 
 
 @app.get("/api/admin/users")
-async def api_admin_users(offset: int = 0, limit: int = 10, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).list_admin_users(auth, max(0, offset), max(1, min(limit, 50)))
+async def api_admin_users(
+    offset: int = 0,
+    limit: int = 10,
+    q: str = "",
+    status: str = "all",
+    auth: AuthContext = Depends(get_auth_context),
+    runtime: RuntimeContext = Depends(get_runtime),
+):
+    return await MiniAppService(runtime).list_admin_users(
+        auth,
+        max(0, offset),
+        max(1, min(limit, 50)),
+        q.strip(),
+        status,
+    )
 
 
 @app.get("/api/admin/users/mini-app-notice")
