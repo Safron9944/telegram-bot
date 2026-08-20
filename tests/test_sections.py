@@ -1,6 +1,5 @@
 import unittest
 
-from access import ATTESTATION_STAGE_1_SECTION_KEY
 from sections import PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, move_section, reorder_section_group, update_section
 
 
@@ -39,10 +38,6 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
         customs = next(item for item in items if item["key"] == "customs")
         self.assertFalse(customs["has_access"])
         self.assertEqual(50, customs["preview_count"])
-        stage_one = next(item for item in items if item["key"] == ATTESTATION_STAGE_1_SECTION_KEY)
-        self.assertEqual("stage-1", stage_one["bank_slug"])
-        self.assertTrue(stage_one["combined_test_enabled"])
-        self.assertEqual(100, stage_one["combined_test_question_count"])
         language = next(item for item in items if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY)
         self.assertTrue(language["manual_grant_only"])
         self.assertFalse(language["has_access"])
@@ -140,31 +135,25 @@ class SectionCatalogTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_combined_test_settings_are_saved_per_attestation(self):
         store = FakeStore()
-        await update_section(store, ATTESTATION_STAGE_1_SECTION_KEY, {
-            "combined_test_enabled": False,
-            "combined_test_question_count": 150,
-        })
         await update_section(store, "attestation:7", {
             "combined_test_enabled": True,
             "combined_test_question_count": 80,
         })
 
         items = await build_sections(store, {}, is_admin=True)
-        stage_one = next(item for item in items if item["key"] == ATTESTATION_STAGE_1_SECTION_KEY)
         stage_two = next(item for item in items if item["key"] == "attestation:7")
-        self.assertEqual((False, 150), (stage_one["combined_test_enabled"], stage_one["combined_test_question_count"]))
         self.assertEqual((True, 80), (stage_two["combined_test_enabled"], stage_two["combined_test_question_count"]))
 
     async def test_default_order_matches_home_groups_and_move_stays_in_group(self):
         store = FakeStore()
         items = await build_sections(store, {}, is_admin=True)
         self.assertEqual(
-            ["attestation_stage_1", "attestation:7", "customs", "ukrainian_language", "cases", "customs_code", "test_questions", "question_search", "support"],
+            ["attestation:7", "customs", "ukrainian_language", "cases", "customs_code", "test_questions", "question_search", "support"],
             [item["key"] for item in items],
         )
         self.assertTrue(await move_section(store, "customs", "up"))
         moved = await build_sections(store, {}, is_admin=True)
-        self.assertEqual(["attestation_stage_1", "customs", "attestation:7", "ukrainian_language"], [item["key"] for item in moved if item["group"] == "primary"])
+        self.assertEqual(["customs", "attestation:7", "ukrainian_language"], [item["key"] for item in moved if item["group"] == "primary"])
         self.assertEqual(["cases", "customs_code", "test_questions", "question_search"], [item["key"] for item in moved if item["group"] == "materials"])
 
     async def test_drag_order_reorders_exact_group_and_rejects_incomplete_list(self):
