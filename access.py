@@ -9,7 +9,6 @@ if TYPE_CHECKING:
 from utils import now
 
 
-ATTESTATION_STAGE_1_SECTION_KEY = "attestation_stage_1"
 CUSTOMS_COMPETENCIES_SECTION_KEY = "customs"
 
 
@@ -50,10 +49,7 @@ def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
 
 
 def has_attestation_access(user: Dict[str, Any]) -> bool:
-    """Stage 1 attestation is included in the 100-star and full tiers."""
-    override = section_access_override(user, ATTESTATION_STAGE_1_SECTION_KEY)
-    if override is not None:
-        return override
+    """Attestation banks are included in the attestation and full tiers."""
     return access_tier(user) in ("cases", "full")
 
 

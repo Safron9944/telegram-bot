@@ -918,14 +918,13 @@ export function renderOkLevels(ctx) {
 }
 
 /* ===================== PUBLISHED ATTESTATION BANKS ===================== */
-export function renderAttestationStage1(ctx) {
+export function renderAttestationBank(ctx) {
   const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
-  const fallbackSlug = ctx.state.currentScreen === "attestation-stage-1" ? "stage-1" : "";
-  const slug = ctx.state.selectedAttestationBankSlug || fallbackSlug;
+  const slug = ctx.state.selectedAttestationBankSlug || "";
   const bank = banks.find((item) => item.slug === slug) || banks[0];
   const sections = bank?.sections || [];
   const managedSection = (ctx.state.bootstrap.sections || []).find((item) => item.bank_slug === bank?.slug);
-  const hasFullBankAccess = Boolean(ctx.state.bootstrap.user.is_admin || managedSection?.has_access || (bank?.system && !managedSection));
+  const hasFullBankAccess = Boolean(ctx.state.bootstrap.user.is_admin || managedSection?.has_access);
   const previewCount = Number(bank?.preview_count || managedSection?.preview_count || 0);
   const testSections = sections.filter((item) => !item.practice);
   const combinedTestSettings = ctx.state.bootstrap.attestation_combined_tests?.[bank?.slug] || {};
@@ -1111,7 +1110,7 @@ export function renderAttestationParts(ctx) {
   const section = ctx.state.selectedAttestationSection;
   if (!section) {
     ctx.state.currentScreen = "attestation-bank";
-    renderAttestationStage1(ctx);
+    renderAttestationBank(ctx);
     return;
   }
   if (section.practice) {

@@ -26,11 +26,17 @@ class PublishedStore:
         }]
 
 
-class ConflictingStage1Store:
-    async def list_published_attestation_banks(self):
-        row = dict((await PublishedStore().list_published_attestation_banks())[0])
-        row.update({"slug": "stage-1", "title": "Старий запис", "source_id": "stage-1.enc"})
-        return [row]
+class LegacyQuestionStore:
+    async def fetch_questions(self):
+        return [{
+            "id": 101,
+            "section": "Атестація посадових осіб — 1 етап",
+            "topic": "Старий розділ",
+            "question": "Старе питання?",
+            "choices": ["A", "B"],
+            "correct": [1],
+            "correct_texts": ["A"],
+        }]
 
 
 class PausedPublishedStore(PublishedStore):
@@ -61,30 +67,27 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         catalog = MiniAppService(runtime).serialize_catalog(auth)
 
-        self.assertEqual(["stage-1", "stage-2"], [item["slug"] for item in catalog["attestation_banks"]])
-        self.assertTrue(catalog["attestation_banks"][0]["system"])
-        self.assertFalse(catalog["attestation_banks"][1]["system"])
-        self.assertEqual("Новий розділ", catalog["attestation_banks"][1]["sections"][0]["title"])
+        self.assertEqual(["stage-2"], [item["slug"] for item in catalog["attestation_banks"]])
+        self.assertFalse(catalog["attestation_banks"][0]["system"])
+        self.assertEqual("Новий розділ", catalog["attestation_banks"][0]["sections"][0]["title"])
 
-    async def test_catalog_can_exclude_deleted_bundled_stage_1(self):
+    async def test_catalog_has_no_legacy_system_bank(self):
         bank = QuestionBank("unused.json")
         await bank.load_published_attestation_banks(PublishedStore())
         runtime = SimpleNamespace(qb=bank, store=None)
         auth = AuthContext({}, {"ok_modules": [], "ok_last_levels": []}, 1, False)
 
-        catalog = MiniAppService(runtime).serialize_catalog(auth, include_stage_1=False)
+        catalog = MiniAppService(runtime).serialize_catalog(auth)
 
         self.assertEqual(["stage-2"], [item["slug"] for item in catalog["attestation_banks"]])
-        self.assertEqual(0, catalog["attestation_stage_1"]["count"])
+        self.assertNotIn("attestation_stage_1", catalog)
 
-    async def test_database_row_cannot_replace_bundled_stage_1_questions(self):
+    async def test_legacy_questions_in_database_are_ignored(self):
         bank = QuestionBank("unused.json")
-        bank.load_attestation_stage_1("attestation_stage_1.json")
+        await bank.load_from_db(LegacyQuestionStore())
 
-        await bank.load_published_attestation_banks(ConflictingStage1Store())
-
-        self.assertEqual(800, len(bank.attestation_banks["stage-1"].qids))
-        self.assertEqual(800, len(bank.attestation_stage_1))
+        self.assertEqual({}, bank.by_id)
+        self.assertEqual({}, bank.attestation_banks)
 
     async def test_database_reload_preserves_other_bundled_banks(self):
         bank = QuestionBank("unused.json")

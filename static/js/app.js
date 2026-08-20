@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260820-attestation-test-card-10";
+import { state } from "./core/state.js?v=20260820-remove-legacy-stage1-11";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-browse-03";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -13,7 +13,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260820-attestation-test-card-10";
+} from "./core/ui.js?v=20260820-remove-legacy-stage1-11";
 import {
   loadCaseDetail,
   loadCases,
@@ -24,7 +24,7 @@ import {
   renderCaseDetail,
   renderCases,
   renderAttestationParts,
-  renderAttestationStage1,
+  renderAttestationBank,
   renderCustoms,
   renderCustomsArticle,
   renderCustomsCode,
@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260820-attestation-test-card-10";
+} from "./screens/user.js?v=20260820-remove-legacy-stage1-11";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -64,7 +64,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260820-attestation-test-card-10";
+} from "./screens/admin.js?v=20260820-remove-legacy-stage1-11";
 import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
 import {
   cleanupAdminApkImport,
@@ -83,7 +83,7 @@ import {
   renderAdminSectionSettings,
   renderAdminSectionTopics,
   renderAdminSectionTopicEdit,
-} from "./admin_sections.js?v=20260820-attestation-test-card-10";
+} from "./admin_sections.js?v=20260820-remove-legacy-stage1-11";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",
@@ -91,7 +91,6 @@ const PROTOTYPE_SCREENS = new Set([
   "learning",
   "law-parts",
   "ok-levels",
-  "attestation-stage-1",
   "attestation-bank",
   "attestation-parts",
   "testing",
@@ -377,8 +376,7 @@ function render() {
 
   switch (state.currentScreen) {
     case "home":              renderHome(ctx); break;
-    case "attestation-stage-1": renderAttestationStage1(ctx); break;
-    case "attestation-bank":    renderAttestationStage1(ctx); break;
+    case "attestation-bank":    renderAttestationBank(ctx); break;
     case "attestation-parts": renderAttestationParts(ctx); break;
     case "learning":          renderLearning(ctx); break;
     case "law-parts":         renderLawParts(ctx); break;
