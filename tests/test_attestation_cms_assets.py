@@ -24,6 +24,7 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         module = (ROOT / "static/js/admin_attestation_banks.js").read_text(encoding="utf-8")
         sections = (ROOT / "static/js/admin_sections.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles/components.css").read_text(encoding="utf-8")
+        prototype = (ROOT / "static/styles/prototype.css").read_text(encoding="utf-8")
 
         self.assertIn("/questions?topic=", module)
         self.assertIn("Додати питання", module)
@@ -33,6 +34,8 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn("Показувати користувачам", sections)
         self.assertIn("Видалити розділ", sections)
         self.assertIn("admin-section-order", sections)
+        self.assertIn("admin-section-menu-screen", sections)
+        self.assertIn(".ui-prototype .admin-section-menu-screen > .group", prototype)
         self.assertIn("attestation-managed-question-form", styles)
         self.assertIn("attestation-bank-filters", styles)
 
