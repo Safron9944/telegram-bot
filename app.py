@@ -1281,6 +1281,34 @@ class MiniAppService:
         if practice_qids:
             require_http(400, "open_practice_browse_required", "Ці теми доступні для перегляду зі списку.")
         session_header = f"{bank.title} • Загальний тест" if is_combined_test else f"{section} • {block_label}"
+        if is_combined_test:
+            blocks: dict[str, list[int]] = {}
+            for qid in qids:
+                question = self.qb.by_id.get(qid)
+                topic = (question.topic if question else "") or "Інші питання"
+                blocks.setdefault(topic, []).append(qid)
+            await self.set_state(
+                auth.user_id,
+                {
+                    "mode": "test",
+                    "header": session_header,
+                    "pending": list(qids),
+                    "skipped": [],
+                    "phase": "pending",
+                    "feedback": None,
+                    "current_qid": None,
+                    "correct_count": 0,
+                    "total": len(qids),
+                    "started_at": dt_to_iso(now()),
+                    "answers": {},
+                    "chosen": {},
+                    "choice_orders": {},
+                    "test_blocks": blocks,
+                    "result_title": "Загальний тест завершено",
+                    "meta": session_meta,
+                },
+            )
+            return await self.build_session_view(auth)
         await self.start_learning_session(
             auth.user_id,
             qids,

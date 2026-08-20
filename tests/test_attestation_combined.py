@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
 
-from app import AuthContext, MiniAppService, StartAttestationRequest
+from app import AnswerRequest, AuthContext, MiniAppService, StartAttestationRequest
 from questions import Q, QuestionBank
 
 
@@ -31,6 +31,7 @@ def make_bank() -> QuestionBank:
                 choices=["А", "Б", "В", "Г"],
                 correct=[1],
                 correct_texts=["А"],
+                shuffle_choices=False,
             ))
     bank.register_attestation_bank(
         "stage-2",
@@ -40,6 +41,25 @@ def make_bank() -> QuestionBank:
         db_id=7,
     )
     return bank
+
+
+class StateStore:
+    def __init__(self, settings=""):
+        self.settings = settings
+        self.states = {}
+        self.saved_tests = []
+
+    async def get_setting(self, key, default=None):
+        return self.settings or default
+
+    async def set_state(self, user_id, state):
+        self.states[user_id] = state
+
+    async def get_ui(self, user_id):
+        return {"state": self.states.get(user_id, {})}
+
+    async def save_test(self, *args):
+        self.saved_tests.append(args)
 
 
 class AttestationCombinedTests(unittest.IsolatedAsyncioTestCase):
@@ -54,10 +74,8 @@ class AttestationCombinedTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_admin_question_count_is_used_per_bank(self):
         settings = json.dumps({"attestation:7": {"combined_test_question_count": 80}})
-        store = SimpleNamespace(get_setting=AsyncMock(return_value=settings))
+        store = StateStore(settings)
         service = MiniAppService(SimpleNamespace(store=store, qb=self.bank))
-        service.start_learning_session = AsyncMock()
-        service.build_session_view = AsyncMock(return_value={"mode": "learn"})
         auth = AuthContext({"id": 1}, {"user_id": 1}, 1, True)
 
         await service.start_attestation(
@@ -66,10 +84,43 @@ class AttestationCombinedTests(unittest.IsolatedAsyncioTestCase):
             StartAttestationRequest(section="", block="combined"),
         )
 
-        qids = service.start_learning_session.await_args.args[1]
+        state = store.states[1]
+        qids = state["pending"]
         counts = Counter(self.bank.by_id[qid].topic for qid in qids)
+        self.assertEqual("test", state["mode"])
         self.assertEqual(80, len(qids))
         self.assertEqual({20}, set(counts.values()))
+
+    async def test_answers_are_hidden_until_the_final_result(self):
+        settings = json.dumps({"attestation:7": {"combined_test_question_count": 4}})
+        store = StateStore(settings)
+        service = MiniAppService(SimpleNamespace(store=store, qb=self.bank))
+        auth = AuthContext(
+            {"id": 3},
+            {"user_id": 3, "sub_infinite": True, "sub_tier": "full"},
+            3,
+            False,
+        )
+
+        view = await service.start_attestation(
+            auth,
+            "stage-2",
+            StartAttestationRequest(section="", block="combined"),
+        )
+        self.assertEqual(("test", "question"), (view["mode"], view["screen"]))
+
+        view = await service.answer(auth, AnswerRequest(choice=1))
+        self.assertEqual("question", view["screen"])
+        self.assertIsNone(store.states[3]["feedback"])
+
+        for _ in range(3):
+            view = await service.answer(auth, AnswerRequest(choice=0))
+
+        self.assertEqual(("test_result", "result"), (view["mode"], view["screen"]))
+        self.assertEqual(3, view["summary"]["correct"])
+        self.assertEqual(4, view["summary"]["total"])
+        self.assertEqual(1, view["wrong_count"])
+        self.assertEqual(1, len(store.saved_tests))
 
     async def test_hidden_combined_test_is_rejected_for_user(self):
         settings = json.dumps({"attestation:7": {"combined_test_enabled": False}})
