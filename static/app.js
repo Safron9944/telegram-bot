@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260820-admin-section-overlap-07";
+import "/static/js/app.js?v=20260820-admin-section-layout-08";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

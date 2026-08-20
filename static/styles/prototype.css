@@ -310,10 +310,13 @@ body.ui-prototype {
   margin: 0;
 }
 
+.ui-prototype .admin-section-menu-screen > .group {
+  margin-right: 16px;
+  margin-left: 16px;
+}
+
 .ui-prototype .admin-section-menu-screen > .page-hero + .group {
-  position: relative;
-  z-index: 1;
-  margin-top: -20px;
+  margin-top: 12px;
 }
 
 .ui-prototype .group__label {
@@ -2056,6 +2059,11 @@ body.ui-prototype {
   .ui-prototype .admin-sticky-action {
     padding-right: 12px;
     padding-left: 12px;
+  }
+
+  .ui-prototype .admin-section-menu-screen > .group {
+    margin-right: 12px;
+    margin-left: 12px;
   }
 
   .ui-prototype .admin-user-status {
