@@ -11,7 +11,9 @@ class AdminInformationArchitectureTests(unittest.TestCase):
         hub = admin.split("/* ===================== ADMIN ATTESTATION BANKS", 1)[0]
 
         self.assertEqual(1, hub.count('title: "Пошук по всіх питаннях"'))
-        self.assertEqual(3, hub.count("ctx.cell({"))
+        self.assertEqual(4, hub.count("ctx.cell({"))
+        self.assertIn('title: "Користувачі"', hub)
+        self.assertIn('screen: "admin-users"', hub)
         self.assertIn('screen: "admin-attestation-banks"', hub)
         self.assertNotIn('screen: "admin-stats"', hub)
         self.assertNotIn('screen: "admin-messages"', hub)
@@ -21,6 +23,11 @@ class AdminInformationArchitectureTests(unittest.TestCase):
         self.assertNotIn('title: "Питання з APK"', hub)
         self.assertNotIn('title: "Розділи атестації"', hub)
         self.assertNotIn("Атестація посадових осіб — 1 етап", hub)
+
+    def test_admin_entry_opens_hub_instead_of_users(self):
+        user = (ROOT / "static/js/screens/user.js").read_text(encoding="utf-8")
+        self.assertEqual(2, user.count('screen: "admin"'))
+        self.assertNotIn('screen: "admin-users"', user)
 
     def test_section_settings_are_not_duplicated_in_general_settings(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
