@@ -1,5 +1,3 @@
-let adminUserSearchTimer = null;
-
 function adminMobileHeader(title, { actionId = "", actionLabel = "", actionAria = "" } = {}) {
   return `
     <header class="admin-mobile-header">
@@ -305,12 +303,12 @@ export function renderAdminUsers(ctx) {
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-users-screen admin-top-level-screen">
-      ${adminMobileHeader("Користувачі", { actionId: "admin-users-more", actionLabel: "⋯", actionAria: "Адмін-панель" })}
+      ${adminMobileHeader("Користувачі")}
       <div class="admin-prototype-body">
-        <div class="admin-user-search-wrap">
-          <span class="admin-user-search-icon">⌕</span>
-          <input class="admin-user-search" id="admin-user-search" type="search" value="${ctx.escapeHtml(ctx.state.adminUsersQuery || "")}" placeholder="Пошук за ім’ям або ID">
-        </div>
+        <button class="admin-users-notice-button" id="admin-users-notice" type="button">
+          ${ctx.lineIcon("message")}
+          <span>Надіслати повідомлення</span>
+        </button>
 
         <div class="admin-filter-chips" id="admin-user-filter-chips">
           <button class="admin-filter-chip" data-user-filter="all" type="button">Усі</button>
@@ -326,17 +324,10 @@ export function renderAdminUsers(ctx) {
         </div>
         <div class="row admin-list-pagination" id="admin-users-pagination"></div>
       </div>
-      <button class="admin-message-fab" id="admin-message-fab" type="button" aria-label="Надіслати повідомлення">${ctx.lineIcon("message")}</button>
     </section>
   `;
-  ctx.refs.mainPanel.querySelector("#admin-users-more")?.addEventListener("click", () => ctx.navigate("admin"));
-  ctx.refs.mainPanel.querySelector("#admin-message-fab")?.addEventListener("click", () => ctx.navigate("admin-messages"));
-  ctx.refs.mainPanel.querySelector("#admin-user-search")?.addEventListener("input", (event) => {
-    ctx.state.adminUsersQuery = event.currentTarget.value;
-    ctx.state.adminUsersOffset = 0;
-    window.clearTimeout(adminUserSearchTimer);
-    adminUserSearchTimer = window.setTimeout(() => void loadAdminUsers(ctx, 0), 250);
-  });
+  ctx.state.adminUsersQuery = "";
+  ctx.refs.mainPanel.querySelector("#admin-users-notice")?.addEventListener("click", () => ctx.navigate("admin-messages"));
   ctx.refs.mainPanel.querySelectorAll("[data-user-filter]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.userFilter === ctx.state.adminUsersFilter);
     button.addEventListener("click", () => {
