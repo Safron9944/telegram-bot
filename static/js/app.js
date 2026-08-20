@@ -1,5 +1,5 @@
 import { refs } from "./core/dom.js?v=20260617-question-search-04";
-import { state } from "./core/state.js?v=20260812-editable-notice-01";
+import { state } from "./core/state.js?v=20260820-admin-mobile-01";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-browse-03";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
@@ -13,7 +13,7 @@ import {
   setChrome,
   setMessage,
   statPill,
-} from "./core/ui.js?v=20260815-language-browse-03";
+} from "./core/ui.js?v=20260820-admin-mobile-01";
 import {
   loadCaseDetail,
   loadCases,
@@ -41,11 +41,13 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260816-paid-functions-01";
+} from "./screens/user.js?v=20260820-admin-mobile-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
+  loadAdminMessages,
   loadAdminQuestions,
+  loadAdminStats,
   loadAdminTestQuestions,
   loadAdminUserDetail,
   loadAdminUsers,
@@ -54,14 +56,16 @@ import {
   renderAdminAttestationBanks,
   renderAdminGlobalSearch,
   renderAdminHub,
+  renderAdminMessages,
   renderAdminQuestionDetail,
   renderAdminQuestionView,
   renderAdminQuestions,
+  renderAdminStats,
   renderAdminTestQuestions,
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20260819-admin-user-compact-01";
+} from "./screens/admin.js?v=20260820-admin-mobile-01";
 import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
 import {
   cleanupAdminApkImport,
@@ -107,6 +111,8 @@ const PROTOTYPE_SCREENS = new Set([
   "admin-global-search",
   "admin-apk-import",
   "admin-users",
+  "admin-messages",
+  "admin-stats",
   "admin-user-detail",
   "admin-questions",
   "admin-question-detail",
@@ -293,6 +299,8 @@ async function goBack() {
 function ensureScreenData(screen = state.currentScreen) {
   if (state.currentView) return;
   if (screen === "admin-users") void loadAdminUsers(createContext(), state.adminUsersOffset);
+  if (screen === "admin-messages") void loadAdminMessages(createContext(), state.adminUsersOffset);
+  if (screen === "admin-stats") void loadAdminStats(createContext());
   if (screen === "admin-user-detail") void loadAdminUserDetail(createContext(), state.selectedAdminUserId);
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
@@ -393,6 +401,8 @@ function render() {
     case "admin-global-search":    renderAdminGlobalSearch(ctx); break;
     case "admin-apk-import":       renderAdminApkImport(ctx); break;
     case "admin-users":            renderAdminUsers(ctx); break;
+    case "admin-messages":         renderAdminMessages(ctx); break;
+    case "admin-stats":            renderAdminStats(ctx); break;
     case "admin-user-detail":      renderAdminUserDetail(ctx); break;
     case "admin-questions":        renderAdminQuestions(ctx); break;
     case "admin-question-detail":  renderAdminQuestionDetail(ctx); break;

@@ -133,7 +133,7 @@ export function renderHome(ctx) {
     if (section.group === "help") helpItems.push(cell);
   });
   if (user.is_admin) {
-    helpItems.push(prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin" }));
+    helpItems.push(prototypeMenuCell(ctx, { title: "Адмін-панель", icon: "settings", screen: "admin-users" }));
   }
 
   ctx.setChrome({ showBack: false });
@@ -1332,7 +1332,7 @@ export function renderHelp(ctx) {
                   subtitle: "Користувачі та банк питань",
                   iconName: "settings",
                   tint: "indigo",
-                  screen: "admin",
+                  screen: "admin-users",
                 }),
               ].join(""),
             })

@@ -1,29 +1,48 @@
+const ADMIN_TABS = [
+  { key: "users", label: "Користувачі", icon: "users", screen: "admin-users" },
+  { key: "sections", label: "Розділи", icon: "document", screen: "admin-attestation-banks" },
+  { key: "stats", label: "Статистика", icon: "chart", screen: "admin-stats" },
+  { key: "messages", label: "Повідомлення", icon: "message", screen: "admin-messages" },
+  { key: "tools", label: "Інструменти", icon: "settings", screen: "admin" },
+];
+
+function adminMobileHeader(title, subtitle = "") {
+  return `
+    <header class="admin-mobile-header">
+      <span class="admin-mobile-header__eyebrow">Адмін-панель</span>
+      <h1>${title}</h1>
+      ${subtitle ? `<p>${subtitle}</p>` : ""}
+    </header>
+  `;
+}
+
+function mountAdminTabs(ctx, active) {
+  const nav = document.createElement("nav");
+  nav.className = "admin-tab-bar";
+  nav.setAttribute("aria-label", "Навігація адмін-панелі");
+  nav.innerHTML = ADMIN_TABS.map((item) => `
+    <button class="admin-tab-bar__item${item.key === active ? " is-active" : ""}" type="button" data-admin-screen="${item.screen}">
+      <span class="admin-tab-bar__icon">${ctx.lineIcon(item.icon)}</span>
+      <span>${item.label}</span>
+    </button>
+  `).join("");
+  nav.querySelectorAll("[data-admin-screen]").forEach((button) => {
+    button.addEventListener("click", () => ctx.navigate(button.dataset.adminScreen, { replace: true }));
+  });
+  ctx.refs.mainPanel.append(nav);
+}
+
 /* ===================== ADMIN HUB ===================== */
 export function renderAdminHub(ctx) {
   ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content">
-      <h1 class="page-title">Адмін</h1>
-      <p class="page-subtitle">Керування застосунком і контентом.</p>
+    <section class="screen-content admin-top-level-screen">
+      ${adminMobileHeader("Інструменти", "Рідше використовувані дії зібрані окремо.")}
 
       ${ctx.group({
-        header: "Основне",
+        header: "Контент",
         children: [
-          ctx.cell({
-            title: "Користувачі",
-            subtitle: "Доступ і статус",
-            iconName: "users",
-            tint: "blue",
-            screen: "admin-users",
-          }),
-          ctx.cell({
-            title: "Розділи",
-            subtitle: "Назви, ціни, порядок і вміст",
-            iconName: "document",
-            tint: "purple",
-            screen: "admin-attestation-banks",
-          }),
           ctx.cell({
             title: "Питання " + "з APK",
             subtitle: "Витягнути питання і створити розділ",
@@ -44,15 +63,15 @@ export function renderAdminHub(ctx) {
   `;
 
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+  mountAdminTabs(ctx, "tools");
 }
 
 /* ===================== ADMIN ATTESTATION BANKS ===================== */
 export function renderAdminAttestationBanks(ctx) {
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content admin-attestation-overview">
-      <h1 class="page-title">Розділи</h1>
-      <p class="page-subtitle">Затисніть ручку справа і перетягніть розділ на потрібне місце.</p>
+    <section class="screen-content admin-attestation-overview admin-top-level-screen">
+      ${adminMobileHeader("Розділи", "Порядок, видимість і ціни навчальних розділів.")}
 
       <form class="admin-section-form" id="admin-full-price-form">
         <label class="field">
@@ -98,6 +117,7 @@ export function renderAdminAttestationBanks(ctx) {
     }
   });
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
+  mountAdminTabs(ctx, "sections");
 }
 
 function enableSectionDrag(ctx, groupList, groupName) {
@@ -243,43 +263,11 @@ export function renderAdminUsers(ctx) {
   ctx.setChrome({ showBack: true });
 
   ctx.refs.mainPanel.innerHTML = `
-    <section class="screen-content admin-users-screen">
-      <h1 class="page-title">Користувачі</h1>
-
+    <section class="screen-content admin-users-screen admin-top-level-screen">
+      ${adminMobileHeader("Користувачі", "Оберіть профіль, щоб переглянути доступ та результати.")}
       <div id="admin-users-summary"></div>
-
-      <details class="admin-notice-panel" id="admin-notice-panel"${ctx.state.adminNoticeOpen ? " open" : ""}>
-        <summary class="admin-notice-panel__summary">
-          <span class="admin-notice-panel__icon" aria-hidden="true">✉</span>
-          <span class="admin-notice-panel__body">
-            <span class="admin-notice-panel__title">Повідомлення</span>
-            <span class="admin-notice-panel__subtitle">Надіслати всім або вибраним користувачам</span>
-          </span>
-          <span class="admin-notice-panel__chevron" aria-hidden="true"></span>
-        </summary>
-        <div class="admin-notice-panel__content">
-          <div class="admin-notice-controls">
-            <div class="segmented" role="group" aria-label="Кому надіслати повідомлення">
-              <button class="segmented__btn" id="admin-notice-all" type="button">Усім</button>
-              <button class="segmented__btn" id="admin-notice-selected" type="button">Вибраним</button>
-            </div>
-            <div class="admin-notice-scope-row">
-              <span id="admin-mini-app-notice-scope"></span>
-              <button class="admin-notice-clear" id="admin-notice-clear" type="button">Очистити</button>
-            </div>
-            <label class="field" for="admin-notice-text">
-              <span class="field__label">Текст повідомлення</span>
-              <textarea class="textarea admin-notice-textarea" id="admin-notice-text" maxlength="4000">${ctx.escapeHtml(ctx.state.adminNoticeText || "")}</textarea>
-              <span class="admin-notice-counter" id="admin-notice-counter"></span>
-            </label>
-            <button class="btn btn--primary btn--block" id="admin-mini-app-notice" type="button">Надіслати повідомлення</button>
-            <div class="admin-notice-result" id="admin-mini-app-notice-status" aria-live="polite"></div>
-          </div>
-        </div>
-      </details>
-
-      <div class="group">
-        <div class="group__label" id="admin-users-list-label">Список користувачів</div>
+      <div class="group admin-users-list-group">
+        <div class="group__label" id="admin-users-list-label">Останні користувачі</div>
         <div class="group__list" id="admin-users-list">
           <div class="empty empty--inline">
             <h2>Завантажуємо…</h2>
@@ -290,31 +278,66 @@ export function renderAdminUsers(ctx) {
       <div class="row" id="admin-users-pagination" style="justify-content: center; gap: 8px;"></div>
     </section>
   `;
+  mountAdminTabs(ctx, "users");
+}
 
-  document.querySelector("#admin-notice-panel")?.addEventListener("toggle", (event) => {
-    ctx.state.adminNoticeOpen = event.currentTarget.open;
-  });
+export function renderAdminMessages(ctx) {
+  ctx.setChrome({ showBack: true });
+  const selectingRecipients = ctx.state.adminNoticeAudience === "selected";
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content admin-messages-screen admin-top-level-screen">
+      ${adminMobileHeader("Повідомлення", "Створіть повідомлення і виберіть отримувачів.")}
+
+      <section class="admin-compose-card">
+        <div class="segmented" role="group" aria-label="Кому надіслати повідомлення">
+          <button class="segmented__btn" id="admin-notice-all" type="button">Усім</button>
+          <button class="segmented__btn" id="admin-notice-selected" type="button">Вибраним</button>
+        </div>
+        <div class="admin-notice-scope-row">
+          <span id="admin-mini-app-notice-scope"></span>
+          <button class="admin-notice-clear" id="admin-notice-clear" type="button">Очистити</button>
+        </div>
+        <label class="field" for="admin-notice-text">
+          <span class="field__label">Текст повідомлення</span>
+          <textarea class="textarea admin-notice-textarea" id="admin-notice-text" maxlength="4000" placeholder="Напишіть повідомлення…">${ctx.escapeHtml(ctx.state.adminNoticeText || "")}</textarea>
+          <span class="admin-notice-counter" id="admin-notice-counter"></span>
+        </label>
+        <button class="btn btn--primary btn--block" id="admin-mini-app-notice" type="button">Надіслати</button>
+        <div class="admin-notice-result" id="admin-mini-app-notice-status" aria-live="polite"></div>
+      </section>
+
+      ${selectingRecipients ? `
+        <div class="group admin-message-recipients">
+          <div class="group__label">Оберіть користувачів</div>
+          <div class="group__list" id="admin-message-users-list">
+            <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+          </div>
+        </div>
+        <div class="row" id="admin-message-users-pagination" style="justify-content: center; gap: 8px;"></div>
+      ` : ""}
+    </section>
+  `;
 
   document.querySelector("#admin-notice-all")?.addEventListener("click", () => {
     ctx.state.adminNoticeAudience = "all";
-    updateMiniAppNoticeControls(ctx);
-    void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+    ctx.render();
+    void loadAdminMessages(ctx, 0);
   });
   document.querySelector("#admin-notice-selected")?.addEventListener("click", () => {
     ctx.state.adminNoticeAudience = "selected";
-    updateMiniAppNoticeControls(ctx);
-    void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+    ctx.state.adminUsersOffset = 0;
+    ctx.render();
+    void loadAdminMessages(ctx, 0);
   });
   document.querySelector("#admin-notice-clear")?.addEventListener("click", () => {
     ctx.state.adminNoticeUserIds = [];
     updateMiniAppNoticeControls(ctx);
-    void loadAdminUsers(ctx, ctx.state.adminUsersOffset);
+    void loadAdminMessageRecipients(ctx, ctx.state.adminUsersOffset);
   });
   document.querySelector("#admin-notice-text")?.addEventListener("input", (event) => {
     ctx.state.adminNoticeText = event.currentTarget.value;
     updateMiniAppNoticeControls(ctx);
   });
-
   document.querySelector("#admin-mini-app-notice")?.addEventListener("click", async (event) => {
     const selectedIds = [...new Set(ctx.state.adminNoticeUserIds || [])];
     const isSelected = ctx.state.adminNoticeAudience === "selected";
@@ -335,11 +358,7 @@ export function renderAdminUsers(ctx) {
     try {
       await ctx.api("/api/admin/users/mini-app-notice", {
         method: "POST",
-        body: {
-          audience: ctx.state.adminNoticeAudience,
-          user_ids: selectedIds,
-          text: messageText,
-        },
+        body: { audience: ctx.state.adminNoticeAudience, user_ids: selectedIds, text: messageText },
       });
       await pollMiniAppNotice(ctx);
     } catch (error) {
@@ -349,6 +368,7 @@ export function renderAdminUsers(ctx) {
     }
   });
   updateMiniAppNoticeControls(ctx);
+  mountAdminTabs(ctx, "messages");
 }
 
 function updateMiniAppNoticeControls(ctx) {
@@ -386,7 +406,7 @@ function renderMiniAppNoticeStatus(payload) {
 }
 
 async function pollMiniAppNotice(ctx) {
-  while (ctx.state.currentScreen === "admin-users") {
+  while (ctx.state.currentScreen === "admin-messages") {
     const payload = await ctx.api("/api/admin/users/mini-app-notice");
     renderMiniAppNoticeStatus(payload);
     if (payload.state !== "running") return;
@@ -404,17 +424,22 @@ export async function loadAdminUsers(ctx, offset = 0) {
 
     ctx.state.adminUsersOffset = payload.offset;
     ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.expired);
-    updateMiniAppNoticeControls(ctx);
 
     const listLabel = document.querySelector("#admin-users-list-label");
-    if (listLabel) listLabel.textContent = `Список користувачів · ${ctx.state.adminUsersTotal}`;
+    if (listLabel) listLabel.textContent = `Останні користувачі · ${ctx.state.adminUsersTotal}`;
 
     const summary = document.querySelector("#admin-users-summary");
     if (summary) {
       summary.innerHTML = `
-        <div class="stat-strip stat-strip--two">
-          ${ctx.statPill("Активні", String(payload.counts.active))}
-          ${ctx.statPill("Без доступу", String(payload.counts.expired))}
+        <div class="admin-users-overview">
+          <div class="admin-users-overview__total">
+            <strong>${ctx.state.adminUsersTotal}</strong>
+            <span>усього користувачів</span>
+          </div>
+          <div class="admin-users-overview__statuses">
+            <span><i class="is-active"></i>${payload.counts.active} активних</span>
+            <span><i></i>${payload.counts.expired} без доступу</span>
+          </div>
         </div>
       `;
     }
@@ -432,9 +457,6 @@ export async function loadAdminUsers(ctx, offset = 0) {
     } else {
       list.innerHTML = "";
       payload.items.forEach((item) => {
-        const selectingRecipients = ctx.state.adminNoticeAudience === "selected";
-        const selectedRecipientIds = new Set(ctx.state.adminNoticeUserIds || []);
-        const isSelected = selectingRecipients && selectedRecipientIds.has(item.user_id);
         const status = adminUserStatus(item.access, item.is_admin);
 
         const row = document.createElement("button");
@@ -446,26 +468,13 @@ export async function loadAdminUsers(ctx, offset = 0) {
             <span class="cell__title">${ctx.escapeHtml(item.display_name)}</span>
             <span class="cell__subtitle">ID ${item.user_id} · ${ctx.escapeHtml(item.access.label)}</span>
           </span>
-          ${selectingRecipients
-            ? `<span class="admin-notice-check${isSelected ? " is-selected" : ""}" aria-hidden="true">${isSelected ? "✓" : ""}</span>`
-            : `<span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span><span class="cell__chevron" aria-hidden="true"></span>`}
+          <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
+          <span class="cell__chevron" aria-hidden="true"></span>
         `;
-        row.classList.toggle("is-notice-selected", isSelected);
         row.addEventListener("click", () => {
-          if (ctx.state.adminNoticeAudience === "selected") {
-            const ids = new Set(ctx.state.adminNoticeUserIds || []);
-            if (ids.has(item.user_id)) ids.delete(item.user_id);
-            else ids.add(item.user_id);
-            ctx.state.adminNoticeUserIds = [...ids];
-            row.classList.toggle("is-notice-selected", ids.has(item.user_id));
-            const check = row.querySelector(".admin-notice-check");
-            check?.classList.toggle("is-selected", ids.has(item.user_id));
-            if (check) check.textContent = ids.has(item.user_id) ? "✓" : "";
-            updateMiniAppNoticeControls(ctx);
-            return;
-          }
           ctx.state.selectedAdminUserId = item.user_id;
           ctx.state.adminUserDetail = null;
+          ctx.state.adminUserTab = "access";
           ctx.state.adminUserSectionGroupsOpen = [];
           ctx.navigate("admin-user-detail");
         });
@@ -501,6 +510,121 @@ export async function loadAdminUsers(ctx, offset = 0) {
   }
 }
 
+export async function loadAdminMessages(ctx, offset = ctx.state.adminUsersOffset || 0) {
+  if (ctx.state.currentScreen !== "admin-messages") return;
+  try {
+    void pollMiniAppNotice(ctx).catch(() => {});
+    const payload = await ctx.api(`/api/admin/users?offset=${offset}&limit=10`);
+    if (ctx.state.currentScreen !== "admin-messages") return;
+    ctx.state.adminUsersOffset = payload.offset;
+    ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.expired);
+    updateMiniAppNoticeControls(ctx);
+    if (ctx.state.adminNoticeAudience === "selected") {
+      renderAdminMessageRecipients(ctx, payload);
+    }
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
+async function loadAdminMessageRecipients(ctx, offset = 0) {
+  if (ctx.state.currentScreen !== "admin-messages" || ctx.state.adminNoticeAudience !== "selected") return;
+  const payload = await ctx.api(`/api/admin/users?offset=${offset}&limit=10`);
+  if (ctx.state.currentScreen !== "admin-messages") return;
+  ctx.state.adminUsersOffset = payload.offset;
+  ctx.state.adminUsersTotal = Number(payload.counts.active) + Number(payload.counts.expired);
+  renderAdminMessageRecipients(ctx, payload);
+  updateMiniAppNoticeControls(ctx);
+}
+
+function renderAdminMessageRecipients(ctx, payload) {
+  const list = document.querySelector("#admin-message-users-list");
+  if (!list) return;
+  const selectedIds = new Set(ctx.state.adminNoticeUserIds || []);
+  list.innerHTML = "";
+  if (!payload.items.length) {
+    list.innerHTML = '<div class="empty empty--inline"><h2>Користувачів немає</h2></div>';
+  }
+  payload.items.forEach((item) => {
+    const selected = selectedIds.has(item.user_id);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `cell cell--admin-user${selected ? " is-notice-selected" : ""}`;
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--blue">${ctx.escapeHtml((item.display_name || "U").slice(0, 1).toUpperCase())}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.display_name)}</span>
+        <span class="cell__subtitle">ID ${item.user_id}</span>
+      </span>
+      <span class="admin-notice-check${selected ? " is-selected" : ""}" aria-hidden="true">${selected ? "✓" : ""}</span>
+    `;
+    row.addEventListener("click", () => {
+      const ids = new Set(ctx.state.adminNoticeUserIds || []);
+      if (ids.has(item.user_id)) ids.delete(item.user_id);
+      else ids.add(item.user_id);
+      ctx.state.adminNoticeUserIds = [...ids];
+      row.classList.toggle("is-notice-selected", ids.has(item.user_id));
+      const check = row.querySelector(".admin-notice-check");
+      check?.classList.toggle("is-selected", ids.has(item.user_id));
+      if (check) check.textContent = ids.has(item.user_id) ? "✓" : "";
+      updateMiniAppNoticeControls(ctx);
+    });
+    list.append(row);
+  });
+
+  const pagination = document.querySelector("#admin-message-users-pagination");
+  if (!pagination) return;
+  pagination.innerHTML = "";
+  if (payload.has_prev) {
+    pagination.append(ctx.actionButton("← Назад", () => loadAdminMessageRecipients(ctx, Math.max(0, payload.offset - payload.limit)), "sm"));
+  }
+  if (payload.has_next) {
+    pagination.append(ctx.actionButton("Далі →", () => loadAdminMessageRecipients(ctx, payload.offset + payload.limit), "sm"));
+  }
+}
+
+export function renderAdminStats(ctx) {
+  ctx.setChrome({ showBack: true });
+  ctx.refs.mainPanel.innerHTML = `
+    <section class="screen-content admin-stats-screen admin-top-level-screen">
+      ${adminMobileHeader("Статистика", "Короткий огляд стану доступів.")}
+      <div id="admin-stats-overview" class="admin-stats-overview">
+        <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
+      </div>
+    </section>
+  `;
+  mountAdminTabs(ctx, "stats");
+}
+
+export async function loadAdminStats(ctx) {
+  if (ctx.state.currentScreen !== "admin-stats") return;
+  try {
+    const payload = await ctx.api("/api/admin/users?offset=0&limit=1");
+    if (ctx.state.currentScreen !== "admin-stats") return;
+    const active = Number(payload.counts.active || 0);
+    const expired = Number(payload.counts.expired || 0);
+    const total = active + expired;
+    const activePercent = total ? Math.round((active / total) * 100) : 0;
+    const target = document.querySelector("#admin-stats-overview");
+    if (target) {
+      target.innerHTML = `
+        <section class="admin-stat-hero">
+          <span>Усього користувачів</span>
+          <strong>${total}</strong>
+          <div class="admin-stat-progress"><i style="width: ${activePercent}%"></i></div>
+          <small>${activePercent}% мають активний доступ</small>
+        </section>
+        <section class="admin-stat-list">
+          <div><span><i class="is-active"></i>Активний доступ</span><strong>${active}</strong></div>
+          <div><span><i></i>Без доступу</span><strong>${expired}</strong></div>
+        </section>
+      `;
+    }
+  } catch (error) {
+    ctx.setMessage("error", error.message);
+  }
+}
+
 export function renderAdminUserDetail(ctx) {
   ctx.setChrome({ showBack: true });
   const payload = ctx.state.adminUserDetail;
@@ -508,7 +632,7 @@ export function renderAdminUserDetail(ctx) {
   if (!payload) {
     ctx.refs.mainPanel.innerHTML = `
       <section class="screen-content">
-        <h1 class="page-title">Користувач</h1>
+        ${adminMobileHeader("Користувач")}
         <div class="empty empty--inline"><h2>Завантажуємо…</h2></div>
       </section>
     `;
@@ -523,10 +647,13 @@ export function renderAdminUserDetail(ctx) {
   const stats = payload.stats || { count: 0, avg: 0, last: null };
   const protectedAccount = payload.is_admin || payload.user_id === ctx.state.bootstrap.user.id;
   const currentTier = payload.access?.tier || "none";
+  const activeTab = ["access", "results", "info"].includes(ctx.state.adminUserTab)
+    ? ctx.state.adminUserTab
+    : "access";
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-user-detail">
-      <h1 class="page-title">Користувач</h1>
+      ${adminMobileHeader("Користувач")}
 
       <section class="admin-user-profile">
         <div class="admin-user-profile__avatar">${ctx.escapeHtml(initials)}</div>
@@ -537,64 +664,70 @@ export function renderAdminUserDetail(ctx) {
         <span class="admin-user-status admin-user-status--${status.tone}">${status.label}</span>
       </section>
 
-      <section class="admin-access-controls">
-        <div class="admin-access-controls__heading-row">
+      <nav class="admin-profile-tabs" aria-label="Розділи профілю">
+        <button type="button" data-admin-user-tab="access" class="${activeTab === "access" ? "is-active" : ""}">Доступ</button>
+        <button type="button" data-admin-user-tab="results" class="${activeTab === "results" ? "is-active" : ""}">Результати</button>
+        <button type="button" data-admin-user-tab="info" class="${activeTab === "info" ? "is-active" : ""}">Інформація</button>
+      </nav>
+
+      ${activeTab === "access" ? `
+        <section class="admin-access-controls">
+          <div class="admin-access-controls__heading-row">
+            <div class="admin-access-controls__header">
+              <span class="admin-access-controls__title">Рівень доступу</span>
+              <span class="admin-access-controls__hint">Оберіть потрібний пакет</span>
+            </div>
+            <span class="admin-access-current">${ctx.escapeHtml(payload.access.label)}</span>
+          </div>
+          <div id="admin-user-actions" class="admin-tier-selector" role="group" aria-label="Рівень доступу"></div>
+        </section>
+
+        <section class="admin-access-controls">
           <div class="admin-access-controls__header">
-            <span class="admin-access-controls__title">Доступ</span>
-            <span class="admin-access-controls__hint">Оберіть потрібний пакет</span>
+            <span class="admin-access-controls__title">Розділи</span>
+            <span class="admin-access-controls__hint">Керуйте окремими розділами перемикачами</span>
           </div>
-          <span class="admin-access-current">${ctx.escapeHtml(payload.access.label)}</span>
-        </div>
-        <div id="admin-user-actions" class="admin-tier-selector" role="group" aria-label="Рівень доступу"></div>
-      </section>
+          <div id="admin-section-access-list" class="admin-section-access-list"></div>
+        </section>
+      ` : ""}
 
-      <div class="group admin-results-group">
-        <div class="group__label">Результати</div>
-        <div class="stat-strip admin-user-detail__stats">
-          ${ctx.statPill("Тестів", String(stats.count || 0))}
-          ${ctx.statPill("Середній", `${Number(stats.avg || 0).toFixed(0)}%`)}
-          ${ctx.statPill("Останній", stats.last ? `${stats.last.correct}/${stats.last.total}` : "—")}
-        </div>
-      </div>
-
-      <section class="admin-access-controls">
-        <div class="admin-access-controls__header">
-          <span class="admin-access-controls__title">Керування розділами</span>
-          <span class="admin-access-controls__hint">Відкрийте лише потрібну групу</span>
-        </div>
-        <div id="admin-section-access-list" class="admin-section-access-list"></div>
-      </section>
-
-      <details class="admin-user-info">
-        <summary class="admin-user-info__summary">
-          <span>
-            <strong>Інформація про користувача</strong>
-            <small>Реєстрація та компетенції</small>
-          </span>
-          <span class="admin-disclosure-chevron" aria-hidden="true"></span>
-        </summary>
-        <div class="admin-user-info__grid">
-          <div>
-            <span>Реєстрація</span>
-            <strong>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</strong>
+      ${activeTab === "results" ? `
+        <section class="admin-results-view">
+          <div class="admin-results-view__hero">
+            <span>Середній результат</span>
+            <strong>${Number(stats.avg || 0).toFixed(0)}%</strong>
           </div>
-          <div>
-            <span>Компетенції</span>
-            <strong>${payload.ok_modules?.length || 0} модулів</strong>
+          <div class="admin-results-view__list">
+            <div><span>Пройдено тестів</span><strong>${stats.count || 0}</strong></div>
+            <div><span>Останній результат</span><strong>${stats.last ? `${stats.last.correct}/${stats.last.total}` : "—"}</strong></div>
           </div>
-        </div>
-      </details>
+        </section>
+      ` : ""}
 
-      <details class="admin-danger-zone">
-        <summary class="admin-danger-zone__title">Видалення користувача</summary>
-        <div class="admin-danger-zone__content">
-          <p>Буде видалено профіль, підписку, прогрес, помилки, результати тестів і збережену сесію.</p>
-          <div id="admin-user-delete-wrap"></div>
-          ${protectedAccount ? '<div class="admin-danger-zone__note">Адміністраторські облікові записи захищені від видалення.</div>' : ""}
-        </div>
-      </details>
+      ${activeTab === "info" ? `
+        <section class="admin-info-list">
+          <div><span>Telegram ID</span><strong>${payload.user_id}</strong></div>
+          <div><span>Реєстрація</span><strong>${ctx.escapeHtml(formatAdminDate(payload.created_at))}</strong></div>
+          <div><span>Компетенції</span><strong>${payload.ok_modules?.length || 0} модулів</strong></div>
+        </section>
+        <details class="admin-danger-zone">
+          <summary class="admin-danger-zone__title">Видалення користувача</summary>
+          <div class="admin-danger-zone__content">
+            <p>Буде видалено профіль, підписку, прогрес, помилки, результати тестів і збережену сесію.</p>
+            <div id="admin-user-delete-wrap"></div>
+            ${protectedAccount ? '<div class="admin-danger-zone__note">Адміністраторські облікові записи захищені від видалення.</div>' : ""}
+          </div>
+        </details>
+      ` : ""}
     </section>
   `;
+
+  ctx.refs.mainPanel.querySelectorAll("[data-admin-user-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      ctx.state.adminUserTab = button.dataset.adminUserTab;
+      ctx.render();
+    });
+  });
 
   const updateAccess = async (access, message) => {
     try {
@@ -690,32 +823,33 @@ export function renderAdminUserDetail(ctx) {
           <strong>${ctx.escapeHtml(section.title || section.key)}</strong>
           <span class="admin-materials-status admin-materials-status--${enabled ? "on" : "off"}">${statusText}</span>
         </div>
-        <div class="admin-section-access-row__action"></div>
+        <label class="switch admin-section-access-row__switch" aria-label="${enabled ? "Вимкнути" : "Увімкнути"} ${ctx.escapeHtml(section.title || section.key)}">
+          <input type="checkbox" ${enabled ? "checked" : ""}>
+          <span class="switch__track"><span class="switch__thumb"></span></span>
+        </label>
       `;
-      const button = ctx.actionButton(
-        visibilityMode ? (enabled ? "Приховати" : "Показати") : (enabled ? "Закрити" : "Відкрити"),
-        async () => {
-          try {
-            ctx.state.adminUserDetail = await ctx.api(
-              `/api/admin/users/${payload.user_id}/sections/${encodeURIComponent(section.key)}`,
-              { method: "POST", body: { enabled: !enabled } },
-            );
-            ctx.impact("medium");
-            ctx.setMessage(
-              "success",
-              visibilityMode
-                ? (enabled ? `Розділ «${section.title}» приховано.` : `Розділ «${section.title}» показано. Для відкриття потрібна оплата.`)
-                : (enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`),
-            );
-            ctx.render();
-          } catch (error) {
-            ctx.setMessage("error", error.message);
-          }
-        },
-        "sm",
-      );
-      if (enabled) button.classList.add("admin-section-access-row__revoke");
-      row.querySelector(".admin-section-access-row__action")?.append(button);
+      const toggle = row.querySelector("input[type='checkbox']");
+      toggle?.addEventListener("change", async () => {
+        toggle.disabled = true;
+        try {
+          ctx.state.adminUserDetail = await ctx.api(
+            `/api/admin/users/${payload.user_id}/sections/${encodeURIComponent(section.key)}`,
+            { method: "POST", body: { enabled: !enabled } },
+          );
+          ctx.impact("medium");
+          ctx.setMessage(
+            "success",
+            visibilityMode
+              ? (enabled ? `Розділ «${section.title}» приховано.` : `Розділ «${section.title}» показано. Для відкриття потрібна оплата.`)
+              : (enabled ? `Доступ до «${section.title}» закрито.` : `Доступ до «${section.title}» відкрито.`),
+          );
+          ctx.render();
+        } catch (error) {
+          toggle.checked = enabled;
+          toggle.disabled = false;
+          ctx.setMessage("error", error.message);
+        }
+      });
       groupContent?.append(row);
     });
     sectionList.append(disclosure);

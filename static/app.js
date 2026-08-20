@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260819-admin-user-compact-01";
+import "/static/js/app.js?v=20260820-admin-mobile-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

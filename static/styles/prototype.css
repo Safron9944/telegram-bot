@@ -694,6 +694,310 @@ body.ui-prototype {
   margin: 10px 0 0;
 }
 
+/* Modern mobile administration */
+.ui-prototype .admin-top-level-screen {
+  padding-bottom: 86px;
+}
+
+.ui-prototype .admin-mobile-header {
+  display: grid;
+  gap: 4px;
+  padding: calc(20px + var(--content-safe-top) + var(--telegram-controls-offset)) 2px 4px;
+}
+
+.ui-prototype .admin-mobile-header__eyebrow {
+  color: var(--label-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.ui-prototype .admin-mobile-header h1 {
+  margin: 0;
+  color: var(--label);
+  font-size: 30px;
+  font-weight: 820;
+  line-height: 1.08;
+  letter-spacing: -.035em;
+}
+
+.ui-prototype .admin-mobile-header p {
+  max-width: 34rem;
+  margin: 2px 0 0;
+  color: var(--label-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ui-prototype .admin-tab-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 50%;
+  z-index: 40;
+  display: grid;
+  width: min(100%, 430px);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 7px 6px calc(7px + var(--content-safe-bottom));
+  border-top: 1px solid rgba(16, 24, 40, .08);
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 -8px 30px rgba(16, 24, 40, .07);
+  backdrop-filter: blur(18px) saturate(150%);
+  transform: translateX(-50%);
+}
+
+.ui-prototype .admin-tab-bar__item {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  gap: 3px;
+  padding: 4px 1px;
+  border: 0;
+  background: transparent;
+  color: var(--label-tertiary);
+  font-size: 9px;
+  font-weight: 720;
+  line-height: 1.1;
+}
+
+.ui-prototype .admin-tab-bar__item.is-active {
+  color: var(--navy);
+}
+
+.ui-prototype .admin-tab-bar__icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 25px;
+  border-radius: 9px;
+}
+
+.ui-prototype .admin-tab-bar__item.is-active .admin-tab-bar__icon {
+  background: var(--accent-fill);
+}
+
+.ui-prototype .admin-tab-bar__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ui-prototype .admin-users-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  background: #fff;
+}
+
+.ui-prototype .admin-users-overview__total {
+  display: grid;
+  gap: 1px;
+}
+
+.ui-prototype .admin-users-overview__total strong {
+  color: var(--navy);
+  font-size: 30px;
+  line-height: 1;
+}
+
+.ui-prototype .admin-users-overview__total span,
+.ui-prototype .admin-users-overview__statuses {
+  color: var(--label-secondary);
+  font-size: 11px;
+}
+
+.ui-prototype .admin-users-overview__statuses {
+  display: grid;
+  gap: 7px;
+}
+
+.ui-prototype .admin-users-overview__statuses span,
+.ui-prototype .admin-stat-list span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ui-prototype .admin-users-overview__statuses i,
+.ui-prototype .admin-stat-list i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a7b0bd;
+}
+
+.ui-prototype .admin-users-overview__statuses i.is-active,
+.ui-prototype .admin-stat-list i.is-active {
+  background: #22a65a;
+}
+
+.ui-prototype .admin-compose-card,
+.ui-prototype .admin-results-view,
+.ui-prototype .admin-info-list,
+.ui-prototype .admin-stat-hero,
+.ui-prototype .admin-stat-list {
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 20px;
+  background: #fff;
+}
+
+.ui-prototype .admin-compose-card {
+  display: grid;
+  gap: 13px;
+  padding: 15px;
+}
+
+.ui-prototype .admin-profile-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 4px;
+  border: 1px solid var(--separator);
+  border-radius: 15px;
+  background: #e9eef4;
+}
+
+.ui-prototype .admin-profile-tabs button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 5px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.ui-prototype .admin-profile-tabs button.is-active {
+  background: #fff;
+  color: var(--navy);
+  box-shadow: 0 2px 8px rgba(16, 35, 63, .1);
+}
+
+.ui-prototype .admin-results-view {
+  display: grid;
+}
+
+.ui-prototype .admin-results-view__hero {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 28px 16px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.ui-prototype .admin-results-view__hero span {
+  color: var(--label-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ui-prototype .admin-results-view__hero strong {
+  color: var(--navy);
+  font-size: 48px;
+  line-height: 1;
+}
+
+.ui-prototype .admin-results-view__list,
+.ui-prototype .admin-info-list,
+.ui-prototype .admin-stat-list {
+  display: grid;
+}
+
+.ui-prototype .admin-results-view__list > div,
+.ui-prototype .admin-info-list > div,
+.ui-prototype .admin-stat-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 54px;
+  padding: 11px 15px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.ui-prototype .admin-results-view__list > div:last-child,
+.ui-prototype .admin-info-list > div:last-child,
+.ui-prototype .admin-stat-list > div:last-child {
+  border-bottom: 0;
+}
+
+.ui-prototype .admin-results-view__list span,
+.ui-prototype .admin-info-list span,
+.ui-prototype .admin-stat-list span {
+  color: var(--label-secondary);
+  font-size: 13px;
+}
+
+.ui-prototype .admin-results-view__list strong,
+.ui-prototype .admin-info-list strong,
+.ui-prototype .admin-stat-list strong {
+  overflow-wrap: anywhere;
+  color: var(--label);
+  font-size: 14px;
+  text-align: right;
+}
+
+.ui-prototype .admin-section-access-row__switch {
+  flex: 0 0 46px;
+  width: 46px;
+  height: 28px;
+}
+
+.ui-prototype .admin-section-access-row__switch .switch__track::after {
+  width: 24px;
+  height: 24px;
+}
+
+.ui-prototype .admin-section-access-row__switch input:checked + .switch__track::after {
+  transform: translateX(18px);
+}
+
+.ui-prototype .admin-stat-hero {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 28px 18px;
+}
+
+.ui-prototype .admin-stat-hero > span,
+.ui-prototype .admin-stat-hero small {
+  color: var(--label-secondary);
+  font-size: 12px;
+}
+
+.ui-prototype .admin-stat-hero > strong {
+  color: var(--navy);
+  font-size: 54px;
+  line-height: 1;
+}
+
+.ui-prototype .admin-stat-progress {
+  overflow: hidden;
+  width: 100%;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: #e5eaf0;
+}
+
+.ui-prototype .admin-stat-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #22a65a;
+}
+
+.ui-prototype .admin-stats-overview {
+  display: grid;
+  gap: 12px;
+}
+
 .ui-prototype .btn--danger {
   width: 100%;
   border-color: #d92d20;
