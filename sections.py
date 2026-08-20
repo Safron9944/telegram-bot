@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from access import access_tier, section_access_override
+from access import ATTESTATION_STAGE_1_SECTION_KEY, access_tier, has_attestation_access, section_access_override
 
 
 PROTECTED_SECTION_KEYS = frozenset({"cases", "test_questions", "question_search"})
@@ -13,6 +13,7 @@ UKRAINIAN_LANGUAGE_BANK_SLUG = "ukrainian-language"
 
 
 SYSTEM_SECTIONS = (
+    {"key": ATTESTATION_STAGE_1_SECTION_KEY, "title": "Атестація посадових осіб — 1 етап", "screen": "attestation-stage-1", "icon": "document", "price": 100, "kind": "attestation", "bank_slug": "stage-1", "group": "primary", "default_order": -100},
     {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "preview_count": 50, "group": "primary", "default_order": 100, "content_screen": "admin-questions", "content_label": "Банк питань"},
     {"key": UKRAINIAN_LANGUAGE_SECTION_KEY, "title": "Державна мова", "screen": "attestation-bank", "icon": "document", "price": 0, "manual_grant_only": True, "kind": "attestation", "bank_slug": UKRAINIAN_LANGUAGE_BANK_SLUG, "group": "primary", "default_order": 150},
     {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "group": "materials", "default_order": 200, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
@@ -62,6 +63,8 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
     if is_admin:
         return True
     key = str(section["key"])
+    if key == ATTESTATION_STAGE_1_SECTION_KEY:
+        return has_attestation_access(user)
     if key in ALWAYS_FREE_SECTION_KEYS:
         return True
     if key not in PROTECTED_SECTION_KEYS:
@@ -129,10 +132,17 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
     for item in items:
         override = config.get(item["key"], {})
         if isinstance(override, dict):
-            for field in ("title", "visible", "price", "order"):
+            for field in ("title", "visible", "price", "order", "combined_test_enabled", "combined_test_question_count"):
                 if field in override:
                     item[field] = override[field]
         item.setdefault("visible", True)
+        if item.get("kind") == "attestation":
+            item["combined_test_enabled"] = bool(item.get("combined_test_enabled", True))
+            try:
+                combined_count = int(item.get("combined_test_question_count", 100))
+            except (TypeError, ValueError):
+                combined_count = 100
+            item["combined_test_question_count"] = max(4, min(800, combined_count))
         item["order"] = int(item.get("order", item.pop("default_order", 0)) or 0)
         item["price"] = max(0, int(item.get("price") or 0))
         if item["key"] in ALWAYS_FREE_SECTION_KEYS:
