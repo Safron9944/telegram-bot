@@ -30,17 +30,26 @@ export function renderAdminHub(ctx) {
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-top-level-screen">
-      ${adminMobileHeader("Налаштування")}
+      ${adminMobileHeader("Адмін-панель")}
 
       ${ctx.group({
         header: "Керування",
-        children: ctx.cell({
-          title: "Розділи",
-          subtitle: "Ціни, порядок і видимість",
-          iconName: "document",
-          tint: "blue",
-          screen: "admin-attestation-banks",
-        }),
+        children: [
+          ctx.cell({
+            title: "Користувачі",
+            subtitle: "Доступ, результати та повідомлення",
+            iconName: "users",
+            tint: "blue",
+            screen: "admin-users",
+          }),
+          ctx.cell({
+            title: "Розділи",
+            subtitle: "Ціни, порядок і видимість",
+            iconName: "document",
+            tint: "blue",
+            screen: "admin-attestation-banks",
+          }),
+        ].join(""),
       })}
 
       ${ctx.group({
@@ -296,7 +305,7 @@ export function renderAdminUsers(ctx) {
 
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content admin-users-screen admin-top-level-screen">
-      ${adminMobileHeader("Користувачі", { actionId: "admin-users-more", actionLabel: "⋯", actionAria: "Налаштування" })}
+      ${adminMobileHeader("Користувачі", { actionId: "admin-users-more", actionLabel: "⋯", actionAria: "Адмін-панель" })}
       <div class="admin-prototype-body">
         <div class="admin-user-search-wrap">
           <span class="admin-user-search-icon">⌕</span>
