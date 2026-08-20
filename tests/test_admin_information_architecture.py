@@ -6,14 +6,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AdminInformationArchitectureTests(unittest.TestCase):
-    def test_hub_has_the_four_primary_tools(self):
+    def test_hub_keeps_secondary_tools_out_of_primary_tabs(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
         hub = admin.split("/* ===================== ADMIN ATTESTATION BANKS", 1)[0]
 
-        self.assertEqual(1, hub.count('title: "Користувачі"'))
-        self.assertEqual(1, hub.count('title: "Розділи"'))
         self.assertEqual(1, hub.count('title: "Пошук по всіх питаннях"'))
-        self.assertEqual(4, hub.count("ctx.cell({"))
+        self.assertEqual(2, hub.count("ctx.cell({"))
+        self.assertIn('screen: "admin-users"', hub)
+        self.assertIn('screen: "admin-attestation-banks"', hub)
+        self.assertIn('screen: "admin-stats"', hub)
+        self.assertIn('screen: "admin-messages"', hub)
         self.assertIn("Ціна повного доступу до всіх розділів", admin)
         self.assertIn("admin-full-price-form", admin)
         self.assertNotIn('title: "Атестації"', hub)

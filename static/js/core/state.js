@@ -23,6 +23,7 @@ export const state = {
   adminQuestionsPage: 0,
   selectedAdminUserId: null,
   adminUserDetail: null,
+  adminUserTab: "access",
   selectedQuestionId: null,
   searchResults: null,
   questionSearchQuery: "",

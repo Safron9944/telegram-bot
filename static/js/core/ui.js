@@ -45,6 +45,8 @@ const CELL_ICONS = {
   clipboard: '<path d="M9 4h6l1 3H8l1-3Z"/><path d="M8 5H5v17h14V5h-3M8 12h8M8 16h8"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  message: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 9h8M8 13h5"/>',
 };
 
 export function lineIcon(name) {

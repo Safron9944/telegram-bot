@@ -6,11 +6,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class AdminUsersUiTests(unittest.TestCase):
-    def test_notice_form_is_collapsible_and_user_list_stays_separate(self):
+    def test_notice_form_has_its_own_screen_and_user_list_stays_clean(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        self.assertIn('class="admin-notice-panel"', admin)
+        users_screen = admin.split("export function renderAdminMessages", 1)[0]
+        self.assertIn("export function renderAdminMessages", admin)
         self.assertIn('id="admin-users-list-label"', admin)
-        self.assertIn("adminNoticeOpen", admin)
+        self.assertNotIn('id="admin-mini-app-notice"', users_screen)
+        self.assertIn('id="admin-mini-app-notice"', admin)
+
+    def test_admin_has_mobile_bottom_navigation(self):
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        styles = (ROOT / "static/styles/prototype.css").read_text(encoding="utf-8")
+        app = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
+        self.assertIn("const ADMIN_TABS", admin)
+        self.assertIn('screen: "admin-messages"', admin)
+        self.assertIn('screen: "admin-stats"', admin)
+        self.assertIn(".ui-prototype .admin-tab-bar", styles)
+        self.assertIn('case "admin-messages"', app)
+        self.assertIn('case "admin-stats"', app)
 
     def test_user_detail_uses_compact_profile_and_tier_selector(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
@@ -24,20 +37,22 @@ class AdminUsersUiTests(unittest.TestCase):
         self.assertIn(".admin-tier-selector", styles)
         self.assertIn(".ui-prototype .admin-user-profile", prototype)
 
-    def test_user_detail_sections_and_account_info_are_collapsible(self):
+    def test_user_detail_uses_three_separate_tabs(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        styles = (ROOT / "static/styles/components.css").read_text(encoding="utf-8")
-        self.assertIn('disclosure.className = "admin-section-group"', admin)
-        self.assertIn('class="admin-user-info"', admin)
-        self.assertIn("adminUserSectionGroupsOpen", admin)
-        self.assertIn(".admin-section-group__summary", styles)
+        styles = (ROOT / "static/styles/prototype.css").read_text(encoding="utf-8")
+        self.assertIn('data-admin-user-tab="access"', admin)
+        self.assertIn('data-admin-user-tab="results"', admin)
+        self.assertIn('data-admin-user-tab="info"', admin)
+        self.assertIn("adminUserTab", admin)
+        self.assertIn(".ui-prototype .admin-profile-tabs", styles)
 
     def test_user_detail_manages_all_sections_individually(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        self.assertIn("Керування розділами", admin)
+        self.assertIn("Керуйте окремими розділами перемикачами", admin)
         self.assertIn("section_controls", admin)
         self.assertIn("/sections/", admin)
         self.assertIn("section.control_mode", admin)
+        self.assertIn('class="switch admin-section-access-row__switch"', admin)
 
     def test_tier_selector_confirms_access_downgrade(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
@@ -51,12 +66,12 @@ class AdminUsersUiTests(unittest.TestCase):
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20260819-admin-user-compact-01", index)
-        self.assertIn("static/styles.css?v=20260819-admin-user-compact-01", index)
-        self.assertIn("static/js/app.js?v=20260819-admin-user-compact-01", entry)
-        self.assertIn("styles/components.css?v=20260819-admin-user-compact-01", styles)
-        self.assertIn("screens/admin.js?v=20260819-admin-user-compact-01", module)
-        self.assertIn("screens/user.js?v=20260816-paid-functions-01", module)
+        self.assertIn("static/app.js?v=20260820-admin-mobile-01", index)
+        self.assertIn("static/styles.css?v=20260820-admin-mobile-01", index)
+        self.assertIn("static/js/app.js?v=20260820-admin-mobile-01", entry)
+        self.assertIn("styles/components.css?v=20260820-admin-mobile-01", styles)
+        self.assertIn("screens/admin.js?v=20260820-admin-mobile-01", module)
+        self.assertIn("screens/user.js?v=20260820-admin-mobile-01", module)
 
 
 if __name__ == "__main__":
