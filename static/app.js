@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260820-attestation-combined-test-09";
+import "/static/js/app.js?v=20260820-attestation-test-card-10";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
