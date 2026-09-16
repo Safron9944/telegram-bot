@@ -18,6 +18,7 @@ class CustomsCompetenciesBundleTests(unittest.TestCase):
     def test_apk_1_9_1_bundle_shape(self):
         items = _load_bundle(BUNDLE_PATH)
         self.assertEqual(EXPECTED_TOTAL, len(items))
+        self.assertEqual(EXPECTED_TOTAL, len({int(item["id"]) for item in items}))
         self.assertEqual(EXPECTED_LAW, sum(1 for item in items if not item.get("ok")))
         self.assertEqual(EXPECTED_OK, sum(1 for item in items if item.get("ok")))
         self.assertEqual(
@@ -25,6 +26,12 @@ class CustomsCompetenciesBundleTests(unittest.TestCase):
             len({ok_extract_code(str(item.get("ok") or "")) for item in items if item.get("ok")}),
         )
         self.assertEqual(len(items), len({_question_key(item) for item in items}))
+        competency_keys = {
+            (item.get("ok"), item.get("level"), item.get("qnum"))
+            for item in items
+            if item.get("ok")
+        }
+        self.assertEqual(EXPECTED_OK, len(competency_keys))
 
     def test_ok_17_has_three_levels_of_seventy(self):
         items = _load_bundle(BUNDLE_PATH)

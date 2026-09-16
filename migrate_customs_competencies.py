@@ -21,7 +21,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 BUNDLE_PATH = BASE_DIR / "data" / "customs_competencies_1_9_1.json.xz"
 SOURCE_SETTING_KEY = "customs_competencies_source_sha256"
-SOURCE_LABEL = "apk-1.9.1:testmsmo-13"
+SOURCE_LABEL = "apk-1.9.1:customs-competencies-2610"
 EXPECTED_TOTAL = 3410
 EXPECTED_LAW = 800
 EXPECTED_OK = 2610
