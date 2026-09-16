@@ -1,24 +1,24 @@
-"""One-time replacement of the bundled customs-competencies bank from APK 1.9.1."""
+"""One-time replacement of the customs-competencies bank from APK 1.9.1."""
 
 from __future__ import annotations
 
+import base64
+import bz2
 import hashlib
 import json
 import re
 from pathlib import Path
 
-from apk_importer.crypto import decrypt_testms_payload
 from apk_importer.testms import parse_testms_bank
 from storage import Storage
 from utils import OK_TITLES
 
 _CUSTOMS_BANK_VERSION = "testmsmo-13-apk-1.9.1"
 _CUSTOMS_BANK_SETTING = "customs_question_bank_version"
-_CUSTOMS_BANK_PART_GLOB = "customs_testmsmo_v13.part*.enc"
+_CUSTOMS_BANK_PART_GLOB = "customs_testmsmo_v13.part*.b85"
 _EXPECTED_QUESTIONS = 3410
 _EXPECTED_LAW_QUESTIONS = 800
 _EXPECTED_OK_QUESTIONS = 2610
-_TESTMSMO_PASSPHRASE = "A6KPIz8Rci2ZF3sy"
 _ORIGINAL_STORAGE_INIT = Storage.init
 
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
@@ -39,12 +39,15 @@ def _roman_to_int(value: str) -> int:
     return total
 
 
-def _bank_payload() -> bytes:
+def _bank_plaintext() -> tuple[str, str]:
     base = Path(__file__).resolve().parent / "data"
     parts = sorted(base.glob(_CUSTOMS_BANK_PART_GLOB))
     if not parts:
         raise RuntimeError("Bundled customs bank parts are missing.")
-    return b"".join(part.read_bytes().strip() for part in parts)
+    encoded = b"".join(part.read_bytes().strip() for part in parts)
+    packed = base64.b85decode(encoded)
+    payload = bz2.decompress(packed)
+    return payload.decode("utf-8"), hashlib.sha256(payload).hexdigest()
 
 
 def _normalize_topic(value: str) -> str:
@@ -52,12 +55,11 @@ def _normalize_topic(value: str) -> str:
 
 
 def _parse_rows() -> list[dict]:
-    payload = _bank_payload()
-    plaintext = decrypt_testms_payload(payload, _TESTMSMO_PASSPHRASE, expected_header="testmsmo")
+    plaintext, source_hash = _bank_plaintext()
     bank = parse_testms_bank(
         plaintext,
         source="testmsmo.enc",
-        source_hash=hashlib.sha256(payload).hexdigest(),
+        source_hash=source_hash,
     )
     if bank.source_version != "13":
         raise RuntimeError(f"Unexpected customs bank version: {bank.source_version}")
@@ -67,10 +69,7 @@ def _parse_rows() -> list[dict]:
     rows: list[dict] = []
     law_count = ok_count = 0
     for question_id, item in enumerate(bank.questions, start=1):
-        try:
-            section_code = item.source_key.rsplit(":", 2)[-2]
-        except Exception as exc:
-            raise RuntimeError(f"Invalid TestMS source key: {item.source_key}") from exc
+        section_code = item.source_key.rsplit(":", 2)[-2]
         section_number = _roman_to_int(section_code)
 
         if section_number <= 4:
@@ -117,8 +116,8 @@ async def _replace_customs_questions(store: Storage) -> None:
     assert store.pool
     async with store.pool.acquire() as con:
         async with con.transaction():
-            # IDs are intentionally regenerated for the complete replacement.
-            # Old mistake records reference the previous IDs and must not survive.
+            # The migration replaces the whole main customs bank. Old mistake
+            # records reference previous question IDs and therefore are reset.
             await con.execute("DELETE FROM errors")
             await con.execute("DELETE FROM questions")
             await con.executemany(
