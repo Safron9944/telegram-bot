@@ -2,3 +2,4 @@
 
 import test_exam_verified_extension  # noqa: F401
 import admin_apk_import_extension  # noqa: F401
+import customs_questions_update  # noqa: F401
