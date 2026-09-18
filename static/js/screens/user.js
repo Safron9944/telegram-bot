@@ -658,6 +658,13 @@ function renderLawTab(ctx, root) {
   });
 }
 
+
+function okModuleBadge(item) {
+  const source = String(item?.name || item?.label || "");
+  const match = source.match(/(?:ОК|OK)\s*-\s*(\d+)/i) || source.match(/\d+/);
+  return match ? match[1] : "ОК";
+}
+
 function openModulePicker(ctx, selected, onSave) {
   const overlay = document.createElement("div");
   overlay.className = "bottom-sheet-overlay";
@@ -702,7 +709,7 @@ function openModulePicker(ctx, selected, onSave) {
 
     const iconEl = document.createElement("span");
     iconEl.className = `cell__icon cell__icon--${isOn ? "purple" : "gray"}`;
-    iconEl.textContent = item.label.slice(0, 2).toUpperCase();
+    iconEl.textContent = okModuleBadge(item);
 
     const bodyEl = document.createElement("span");
     bodyEl.className = "cell__body";
@@ -767,7 +774,7 @@ function renderOkTab(ctx, root, modules) {
       row.type = "button";
       row.className = "cell";
       row.innerHTML = `
-        <span class="cell__icon cell__icon--purple">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
+        <span class="cell__icon cell__icon--purple">${ctx.escapeHtml(okModuleBadge(item))}</span>
         <span class="cell__body">
           <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
           <span class="cell__subtitle">${item.levels.length} ${item.levels.length === 1 ? "рівень" : "рівні"}</span>
