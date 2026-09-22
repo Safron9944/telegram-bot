@@ -765,7 +765,7 @@ function renderOkTab(ctx, root, modules) {
     <div class="group">
       <div class="group__label">Активні модулі</div>
       <div class="group__list" id="active-modules"></div>
-      <div class="group__footer">Оберіть рівень біля потрібного ОК. Останній вибраний рівень підсвічується.</div>
+      <div class="group__footer">Спочатку оберіть рівень. Щоб почати навчання, натисніть назву ОК або ще раз на вже вибраний рівень.</div>
     </div>
     <div style="padding: 0 4px 4px;" id="module-save"></div>
   `;
@@ -780,29 +780,59 @@ function renderOkTab(ctx, root, modules) {
     `;
   } else {
     modules.forEach((item) => {
+      let selectedLevel = item.last_level || item.levels[0]?.level || null;
       const row = document.createElement("div");
-      row.className = "cell";
+      row.className = "cell ok-module-row";
       row.style.cursor = "default";
       row.innerHTML = `
         <span class="cell__icon cell__icon--purple" style="width:54px;font-size:11px;">${ctx.escapeHtml(okModuleBadge(item))}</span>
         <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(okModuleTitle(item))}</span>
-          <span class="row-actions" data-ok-level-actions style="flex-wrap:wrap;margin-top:8px;"></span>
+          <button class="ok-module-open" type="button" data-ok-module-open>
+            <span class="cell__title">${ctx.escapeHtml(okModuleTitle(item))}</span>
+            <span class="cell__chevron" aria-hidden="true"></span>
+          </button>
+          <span class="row-actions" data-ok-level-actions></span>
         </span>
       `;
 
+      const startSelectedLevel = () => {
+        if (selectedLevel == null) return;
+        ctx.impact("medium");
+        ctx.startLearning({ kind: "ok", module: item.name, level: selectedLevel });
+      };
+
+      row.querySelector("[data-ok-module-open]")?.addEventListener("click", startSelectedLevel);
+
       const actions = row.querySelector("[data-ok-level-actions]");
       item.levels.forEach((entry) => {
-        const isLast = entry.level === item.last_level;
         const levelButton = document.createElement("button");
         levelButton.type = "button";
-        levelButton.className = "pill" + (isLast ? " is-selected" : "");
+        levelButton.className = "pill" + (entry.level === selectedLevel ? " is-selected" : "");
         levelButton.textContent = `Рівень ${entry.level}`;
         levelButton.setAttribute("aria-label", `${okModuleBadge(item)}, рівень ${entry.level}`);
-        if (isLast) levelButton.setAttribute("aria-current", "true");
-        levelButton.addEventListener("click", () => {
-          ctx.impact("medium");
-          ctx.startLearning({ kind: "ok", module: item.name, level: entry.level });
+        if (entry.level === selectedLevel) levelButton.setAttribute("aria-current", "true");
+
+        levelButton.addEventListener("click", async () => {
+          if (entry.level === selectedLevel) {
+            startSelectedLevel();
+            return;
+          }
+
+          try {
+            levelButton.disabled = true;
+            const response = await ctx.api("/api/preferences/ok-level", {
+              method: "POST",
+              body: { module: item.name, level: entry.level },
+            });
+            selectedLevel = entry.level;
+            ctx.state.bootstrap.user = response.user;
+            ctx.state.bootstrap.catalog = response.catalog;
+            ctx.impact("light");
+            ctx.render();
+          } catch (error) {
+            levelButton.disabled = false;
+            ctx.setMessage("error", error.message);
+          }
         });
         actions.append(levelButton);
       });
