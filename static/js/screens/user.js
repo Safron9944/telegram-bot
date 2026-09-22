@@ -662,7 +662,16 @@ function renderLawTab(ctx, root) {
 function okModuleBadge(item) {
   const source = String(item?.name || item?.label || "");
   const match = source.match(/(?:ОК|OK)\s*-\s*(\d+)/i) || source.match(/\d+/);
-  return match ? match[1] : "ОК";
+  return match ? "ОК-" + match[1] : "ОК";
+}
+
+function okModuleTitle(item) {
+  const label = String(item?.label || item?.name || "").trim();
+  const cleaned = label
+    .replace(/^\s*\[(?:ОК|OK)\s*-\s*\d+\]\s*/i, "")
+    .replace(/^\s*(?:ОК|OK)\s*-\s*\d+\s*[:—-]?\s*/i, "")
+    .trim();
+  return cleaned || label || "Модуль";
 }
 
 function openModulePicker(ctx, selected, onSave) {
@@ -709,11 +718,13 @@ function openModulePicker(ctx, selected, onSave) {
 
     const iconEl = document.createElement("span");
     iconEl.className = `cell__icon cell__icon--${isOn ? "purple" : "gray"}`;
+    iconEl.style.width = "54px";
+    iconEl.style.fontSize = "11px";
     iconEl.textContent = okModuleBadge(item);
 
     const bodyEl = document.createElement("span");
     bodyEl.className = "cell__body";
-    bodyEl.innerHTML = `<span class="cell__title">${ctx.escapeHtml(item.label)}</span>`;
+    bodyEl.innerHTML = `<span class="cell__title">${ctx.escapeHtml(okModuleTitle(item))}</span>`;
 
     const checkEl = document.createElement("span");
     checkEl.style.cssText = "color:var(--accent);font-size:18px;flex-shrink:0;";
@@ -754,12 +765,11 @@ function renderOkTab(ctx, root, modules) {
     <div class="group">
       <div class="group__label">Активні модулі</div>
       <div class="group__list" id="active-modules"></div>
-      <div class="group__footer">Натисніть рівень, щоб розпочати навчання.</div>
+      <div class="group__footer">Оберіть рівень біля потрібного ОК. Останній вибраний рівень підсвічується.</div>
     </div>
     <div style="padding: 0 4px 4px;" id="module-save"></div>
   `;
 
-  // Active modules
   const activeRoot = root.querySelector("#active-modules");
   if (!modules.length) {
     activeRoot.innerHTML = `
@@ -770,27 +780,37 @@ function renderOkTab(ctx, root, modules) {
     `;
   } else {
     modules.forEach((item) => {
-      const row = document.createElement("button");
-      row.type = "button";
+      const row = document.createElement("div");
       row.className = "cell";
+      row.style.cursor = "default";
       row.innerHTML = `
-        <span class="cell__icon cell__icon--purple">${ctx.escapeHtml(okModuleBadge(item))}</span>
+        <span class="cell__icon cell__icon--purple" style="width:54px;font-size:11px;">${ctx.escapeHtml(okModuleBadge(item))}</span>
         <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
-          <span class="cell__subtitle">${item.levels.length} ${item.levels.length === 1 ? "рівень" : "рівні"}</span>
+          <span class="cell__title">${ctx.escapeHtml(okModuleTitle(item))}</span>
+          <span class="row-actions" data-ok-level-actions style="flex-wrap:wrap;margin-top:8px;"></span>
         </span>
-        <span class="cell__chevron" aria-hidden="true"></span>
       `;
-      row.addEventListener("click", () => {
-        ctx.impact("light");
-        ctx.state.selectedOkModule = item;
-        ctx.navigate("ok-levels");
+
+      const actions = row.querySelector("[data-ok-level-actions]");
+      item.levels.forEach((entry) => {
+        const isLast = entry.level === item.last_level;
+        const levelButton = document.createElement("button");
+        levelButton.type = "button";
+        levelButton.className = "pill" + (isLast ? " is-selected" : "");
+        levelButton.textContent = `Рівень ${entry.level}`;
+        levelButton.setAttribute("aria-label", `${okModuleBadge(item)}, рівень ${entry.level}`);
+        if (isLast) levelButton.setAttribute("aria-current", "true");
+        levelButton.addEventListener("click", () => {
+          ctx.impact("medium");
+          ctx.startLearning({ kind: "ok", module: item.name, level: entry.level });
+        });
+        actions.append(levelButton);
       });
+
       activeRoot.append(row);
     });
   }
 
-  // "Змінити вибір" button
   const saveRoot = root.querySelector("#module-save");
   saveRoot.append(
     ctx.actionButton("Змінити вибір", () => {

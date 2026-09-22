@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260820-remove-legacy-stage1-11";
+import "/static/js/app.js?v=20260922-inline-ok-levels-12";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
