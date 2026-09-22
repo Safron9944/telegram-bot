@@ -661,15 +661,15 @@ function renderLawTab(ctx, root) {
 
 function okModuleBadge(item) {
   const source = String(item?.name || item?.label || "");
-  const match = source.match(/(?:ОК|OK)\\s*-\\s*(\\d+)/i) || source.match(/\\d+/);
-  return match ? `ОК-${match[1]}` : "ОК";
+  const match = source.match(/(?:ОК|OK)\s*-\s*(\d+)/i) || source.match(/\d+/);
+  return match ? \`ОК-\${match[1]}\` : "ОК";
 }
 
 function okModuleTitle(item) {
   const label = String(item?.label || item?.name || "").trim();
   const cleaned = label
-    .replace(/^\\s*\\[(?:ОК|OK)\\s*-\\s*\\d+\\]\\s*/i, "")
-    .replace(/^\\s*(?:ОК|OK)\\s*-\\s*\\d+\\s*[:—-]?\\s*/i, "")
+    .replace(/^\s*\[(?:ОК|OK)\s*-\s*\d+\]\s*/i, "")
+    .replace(/^\s*(?:ОК|OK)\s*-\s*\d+\s*[:—-]?\s*/i, "")
     .trim();
   return cleaned || label || "Модуль";
 }
