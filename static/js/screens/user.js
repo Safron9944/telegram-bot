@@ -1244,17 +1244,18 @@ export function renderTesting(ctx) {
               <span class="cell__subtitle">50 випадкових питань</span>
             </span>
             <label class="switch">
-              <input type="checkbox" id="include-law" checked />
+              <input type="checkbox" id="include-law" aria-label="Додати законодавство до тесту" checked />
               <span class="switch__track"></span>
             </label>
           </div>
         </div>
-        <div class="group__footer">Натисніть «Рівень», щоб увімкнути або вимкнути.</div>
+        <div class="group__footer">Увімкніть, щоб додати 50 випадкових питань із законодавства.</div>
       </div>
 
       <div class="group">
         <div class="group__label">Модулі та рівні</div>
         <div class="group__list" id="test-modules"></div>
+        <div class="group__footer">Натисніть на рівень, щоб додати його до тесту або прибрати.</div>
       </div>
 
       <div class="sticky-cta" id="test-cta"></div>
@@ -1277,15 +1278,14 @@ export function renderTesting(ctx) {
       selections[item.name] = initialLevel ? [initialLevel] : [];
 
       const row = document.createElement("div");
-      row.className = "cell";
+      row.className = "cell test-module-row";
       row.style.cursor = "default";
       row.innerHTML = `
-        <span class="cell__icon cell__icon--purple">${ctx.escapeHtml(item.label.slice(0, 2).toUpperCase())}</span>
+        <span class="cell__icon cell__icon--purple" style="width:54px;font-size:11px;">${ctx.escapeHtml(okModuleBadge(item))}</span>
         <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(item.label)}</span>
-          <span class="cell__subtitle">Виберіть рівні</span>
+          <span class="cell__title">${ctx.escapeHtml(okModuleTitle(item))}</span>
+          <span class="row-actions"></span>
         </span>
-        <span class="row-actions"></span>
       `;
       const actions = row.querySelector(".row-actions");
       item.levels.forEach((levelEntry) => {
@@ -1293,6 +1293,8 @@ export function renderTesting(ctx) {
         btn.type = "button";
         btn.className = "pill" + (selections[item.name].includes(levelEntry.level) ? " is-selected" : "");
         btn.textContent = `Рівень ${levelEntry.level}`;
+        btn.setAttribute("aria-label", `${okModuleBadge(item)}, рівень ${levelEntry.level}`);
+        btn.setAttribute("aria-pressed", String(selections[item.name].includes(levelEntry.level)));
         btn.addEventListener("click", () => {
           ctx.impact("light");
           const set = new Set(selections[item.name]);
@@ -1304,6 +1306,7 @@ export function renderTesting(ctx) {
             btn.classList.add("is-selected");
           }
           selections[item.name] = Array.from(set).sort((a, b) => a - b);
+          btn.setAttribute("aria-pressed", String(set.has(levelEntry.level)));
         });
         actions.append(btn);
       });

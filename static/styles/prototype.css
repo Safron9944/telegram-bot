@@ -428,6 +428,16 @@ body.ui-prototype {
   flex-wrap: wrap;
 }
 
+.ui-prototype .test-module-row .cell__title {
+  display: block;
+  overflow: visible;
+}
+
+.ui-prototype .test-module-row .row-actions {
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
 .ui-prototype .ok-module-row .pill:disabled {
   opacity: 0.55;
 }
