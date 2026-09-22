@@ -662,7 +662,7 @@ function renderLawTab(ctx, root) {
 function okModuleBadge(item) {
   const source = String(item?.name || item?.label || "");
   const match = source.match(/(?:ОК|OK)\s*-\s*(\d+)/i) || source.match(/\d+/);
-  return match ? \`ОК-\${match[1]}\` : "ОК";
+  return match ? "ОК-" + match[1] : "ОК";
 }
 
 function okModuleTitle(item) {
