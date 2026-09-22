@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260922-ok-level-select-13";
+import "/static/js/app.js?v=20260923-testing-labels-14";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
