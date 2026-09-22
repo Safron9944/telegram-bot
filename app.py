@@ -348,6 +348,11 @@ class OkModulesUpdate(BaseModel):
     modules: list[str] = Field(default_factory=list)
 
 
+class OkLevelUpdate(BaseModel):
+    module: str
+    level: int
+
+
 class StartLearningRequest(BaseModel):
     kind: Literal["law", "lawrand", "ok"]
     group_key: str | None = None
@@ -1111,6 +1116,27 @@ class MiniAppService:
         available = set(self.qb.ok_modules.keys())
         cleaned = [name for name in payload.modules if name in available]
         await self.store.set_ok_modules(auth.user_id, cleaned)
+        auth.user = await self.store.get_user(auth.user_id)
+        return {
+            "user": self.serialize_user(auth),
+            "catalog": self.serialize_catalog(auth),
+        }
+
+    async def set_ok_level(self, auth: AuthContext, payload: OkLevelUpdate) -> dict[str, Any]:
+        module = (payload.module or "").strip()
+        if not module:
+            require_http(400, "missing_module", "Не вибрано модуль ОК.")
+
+        selected_modules = set(auth.user.get("ok_modules", []) or [])
+        if module not in selected_modules:
+            require_http(403, "module_not_selected", "Цей модуль не обрано у вашому профілі.")
+
+        levels_map = self.qb.ok_modules.get(module, {}) or {}
+        level = int(payload.level)
+        if level not in levels_map:
+            require_http(404, "level_not_found", "Для модуля не знайдено потрібний рівень.")
+
+        await self.store.set_ok_last_level(auth.user_id, module, level)
         auth.user = await self.store.get_user(auth.user_id)
         return {
             "user": self.serialize_user(auth),
@@ -2252,6 +2278,11 @@ async def api_stats(auth: AuthContext = Depends(get_auth_context), runtime: Runt
 @app.post("/api/preferences/ok-modules")
 async def api_set_ok_modules(payload: OkModulesUpdate, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).set_ok_modules(auth, payload)
+
+
+@app.post("/api/preferences/ok-level")
+async def api_set_ok_level(payload: OkLevelUpdate, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
+    return await MiniAppService(runtime).set_ok_level(auth, payload)
 
 
 @app.post("/api/learning/start")
