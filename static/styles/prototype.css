@@ -401,6 +401,37 @@ body.ui-prototype {
   margin-top: 3px;
 }
 
+.ui-prototype .ok-module-open {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.ui-prototype .ok-module-open .cell__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-prototype .ok-module-open .cell__chevron {
+  flex: 0 0 auto;
+  margin: 2px 2px 0 8px;
+}
+
+.ui-prototype .ok-module-row .row-actions {
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ui-prototype .ok-module-row .pill:disabled {
+  opacity: 0.55;
+}
+
 .ui-prototype .admin-user-status {
   flex-shrink: 0;
   padding: 5px 8px;
