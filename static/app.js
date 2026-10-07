@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20260923-testing-labels-14";
+import "/static/js/app.js?v=20261007-open-practice-dedup";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

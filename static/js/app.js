@@ -65,7 +65,7 @@ import {
   renderAdminUsers,
   runQuestionSearch,
 } from "./screens/admin.js?v=20260923-testing-labels-14";
-import { renderCurrentView } from "./screens/session.js?v=20260815-language-browse-03";
+import { renderCurrentView } from "./screens/session.js?v=20261007-open-practice-dedup";
 import {
   cleanupAdminApkImport,
   renderAdminApkImport,

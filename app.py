@@ -1245,7 +1245,7 @@ class MiniAppService:
             "item": {
                 "id": question.id,
                 "title": open_practice_title(question.question),
-                "question": detail_text or open_practice_title(question.question),
+                "question": detail_text,
                 "sample_answer": question.practice_answer,
             },
         }

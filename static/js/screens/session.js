@@ -410,10 +410,12 @@ function renderOpenPracticeDetail(ctx, view) {
       </div>
       <h1 class="page-title">${ctx.escapeHtml(item.title || "Тема")}</h1>
 
-      <div class="question-card">
-        <div class="question-card__meta">Завдання</div>
-        <div class="question-card__text open-practice__text">${ctx.escapeHtml(item.question || "")}</div>
-      </div>
+      ${item.question ? `
+        <div class="question-card">
+          <div class="question-card__meta">Завдання</div>
+          <div class="question-card__text open-practice__text">${ctx.escapeHtml(item.question)}</div>
+        </div>
+      ` : ""}
 
       <div class="question-card open-practice__answer">
         <div class="question-card__meta">Зразок відповіді</div>

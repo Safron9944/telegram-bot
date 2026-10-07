@@ -23,7 +23,9 @@ class PracticeStore:
 
 def practice_question(qid: int, number: int, *, topic: str = "Написання тексту на визначену тему") -> Q:
     prefix = "XC" if topic.startswith("Написання") else "C"
-    question = f"{prefix}. {number}. Тема {number}.\n\nІнструкція {number}" if prefix == "XC" else f"{prefix}. {number}. Тема {number}."
+    question = f"{prefix}. {number}. Тема {number}."
+    if topic in ("Написання тексту на визначену тему", "Універсальні монологи"):
+        question += f"\n\nІнструкція {number}"
     return Q(
         id=qid,
         section="Державна мова",
@@ -65,6 +67,8 @@ class OpenPracticeBrowsingTests(unittest.IsolatedAsyncioTestCase):
                 practice_question(20_001_938, 1),
                 practice_question(20_001_939, 2, topic="Говоріння"),
                 regular_question(20_001_940),
+                practice_question(20_001_941, 3, topic="АІ-монологи"),
+                practice_question(20_001_942, 4, topic="Універсальні монологи"),
             ],
             source_id="bundled-ukrainian-language-test",
             manual_grant_section_key="ukrainian_language",
@@ -88,10 +92,19 @@ class OpenPracticeBrowsingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"existing": "unchanged"}, store.state)
         self.assertEqual(0, store.set_calls)
 
-    async def test_keeps_single_line_speaking_task_as_detail_text(self):
+    async def test_single_line_monologues_show_topic_only_once(self):
         service, _, auth = self.make_service()
-        detail = await service.attestation_practice_detail(auth, "ukrainian-language", 20_001_939)
-        self.assertEqual("Тема 2.", detail["item"]["question"])
+        for question_id, title in ((20_001_939, "Тема 2."), (20_001_941, "Тема 3.")):
+            with self.subTest(question_id=question_id):
+                detail = await service.attestation_practice_detail(auth, "ukrainian-language", question_id)
+                self.assertEqual(title, detail["item"]["title"])
+                self.assertEqual("", detail["item"]["question"])
+
+    async def test_universal_monologue_keeps_adaptation_instructions(self):
+        service, _, auth = self.make_service()
+        detail = await service.attestation_practice_detail(auth, "ukrainian-language", 20_001_942)
+        self.assertEqual("Тема 4.", detail["item"]["title"])
+        self.assertEqual("Інструкція 4", detail["item"]["question"])
 
     async def test_requires_explicit_admin_grant(self):
         service, _, _ = self.make_service()
