@@ -60,6 +60,16 @@ def regular_question(qid: int) -> Q:
 class OpenPracticeBrowsingTests(unittest.IsolatedAsyncioTestCase):
     def make_service(self):
         bank = QuestionBank("unused.json")
+        ai_question = practice_question(20_001_941, 3, topic="АІ-монологи")
+        ai_question.practice_outline = {
+            "keywords": ["тема", "аргумент", "приклад"],
+            "introduction": "Я обрав тему для розмови.",
+            "arguments": [
+                {"point": "Перша думка", "example": "Приклад із повсякденного життя"},
+                {"point": "Друга думка", "example": "Інший конкретний приклад"},
+            ],
+            "conclusion": "Отже, я вважаю, що аргументи потрібно пояснювати.",
+        }
         bank.register_attestation_bank(
             "ukrainian-language",
             "Державна мова",
@@ -67,7 +77,7 @@ class OpenPracticeBrowsingTests(unittest.IsolatedAsyncioTestCase):
                 practice_question(20_001_938, 1),
                 practice_question(20_001_939, 2, topic="Говоріння"),
                 regular_question(20_001_940),
-                practice_question(20_001_941, 3, topic="АІ-монологи"),
+                ai_question,
                 practice_question(20_001_942, 4, topic="Універсальні монологи"),
             ],
             source_id="bundled-ukrainian-language-test",
@@ -105,6 +115,18 @@ class OpenPracticeBrowsingTests(unittest.IsolatedAsyncioTestCase):
         detail = await service.attestation_practice_detail(auth, "ukrainian-language", 20_001_942)
         self.assertEqual("Тема 4.", detail["item"]["title"])
         self.assertEqual("Інструкція 4", detail["item"]["question"])
+
+    async def test_ai_topic_returns_speaking_outline_without_creating_session(self):
+        service, store, auth = self.make_service()
+        detail = await service.attestation_practice_detail(auth, "ukrainian-language", 20_001_941)
+        expected = service.qb.by_id[20_001_941].practice_outline
+        self.assertEqual(expected, detail["item"].get("speaking_outline"))
+        self.assertEqual(0, store.set_calls)
+
+    async def test_regular_practice_does_not_get_ai_outline(self):
+        service, _, auth = self.make_service()
+        detail = await service.attestation_practice_detail(auth, "ukrainian-language", 20_001_938)
+        self.assertIsNone(detail["item"].get("speaking_outline"))
 
     async def test_requires_explicit_admin_grant(self):
         service, _, _ = self.make_service()

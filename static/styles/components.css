@@ -624,6 +624,66 @@
   border: 1px solid color-mix(in srgb, var(--success) 28%, var(--separator));
 }
 
+.open-practice__keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.open-practice__keywords li {
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: var(--bg-fill);
+  color: var(--label);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.open-practice__outline {
+  display: grid;
+  gap: 12px;
+}
+
+.open-practice__example {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.question-card.open-practice__sample {
+  display: block;
+}
+
+.open-practice__sample summary {
+  padding: 4px 0;
+  cursor: pointer;
+  color: var(--label);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.open-practice__sample summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.open-practice__sample[open] .open-practice__text {
+  margin-top: 12px;
+}
+
+.open-practice__source {
+  align-self: flex-start;
+  padding: 8px 0;
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .question-card__topic {
   font-size: 13px;
   color: var(--label-secondary);

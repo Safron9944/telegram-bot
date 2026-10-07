@@ -1247,6 +1247,7 @@ class MiniAppService:
                 "title": open_practice_title(question.question),
                 "question": detail_text,
                 "sample_answer": question.practice_answer,
+                "speaking_outline": question.practice_outline,
             },
         }
 

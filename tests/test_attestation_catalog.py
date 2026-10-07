@@ -149,6 +149,15 @@ class AttestationCatalogTests(unittest.TestCase):
             for token in question.practice_answer.split()
         ))
         self.assertTrue(all(source.practice_answer != rewritten.practice_answer for source, rewritten in zip(speaking, ai)))
+        for question in ai:
+            with self.subTest(question_id=question.id):
+                outline = getattr(question, "practice_outline", None)
+                self.assertIsNotNone(outline)
+                self.assertTrue(3 <= len(outline["keywords"]) <= 5)
+                self.assertEqual(2, len(outline["arguments"]))
+                self.assertTrue(all(argument["point"] and argument["example"] for argument in outline["arguments"]))
+                self.assertTrue(question.practice_answer.startswith(outline["introduction"]))
+                self.assertTrue(question.practice_answer.endswith(outline["conclusion"]))
 
 
 if __name__ == "__main__":

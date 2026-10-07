@@ -394,8 +394,39 @@ function renderResultView(ctx, view) {
 }
 
 /* ===================== OPEN TOPIC BROWSING ===================== */
+function speakingOutlineHtml(ctx, outline) {
+  return `
+    <p class="page-subtitle">Прочитайте опору, потім спробуйте говорити своїми словами. Продумайте першу й останню фрази; приклади можна замінити на близькі вам.</p>
+    <div class="question-card">
+      <div class="question-card__meta">Ключові слова</div>
+      <ul class="open-practice__keywords" aria-label="Ключові слова для відповіді">
+        ${outline.keywords.map((word) => `<li>${ctx.escapeHtml(word)}</li>`).join("")}
+      </ul>
+    </div>
+    <section class="open-practice__outline" aria-label="План відповіді">
+      <div class="question-card">
+        <div class="question-card__meta">1. Вступ — перше речення</div>
+        <p class="question-card__text">${ctx.escapeHtml(outline.introduction || "")}</p>
+      </div>
+      ${outline.arguments.map((argument, index) => `
+        <div class="question-card">
+          <div class="question-card__meta">${index + 2}. ${index === 0 ? "По-перше" : "По-друге"}</div>
+          <p class="question-card__text">${ctx.escapeHtml(argument.point || "")}</p>
+          <p class="open-practice__example"><strong>Наприклад:</strong> ${ctx.escapeHtml(argument.example || "")}</p>
+        </div>
+      `).join("")}
+      <div class="question-card">
+        <div class="question-card__meta">4. Висновок — останнє речення</div>
+        <p class="question-card__text">${ctx.escapeHtml(outline.conclusion || "")}</p>
+      </div>
+    </section>
+  `;
+}
+
 function renderOpenPracticeDetail(ctx, view) {
   const item = view.item || {};
+  const outline = item.speaking_outline;
+  const hasOutline = Array.isArray(outline?.keywords) && Array.isArray(outline?.arguments);
   const close = () => {
     ctx.state.currentView = null;
     ctx.queueTransition("back");
@@ -417,10 +448,18 @@ function renderOpenPracticeDetail(ctx, view) {
         </div>
       ` : ""}
 
-      <div class="question-card open-practice__answer">
-        <div class="question-card__meta">Зразок відповіді</div>
-        <div class="question-card__text open-practice__text">${ctx.escapeHtml(item.sample_answer || "")}</div>
-      </div>
+      ${hasOutline ? `
+        ${speakingOutlineHtml(ctx, outline)}
+        <details class="question-card open-practice__answer open-practice__sample">
+          <summary>Розгорнути зразок за планом</summary>
+          <div class="question-card__text open-practice__text">${ctx.escapeHtml(item.sample_answer || "")}</div>
+        </details>
+      ` : `
+        <div class="question-card open-practice__answer">
+          <div class="question-card__meta">Зразок відповіді</div>
+          <div class="question-card__text open-practice__text">${ctx.escapeHtml(item.sample_answer || "")}</div>
+        </div>
+      `}
 
       <div class="sticky-cta" id="open-practice-detail-actions"></div>
     </section>

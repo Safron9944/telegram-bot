@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20261007-ai-monologues-alphabetical";
+} from "./screens/user.js?v=20261007-speaking-outline-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -65,7 +65,7 @@ import {
   renderAdminUsers,
   runQuestionSearch,
 } from "./screens/admin.js?v=20260923-testing-labels-14";
-import { renderCurrentView } from "./screens/session.js?v=20261007-open-practice-dedup";
+import { renderCurrentView } from "./screens/session.js?v=20261007-speaking-outline-01";
 import {
   cleanupAdminApkImport,
   renderAdminApkImport,

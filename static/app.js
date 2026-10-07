@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20261007-ai-monologues-alphabetical";
+import "/static/js/app.js?v=20261007-speaking-outline-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
