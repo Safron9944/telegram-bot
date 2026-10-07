@@ -1132,15 +1132,6 @@ function renderAttestationPracticeTopics(ctx, section) {
       <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
       <p class="page-subtitle">${ctx.escapeHtml(items.length)} тем · оберіть тему для перегляду.</p>
 
-      ${section.title === "АІ-монологи" ? `
-        <div class="question-card open-practice__guide">
-          <div class="question-card__meta">Тренуйте говоріння за опорою</div>
-          <p class="question-card__text">На іспиті оберіть із двох тем ту, про яку вам легше говорити. Визначте 3–5 ключових слів. Побудуйте відповідь: вступ → два аргументи з прикладами → висновок.</p>
-          <p class="open-practice__example">У кожній темі є короткий план і зразок. Розгорніть план у щонайменше 20 речень, дивлячись лише на ключові слова. Першу й останню фрази продумайте окремо.</p>
-          <a class="open-practice__source" href="https://mova.gov.ua/news/yak-pidhotuvatysia-do-monolohichnoho-vyslovlennia-pid-chas-ispytu-na-riven-volodinnia-derzhavnoiu-movoiu" target="_blank" rel="noopener noreferrer">Рекомендації Комісії · 6 лютого 2026</a>
-        </div>
-      ` : ""}
-
       <div class="group">
         <div class="group__label">Теми</div>
         <div class="group__list" id="attestation-practice-topics"></div>
@@ -1157,7 +1148,7 @@ function renderAttestationPracticeTopics(ctx, section) {
       <span class="cell__icon cell__icon--blue">${index + 1}</span>
       <span class="cell__body">
         <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-        <span class="cell__subtitle">${section.title === "АІ-монологи" ? "Ключові слова, план і зразок" : "Переглянути завдання і зразок відповіді"}</span>
+        <span class="cell__subtitle">${section.title === "АІ-монологи" ? "Переглянути монолог" : "Переглянути завдання і зразок відповіді"}</span>
       </span>
       <span class="cell__chevron" aria-hidden="true"></span>
     `;
