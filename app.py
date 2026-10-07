@@ -1035,7 +1035,7 @@ class MiniAppService:
                         "id": qid,
                         "question": q.question,
                         "options": build_option_review(q, chosen_idx, choice_order),
-                        "selected_missing": chosen is None,
+                        "selected_missing": chosen_idx is None,
                     },
                     "actions": {
                         "has_prev": index > 0,
