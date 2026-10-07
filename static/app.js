@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20261007-open-practice-dedup";
+import "/static/js/app.js?v=20261007-ai-monologues-alphabetical";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();

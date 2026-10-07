@@ -1120,7 +1120,11 @@ async function startAttestationBlock(ctx, section, block) {
 function renderAttestationPracticeTopics(ctx, section) {
   const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
   const bank = banks.find((item) => item.slug === ctx.state.selectedAttestationBankSlug);
-  const items = section.items || [];
+  let items = section.items || [];
+  if (section.title === "АІ-монологи") {
+    const collator = new Intl.Collator("uk", { sensitivity: "base", ignorePunctuation: true });
+    items = [...items].sort((a, b) => collator.compare(a.title, b.title));
+  }
 
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `

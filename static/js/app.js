@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20260923-testing-labels-14";
+} from "./screens/user.js?v=20261007-ai-monologues-alphabetical";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
