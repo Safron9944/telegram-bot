@@ -7,6 +7,7 @@ from questions import Q, QuestionBank
 ROOT = Path(__file__).resolve().parents[1]
 
 UKRAINIAN_LANGUAGE_SECTIONS = [
+    ("Універсальні монологи", 25),
     ("Слова близькі за значенням", 22),
     ("Слова протилежні за значенням", 21),
     ("Можливі обидва слова, наведені в дужках", 60),
@@ -30,6 +31,7 @@ UKRAINIAN_LANGUAGE_SECTIONS = [
     ("Розуміння тексту (вибір відповіді)", 65),
     ("Написання тексту на визначену тему", 11),
     ("Говоріння", 113),
+    ("АІ-монологи", 113),
 ]
 
 
@@ -87,12 +89,12 @@ class AttestationCatalogTests(unittest.TestCase):
             manual_grant_section_key="ukrainian_language",
         )
 
-        self.assertEqual(2061, len(loaded.qids))
+        self.assertEqual(2199, len(loaded.qids))
         self.assertEqual("ukrainian_language", loaded.manual_grant_section_key)
         self.assertEqual(307, sum(len(bank.by_id[qid].correct) > 1 for qid in loaded.qids))
         practice_qids = [qid for qid in loaded.qids if bank.by_id[qid].is_open_practice]
         test_qids = [qid for qid in loaded.qids if not bank.by_id[qid].is_open_practice]
-        self.assertEqual(124, len(practice_qids))
+        self.assertEqual(262, len(practice_qids))
         self.assertEqual(1937, len(test_qids))
         self.assertTrue(all(bank.by_id[qid].choices for qid in test_qids))
         self.assertEqual(
@@ -111,11 +113,42 @@ class AttestationCatalogTests(unittest.TestCase):
         ]
         self.assertTrue(all("\u0301" not in value for value in visible_text))
         practice_sections = [item["title"] for item in bank.attestation_sections(loaded.slug) if item["practice"]]
-        self.assertEqual(["Написання тексту на визначену тему", "Говоріння"], practice_sections)
+        self.assertEqual(
+            ["Універсальні монологи", "Написання тексту на визначену тему", "Говоріння", "АІ-монологи"],
+            practice_sections,
+        )
         sections = {item["title"]: item for item in bank.attestation_sections(loaded.slug)}
         self.assertEqual(11, len(sections["Написання тексту на визначену тему"]["items"]))
         self.assertEqual(113, len(sections["Говоріння"]["items"]))
         self.assertEqual([], sections["Говоріння"]["blocks"])
+
+    def test_ai_monologues_are_a_separate_answer_for_every_speaking_topic(self):
+        bank = QuestionBank("unused.json")
+        loaded = bank.load_bundled_attestation_bank(
+            str(ROOT / "data" / "ukrainian_language_questions"),
+            slug="ukrainian-language",
+            title="Державна мова",
+            source_id="bundled-ukrainian-language-3.8.26",
+            id_offset=20_000_000,
+            manual_grant_section_key="ukrainian_language",
+        )
+
+        sections = {item["title"]: item for item in bank.attestation_sections(loaded.slug)}
+        speaking = [bank.by_id[qid] for qid in bank.attestation_section_qids(loaded.slug, "Говоріння")]
+        ai = [bank.by_id[qid] for qid in bank.attestation_section_qids(loaded.slug, "АІ-монологи")]
+
+        self.assertEqual(113, sections["АІ-монологи"]["count"])
+        self.assertTrue(sections["АІ-монологи"]["practice"])
+        self.assertEqual([question.question for question in speaking], [question.question for question in ai])
+        self.assertEqual(113, len({question.practice_answer for question in ai}))
+        self.assertTrue(all(question.practice_answer.strip() for question in ai))
+        self.assertTrue(all(190 <= len(question.practice_answer.split()) <= 230 for question in ai))
+        self.assertFalse(any(
+            sum(letter in "РС" for letter in token) >= 2
+            for question in ai
+            for token in question.practice_answer.split()
+        ))
+        self.assertTrue(all(source.practice_answer != rewritten.practice_answer for source, rewritten in zip(speaking, ai)))
 
 
 if __name__ == "__main__":
