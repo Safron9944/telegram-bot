@@ -81,12 +81,12 @@ class AdminUsersUiTests(unittest.TestCase):
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20261007-monologues-full-text-01", index)
-        self.assertIn("static/styles.css?v=20261007-monologues-full-text-01", index)
-        self.assertIn("static/js/app.js?v=20261007-monologues-full-text-01", entry)
-        self.assertIn("styles/components.css?v=20261007-monologues-full-text-01", styles)
+        self.assertIn("static/app.js?v=20261008-ai-monologues-live-search-01", index)
+        self.assertIn("static/styles.css?v=20261008-ai-monologues-live-search-01", index)
+        self.assertIn("static/js/app.js?v=20261008-ai-monologues-live-search-01", entry)
+        self.assertIn("styles/components.css?v=20261008-ai-monologues-live-search-01", styles)
         self.assertIn("screens/admin.js?v=20260923-testing-labels-14", module)
-        self.assertIn("screens/user.js?v=20261007-monologues-full-text-01", module)
+        self.assertIn("screens/user.js?v=20261008-ai-monologues-live-search-01", module)
 
 
 if __name__ == "__main__":
