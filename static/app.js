@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20261007-monologues-full-text-01";
+import "/static/js/app.js?v=20261008-ai-monologues-live-search-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
