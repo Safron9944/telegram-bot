@@ -167,6 +167,18 @@ class OpenPracticeBrowsingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OpenPracticeAssetsTests(unittest.TestCase):
+    def test_ai_monologues_have_instant_word_search(self):
+        user = (ROOT / "static" / "js" / "screens" / "user.js").read_text(encoding="utf-8")
+
+        self.assertIn('const isAiMonologues = section.title === "АІ-монологи";', user)
+        self.assertIn('id="ai-monologues-search" type="search"', user)
+        self.assertIn('aria-label="Пошук тем АІ-монологів"', user)
+        self.assertIn('input?.addEventListener("input", () => {', user)
+        self.assertIn('drawTopics(input.value);', user)
+        self.assertIn('words.every((word) => normalizedTitle.includes(word))', user)
+        self.assertIn('ctx.state.aiMonologuesSearchQuery = input.value;', user)
+        self.assertIn('За вашим запитом тем не знайдено.', user)
+
     def test_frontend_wires_read_only_topic_catalog(self):
         session = (ROOT / "static" / "js" / "screens" / "session.js").read_text(encoding="utf-8")
         user = (ROOT / "static" / "js" / "screens" / "user.js").read_text(encoding="utf-8")
