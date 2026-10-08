@@ -1182,28 +1182,28 @@ function renderAttestationPracticeTopics(ctx, section) {
     }
     const fragment = document.createDocumentFragment();
     matches.forEach(({ item, index }) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "cell";
-    row.innerHTML = `
-      <span class="cell__icon cell__icon--blue">${index + 1}</span>
-      <span class="cell__body">
-        <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-        <span class="cell__subtitle">${section.title === "АІ-монологи" ? "Переглянути монолог" : "Переглянути завдання і зразок відповіді"}</span>
-      </span>
-      <span class="cell__chevron" aria-hidden="true"></span>
-    `;
-    row.addEventListener("click", async () => {
-      try {
-        if (!bank) throw new Error("Розділ не знайдено.");
-        ctx.impact("light");
-        ctx.state.currentView = await ctx.api(`/api/attestation/${bank.slug}/practice/${item.id}`);
-        ctx.queueTransition("forward");
-        ctx.render();
-      } catch (error) {
-        ctx.setMessage("error", error.message);
-      }
-    });
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "cell";
+      row.innerHTML = `
+        <span class="cell__icon cell__icon--blue">${index + 1}</span>
+        <span class="cell__body">
+          <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
+          <span class="cell__subtitle">${section.title === "АІ-монологи" ? "Переглянути монолог" : "Переглянути завдання і зразок відповіді"}</span>
+        </span>
+        <span class="cell__chevron" aria-hidden="true"></span>
+      `;
+      row.addEventListener("click", async () => {
+        try {
+          if (!bank) throw new Error("Розділ не знайдено.");
+          ctx.impact("light");
+          ctx.state.currentView = await ctx.api(`/api/attestation/${bank.slug}/practice/${item.id}`);
+          ctx.queueTransition("forward");
+          ctx.render();
+        } catch (error) {
+          ctx.setMessage("error", error.message);
+        }
+      });
       fragment.append(row);
     });
     list.append(fragment);
