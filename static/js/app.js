@@ -41,7 +41,7 @@ import {
   renderStats,
   renderTesting,
   renderTestExamQuestions,
-} from "./screens/user.js?v=20261007-monologues-full-text-01";
+} from "./screens/user.js?v=20261008-ai-monologues-live-search-01";
 import {
   loadAdminCases,
   loadAdminAttestationBanks,
@@ -65,7 +65,7 @@ import {
   renderAdminUsers,
   runQuestionSearch,
 } from "./screens/admin.js?v=20260923-testing-labels-14";
-import { renderCurrentView } from "./screens/session.js?v=20261007-monologues-full-text-01";
+import { renderCurrentView } from "./screens/session.js?v=20261008-ai-monologues-live-search-01";
 import {
   cleanupAdminApkImport,
   renderAdminApkImport,
