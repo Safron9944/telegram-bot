@@ -7,6 +7,7 @@ from questions import Q, QuestionBank
 ROOT = Path(__file__).resolve().parents[1]
 
 UKRAINIAN_LANGUAGE_SECTIONS = [
+    ("АІ-монологи", 113),
     ("Універсальні монологи", 25),
     ("Слова близькі за значенням", 22),
     ("Слова протилежні за значенням", 21),
@@ -31,7 +32,6 @@ UKRAINIAN_LANGUAGE_SECTIONS = [
     ("Розуміння тексту (вибір відповіді)", 65),
     ("Написання тексту на визначену тему", 11),
     ("Говоріння", 113),
-    ("АІ-монологи", 113),
 ]
 
 
@@ -114,7 +114,7 @@ class AttestationCatalogTests(unittest.TestCase):
         self.assertTrue(all("\u0301" not in value for value in visible_text))
         practice_sections = [item["title"] for item in bank.attestation_sections(loaded.slug) if item["practice"]]
         self.assertEqual(
-            ["Універсальні монологи", "Написання тексту на визначену тему", "Говоріння", "АІ-монологи"],
+            ["АІ-монологи", "Універсальні монологи", "Написання тексту на визначену тему", "Говоріння"],
             practice_sections,
         )
         sections = {item["title"]: item for item in bank.attestation_sections(loaded.slug)}
