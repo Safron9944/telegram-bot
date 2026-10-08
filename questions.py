@@ -366,6 +366,8 @@ class QuestionBank:
                     for start in range(1, len(qids) + 1, 50)
                 ],
             })
+        if slug == "ukrainian-language":
+            sections.sort(key=lambda item: item["title"] != "АІ-монологи")
         return sections
 
     def attestation_section_qids(self, slug: str, section: str) -> List[int]:
