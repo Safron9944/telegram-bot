@@ -178,6 +178,7 @@ class OpenPracticeAssetsTests(unittest.TestCase):
         self.assertIn('words.every((word) => normalizedTitle.includes(word))', user)
         self.assertIn('ctx.state.aiMonologuesSearchQuery = input.value;', user)
         self.assertIn('За вашим запитом тем не знайдено.', user)
+
     def test_frontend_wires_read_only_topic_catalog(self):
         session = (ROOT / "static" / "js" / "screens" / "session.js").read_text(encoding="utf-8")
         user = (ROOT / "static" / "js" / "screens" / "user.js").read_text(encoding="utf-8")
