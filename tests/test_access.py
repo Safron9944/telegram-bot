@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app import AuthContext, MiniAppService
 from access import CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, has_attestation_access
+from questions import QuestionBank
 from utils import dt_to_iso, iso_to_dt, now
 
 
@@ -100,6 +101,29 @@ class AccessTierTests(unittest.TestCase):
 
 
 class SavedAttestationAccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_recent_session_refreshes_a_newly_published_bank(self):
+        state = {
+            "mode": "learn",
+            "meta": {"kind": "attestation", "bank_slug": "stage-2"},
+            "last_activity_at": dt_to_iso(now()),
+        }
+        store = SimpleNamespace(
+            get_ui=AsyncMock(return_value={"state": state}),
+            set_state=AsyncMock(),
+            list_published_attestation_banks=AsyncMock(return_value=[{
+                "id": 2, "slug": "stage-2", "title": "Етап 2", "questions": [],
+            }]),
+        )
+        service = MiniAppService(SimpleNamespace(store=store, qb=QuestionBank("unused")))
+        service.build_session_view = AsyncMock(return_value={"screen": "question"})
+        auth = AuthContext({}, {"sub_infinite": True, "sub_tier": "full"}, 42, False)
+
+        self.assertEqual({"screen": "question"}, await service.saved_view(auth))
+
+        store.list_published_attestation_banks.assert_awaited_once()
+        service.build_session_view.assert_awaited_once_with(auth, state)
+        store.set_state.assert_not_awaited()
+
     async def test_expired_subscription_cannot_restore_attestation_session(self):
         state = {
             "mode": "learn",
@@ -109,7 +133,9 @@ class SavedAttestationAccessTests(unittest.IsolatedAsyncioTestCase):
         store = SimpleNamespace(get_ui=AsyncMock(return_value={"state": state}))
         service = MiniAppService(SimpleNamespace(
             store=store,
-            qb=SimpleNamespace(attestation_banks={}),
+            qb=SimpleNamespace(attestation_banks={
+                "stage-2": SimpleNamespace(published=True, manual_grant_section_key="", db_id=None),
+            }),
         ))
         service.build_session_view = AsyncMock(return_value={"screen": "question"})
         auth = AuthContext(

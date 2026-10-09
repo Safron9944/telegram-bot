@@ -18,7 +18,7 @@ class VisibleMessagesTests(unittest.TestCase):
         html = (ROOT / "static/index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="messages-panel" role="status" aria-live="polite"', html)
-        self.assertIn("20261008-ai-monologues-live-search-01", html)
+        self.assertIn("20261009-remove-language-01", html)
 
     def test_old_success_timer_cannot_hide_a_newer_message(self):
         source = (ROOT / "static/js/core/ui.js").read_text(encoding="utf-8")

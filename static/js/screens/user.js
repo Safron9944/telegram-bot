@@ -1117,27 +1117,10 @@ async function startAttestationBlock(ctx, section, block) {
   }
 }
 
-function normalizeMonologueSearch(text) {
-  return String(text || "")
-    .toLocaleLowerCase("uk-UA")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[\u2019\u0027\u02BC\u0060]/g, "")
-    .replace(/[^a-zа-яіїєґ0-9]+/gi, " ")
-    .trim();
-}
 function renderAttestationPracticeTopics(ctx, section) {
   const banks = ctx.state.bootstrap.catalog.attestation_banks || [];
   const bank = banks.find((item) => item.slug === ctx.state.selectedAttestationBankSlug);
-  const isAiMonologues = section.title === "АІ-монологи";
-  let items = section.items || [];
-  if (isAiMonologues) {
-    const collator = new Intl.Collator("uk", { sensitivity: "base", ignorePunctuation: true });
-    items = [...items].sort((a, b) => collator.compare(a.title, b.title));
-  }
-  const searchableItems = items.map((item, index) => ({
-    item, index, normalizedTitle: normalizeMonologueSearch(item.title),
-  }));
+  const items = section.items || [];
 
   ctx.setChrome({ showBack: true });
   ctx.refs.mainPanel.innerHTML = `
@@ -1145,78 +1128,41 @@ function renderAttestationPracticeTopics(ctx, section) {
       <h1 class="page-title">${ctx.escapeHtml(section.title)}</h1>
       <p class="page-subtitle">${ctx.escapeHtml(items.length)} тем · оберіть тему для перегляду.</p>
 
-      ${isAiMonologues ? `
-        <div class="case-search">
-          <span class="case-search__icon" aria-hidden="true"></span>
-          <input class="case-search__input" id="ai-monologues-search" type="search"
-                 aria-label="Пошук тем АІ-монологів" autocomplete="off"
-                 placeholder="Пошук теми за словами..."
-                 value="${ctx.escapeHtml(ctx.state.aiMonologuesSearchQuery || "")}" />
-        </div>
-      ` : ""}
-
       <div class="group">
-        <div class="group__label" id="attestation-practice-topics-count" aria-live="polite">Теми</div>
+        <div class="group__label">Теми</div>
         <div class="group__list" id="attestation-practice-topics"></div>
       </div>
     </section>
   `;
 
   const list = ctx.refs.mainPanel.querySelector("#attestation-practice-topics");
-  const resultCount = ctx.refs.mainPanel.querySelector("#attestation-practice-topics-count");
-  const drawTopics = (query = "") => {
-    const words = isAiMonologues ? normalizeMonologueSearch(query).split(/\s+/).filter(Boolean) : [];
-    const matches = searchableItems.filter(({ normalizedTitle }) => words.every((word) => normalizedTitle.includes(word)));
-    if (isAiMonologues) {
-      resultCount.textContent = words.length
-        ? `Знайдено тем: ${matches.length} із ${items.length}`
-        : `Теми (${items.length})`;
-    }
-    list.replaceChildren();
-    if (!matches.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty empty--inline";
-      empty.textContent = "За вашим запитом тем не знайдено.";
-      list.append(empty);
-      return;
-    }
-    const fragment = document.createDocumentFragment();
-    matches.forEach(({ item, index }) => {
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "cell";
-      row.innerHTML = `
-        <span class="cell__icon cell__icon--blue">${index + 1}</span>
-        <span class="cell__body">
-          <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
-          <span class="cell__subtitle">${section.title === "АІ-монологи" ? "Переглянути монолог" : "Переглянути завдання і зразок відповіді"}</span>
-        </span>
-        <span class="cell__chevron" aria-hidden="true"></span>
-      `;
-      row.addEventListener("click", async () => {
-        try {
-          if (!bank) throw new Error("Розділ не знайдено.");
-          ctx.impact("light");
-          ctx.state.currentView = await ctx.api(`/api/attestation/${bank.slug}/practice/${item.id}`);
-          ctx.queueTransition("forward");
-          ctx.render();
-        } catch (error) {
-          ctx.setMessage("error", error.message);
-        }
-      });
-      fragment.append(row);
+  const fragment = document.createDocumentFragment();
+  items.forEach((item, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cell";
+    row.innerHTML = `
+      <span class="cell__icon cell__icon--blue">${index + 1}</span>
+      <span class="cell__body">
+        <span class="cell__title">${ctx.escapeHtml(item.title)}</span>
+        <span class="cell__subtitle">Переглянути завдання і зразок відповіді</span>
+      </span>
+      <span class="cell__chevron" aria-hidden="true"></span>
+    `;
+    row.addEventListener("click", async () => {
+      try {
+        if (!bank) throw new Error("Розділ не знайдено.");
+        ctx.impact("light");
+        ctx.state.currentView = await ctx.api(`/api/attestation/${bank.slug}/practice/${item.id}`);
+        ctx.queueTransition("forward");
+        ctx.render();
+      } catch (error) {
+        ctx.setMessage("error", error.message);
+      }
     });
-    list.append(fragment);
-  };
-
-  if (isAiMonologues) {
-    const input = ctx.refs.mainPanel.querySelector("#ai-monologues-search");
-    input?.addEventListener("input", () => {
-      ctx.state.aiMonologuesSearchQuery = input.value;
-      drawTopics(input.value);
-    });
-  }
-  drawTopics(isAiMonologues ? ctx.state.aiMonologuesSearchQuery || "" : "");
+    fragment.append(row);
+  });
+  list.append(fragment);
 }
 
 export function renderAttestationParts(ctx) {

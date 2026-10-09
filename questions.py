@@ -38,7 +38,6 @@ class Q:
     correct_texts: List[str]
     shuffle_choices: bool = True
     practice_answer: str = ""
-    practice_outline: Dict[str, Any] | None = None
 
     @property
     def is_valid_mcq(self) -> bool:
@@ -206,7 +205,6 @@ class QuestionBank:
             choices = [str(value or "").strip() for value in (item.get("options") or item.get("choices") or [])]
             choices = [value for value in choices if value]
             practice_answer = str(item.get("sample_answer") or "").strip()
-            practice_outline = item.get("speaking_outline")
             if question_type == "open_answer":
                 if not practice_answer:
                     continue
@@ -237,7 +235,6 @@ class QuestionBank:
                 correct_texts=[choices[index - 1] for index in correct],
                 shuffle_choices=question_type != "open_answer",
                 practice_answer=practice_answer,
-                practice_outline=practice_outline if isinstance(practice_outline, dict) else None,
             ))
 
         return self.register_attestation_bank(
@@ -366,8 +363,6 @@ class QuestionBank:
                     for start in range(1, len(qids) + 1, 50)
                 ],
             })
-        if slug == "ukrainian-language":
-            sections.sort(key=lambda item: item["title"] != "АІ-монологи")
         return sections
 
     def attestation_section_qids(self, slug: str, section: str) -> List[int]:

@@ -5,7 +5,6 @@ from fastapi import HTTPException
 
 from app import AuthContext, MiniAppService, StartAttestationRequest
 from questions import Q, QuestionBank
-from sections import UKRAINIAN_LANGUAGE_SECTION_KEY
 
 
 class StateStore:
@@ -118,11 +117,11 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_manual_bank_requires_an_explicit_admin_grant(self):
         manual_bank = QuestionBank("unused.json")
         manual_bank.register_attestation_bank(
-            "ukrainian-language",
-            "Державна мова",
+            "practice-bank",
+            "Навчальні матеріали",
             [question(20_000_001, 1)],
-            source_id="bundled-ukrainian-language-test",
-            manual_grant_section_key=UKRAINIAN_LANGUAGE_SECTION_KEY,
+            source_id="bundled-practice-test",
+            manual_grant_section_key="practice_materials",
         )
         service = MiniAppService(SimpleNamespace(qb=manual_bank, store=self.store))
         full_without_grant = AuthContext(
@@ -135,7 +134,7 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as raised:
             await service.start_attestation(
                 full_without_grant,
-                "ukrainian-language",
+                "practice-bank",
                 StartAttestationRequest(section="Topic", block="1-1"),
             )
 
@@ -143,13 +142,13 @@ class DynamicAttestationApiTests(unittest.IsolatedAsyncioTestCase):
 
         granted = AuthContext(
             {},
-            {"section_access": [UKRAINIAN_LANGUAGE_SECTION_KEY]},
+            {"section_access": ["practice_materials"]},
             81,
             False,
         )
         result = await service.start_attestation(
             granted,
-            "ukrainian-language",
+            "practice-bank",
             StartAttestationRequest(section="Topic", block="1-1"),
         )
         self.assertEqual(1, result["progress"]["total"])

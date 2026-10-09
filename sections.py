@@ -8,13 +8,10 @@ from access import access_tier, section_access_override
 
 PROTECTED_SECTION_KEYS = frozenset({"cases", "test_questions", "question_search"})
 ALWAYS_FREE_SECTION_KEYS = frozenset({"customs_code", "support"})
-UKRAINIAN_LANGUAGE_SECTION_KEY = "ukrainian_language"
-UKRAINIAN_LANGUAGE_BANK_SLUG = "ukrainian-language"
 
 
 SYSTEM_SECTIONS = (
     {"key": "customs", "title": "Митні компетенції", "screen": "customs", "icon": "graduation", "price": 250, "preview_count": 50, "group": "primary", "default_order": 100, "content_screen": "admin-questions", "content_label": "Банк питань"},
-    {"key": UKRAINIAN_LANGUAGE_SECTION_KEY, "title": "Державна мова", "screen": "attestation-bank", "icon": "document", "price": 0, "manual_grant_only": True, "kind": "attestation", "bank_slug": UKRAINIAN_LANGUAGE_BANK_SLUG, "group": "primary", "default_order": 150},
     {"key": "cases", "title": "Кейси", "screen": "cases", "icon": "folder", "price": 100, "group": "materials", "default_order": 200, "content_screen": "admin-cases", "content_label": "Кейси та питання"},
     {"key": "customs_code", "title": "Митний кодекс", "screen": "customs-code", "icon": "scale", "price": 0, "group": "materials", "default_order": 201},
     {"key": "test_questions", "title": "Тестові питання", "screen": "test-exam-questions", "icon": "clipboard", "price": 250, "group": "materials", "default_order": 202, "content_screen": "admin-test-questions", "content_label": "Питання"},

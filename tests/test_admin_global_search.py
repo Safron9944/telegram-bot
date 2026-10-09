@@ -45,7 +45,7 @@ class AdminGlobalSearchTests(unittest.IsolatedAsyncioTestCase):
         qb = SimpleNamespace(
             by_id={101: bundled},
             attestation_banks={
-                "ukrainian-language": AttestationBank("ukrainian-language", "Державна мова", [101]),
+                "practice-bank": AttestationBank("practice-bank", "Навчальні матеріали", [101]),
             },
         )
         runtime = SimpleNamespace(store=SearchStore(), qb=qb)
@@ -55,7 +55,7 @@ class AdminGlobalSearchTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([], result["ok"])
         self.assertEqual(2, len(result["attestation"]))
-        self.assertEqual({"Державна мова", "Новий розділ"}, {item["bank_title"] for item in result["attestation"]})
+        self.assertEqual({"Навчальні матеріали", "Новий розділ"}, {item["bank_title"] for item in result["attestation"]})
 
 
 if __name__ == "__main__":

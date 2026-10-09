@@ -11,7 +11,6 @@ from app import (
     MiniAppService,
     get_home_visibility,
 )
-from sections import UKRAINIAN_LANGUAGE_SECTION_KEY
 from storage import Storage
 
 
@@ -71,28 +70,6 @@ class AdminDeleteUserTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(400, raised.exception.status_code)
         self.assertEqual("cannot_delete_self", raised.exception.detail["code"])
         store.delete_user.assert_not_awaited()
-
-
-class AdminUkrainianLanguageAccessTests(unittest.IsolatedAsyncioTestCase):
-    async def test_admin_can_grant_ukrainian_language_access(self):
-        store = SimpleNamespace(set_section_access_override=AsyncMock(return_value=True))
-        service = MiniAppService(SimpleNamespace(store=store))
-        service.admin_user_detail = AsyncMock(return_value={"ukrainian_language_access": True})
-
-        result = await service.admin_set_ukrainian_language_access(admin_auth(), 42, True)
-
-        self.assertTrue(result["ukrainian_language_access"])
-        store.set_section_access_override.assert_awaited_once_with(42, UKRAINIAN_LANGUAGE_SECTION_KEY, True)
-        service.admin_user_detail.assert_awaited_once_with(admin_auth(), 42)
-
-    async def test_missing_user_is_reported(self):
-        store = SimpleNamespace(set_section_access_override=AsyncMock(return_value=False))
-        service = MiniAppService(SimpleNamespace(store=store))
-
-        with self.assertRaises(HTTPException) as raised:
-            await service.admin_set_ukrainian_language_access(admin_auth(), 404, True)
-
-        self.assertEqual("user_not_found", raised.exception.detail["code"])
 
 
 class AdminSectionAccessTests(unittest.IsolatedAsyncioTestCase):
@@ -170,21 +147,21 @@ class StorageDeleteUserTests(unittest.IsolatedAsyncioTestCase):
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
 
-        self.assertTrue(await storage.set_section_access(42, UKRAINIAN_LANGUAGE_SECTION_KEY, True))
-        self.assertTrue(await storage.set_section_access(42, UKRAINIAN_LANGUAGE_SECTION_KEY, False))
+        self.assertTrue(await storage.set_section_access(42, "attestation:7", True))
+        self.assertTrue(await storage.set_section_access(42, "attestation:7", False))
 
         statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
         self.assertIn(
             (
                 "INSERT INTO user_section_access(user_id, section_key) VALUES($1, $2) ON CONFLICT(user_id, section_key) DO NOTHING",
-                (42, UKRAINIAN_LANGUAGE_SECTION_KEY),
+                (42, "attestation:7"),
             ),
             statements,
         )
         self.assertIn(
             (
                 "DELETE FROM user_section_access WHERE user_id=$1 AND section_key=$2",
-                (42, UKRAINIAN_LANGUAGE_SECTION_KEY),
+                (42, "attestation:7"),
             ),
             statements,
         )

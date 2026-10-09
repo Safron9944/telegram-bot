@@ -75,9 +75,9 @@ class CustomsPreviewAssetsTests(unittest.TestCase):
         index = (ROOT / "static/index.html").read_text(encoding="utf-8")
         app = (ROOT / "static/app.js").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("20261008-ai-monologues-live-search-01", index)
-        self.assertIn("20261008-ai-monologues-live-search-01", app)
-        self.assertIn("screens/user.js?v=20261008-ai-monologues-live-search-01", module)
+        self.assertIn("20261009-remove-language-01", index)
+        self.assertIn("20261009-remove-language-01", app)
+        self.assertIn("screens/user.js?v=20261009-remove-language-01", module)
 
 
 if __name__ == "__main__":

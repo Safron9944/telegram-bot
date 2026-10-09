@@ -92,20 +92,20 @@ class DynamicAttestationRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_database_reload_preserves_other_bundled_banks(self):
         bank = QuestionBank("unused.json")
         question = Q(
-            20_000_001, "Державна мова", "Тема", None, None, 1,
+            20_000_001, "Навчальні матеріали", "Тема", None, None, 1,
             "Питання?", ["A", "B"], [1], ["A"],
         )
         bank.register_attestation_bank(
-            "ukrainian-language",
-            "Державна мова",
+            "practice-bank",
+            "Навчальні матеріали",
             [question],
-            source_id="bundled-ukrainian-language-3.8.26",
-            manual_grant_section_key="ukrainian_language",
+            source_id="bundled-practice-test",
+            manual_grant_section_key="practice_materials",
         )
 
         await bank.load_published_attestation_banks(PublishedStore())
 
-        self.assertIn("ukrainian-language", bank.attestation_banks)
+        self.assertIn("practice-bank", bank.attestation_banks)
         self.assertIn(20_000_001, bank.by_id)
 
     async def test_reload_keeps_current_catalog_available_while_fetching(self):

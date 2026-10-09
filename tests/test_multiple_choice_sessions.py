@@ -8,8 +8,8 @@ from questions import Q, QuestionBank
 def multiple_question() -> Q:
     return Q(
         101,
-        "Державна мова",
-        "Лексика",
+        "Навчальні матеріали",
+        "Перевірка знань",
         None,
         None,
         1,
@@ -41,15 +41,15 @@ class MultipleChoiceSessionTests(unittest.IsolatedAsyncioTestCase):
         qb = QuestionBank("unused.json")
         question = multiple_question()
         qb.register_attestation_bank(
-            "ukrainian-language",
-            "Державна мова",
+            "practice-bank",
+            "Навчальні матеріали",
             [question],
-            source_id="bundled-ukrainian-language-test",
-            manual_grant_section_key="ukrainian_language",
+            source_id="bundled-practice-test",
+            manual_grant_section_key="practice_materials",
         )
         state = {
             "mode": "learn",
-            "header": "Державна мова",
+            "header": "Навчальні матеріали",
             "pending": [question.id],
             "skipped": [],
             "phase": "pending",
@@ -61,12 +61,12 @@ class MultipleChoiceSessionTests(unittest.IsolatedAsyncioTestCase):
             "choice_orders": {},
             "meta": {
                 "kind": "attestation",
-                "bank_slug": "ukrainian-language",
+                "bank_slug": "practice-bank",
             },
         }
         store = SessionStore(state)
         service = MiniAppService(SimpleNamespace(qb=qb, store=store))
-        auth = AuthContext({}, {"section_access": ["ukrainian_language"]}, 42, False)
+        auth = AuthContext({}, {"section_access": ["practice_materials"]}, 42, False)
         return service, store, auth, question
 
     async def test_exact_selected_set_is_accepted(self):

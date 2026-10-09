@@ -39,7 +39,7 @@ from customs_code import repository as customs_code_repository
 from questions import QuestionBank, open_practice_title
 from storage import Storage
 from access import CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access, section_access_override
-from sections import ALWAYS_FREE_SECTION_KEYS, PROTECTED_SECTION_KEYS, UKRAINIAN_LANGUAGE_BANK_SLUG, UKRAINIAN_LANGUAGE_SECTION_KEY, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
+from sections import ALWAYS_FREE_SECTION_KEYS, PROTECTED_SECTION_KEYS, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
     GROUP_URL,
     clean_law_title,
@@ -767,6 +767,17 @@ class MiniAppService:
             await self.set_state(auth.user_id, {})
             return None
 
+        meta = dict(state.get("meta", {}) or {})
+        bank_slug = str(meta.get("bank_slug") or "").strip()
+        if meta.get("kind") == "attestation" and bank_slug:
+            bank = self.qb.attestation_banks.get(bank_slug)
+            if not bank or not bank.published:
+                await self.qb.load_published_attestation_banks(self.store)
+                bank = self.qb.attestation_banks.get(bank_slug)
+            if not bank or not bank.published:
+                await self.set_state(auth.user_id, {})
+                return None
+
         if mode == "pretest":
             return self.build_pretest_view(state, auth.is_admin)
         if mode in {"learn", "test", "mistakes"}:
@@ -1247,7 +1258,6 @@ class MiniAppService:
                 "title": open_practice_title(question.question),
                 "question": detail_text,
                 "sample_answer": question.practice_answer,
-                "speaking_outline": question.practice_outline,
             },
         }
 
@@ -1833,7 +1843,6 @@ class MiniAppService:
             "ok_last_levels": dict(user.get("ok_last_levels", {}) or {}),
             "protected_materials_access": PROTECTED_SECTION_KEYS.issubset(section_access),
             "protected_materials_sections": sorted(PROTECTED_SECTION_KEYS & section_access),
-            "ukrainian_language_access": bool(next((item["has_access"] for item in section_controls if item["key"] == UKRAINIAN_LANGUAGE_SECTION_KEY), False)),
             "section_controls": section_controls,
         }
 
@@ -1854,13 +1863,6 @@ class MiniAppService:
         for section_key in PROTECTED_SECTION_KEYS:
             if not await self.store.set_section_visibility(target_id, section_key, enabled):
                 require_http(404, "user_not_found", "Користувача не знайдено.")
-        return await self.admin_user_detail(auth, target_id)
-
-    async def admin_set_ukrainian_language_access(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
-        if not auth.is_admin:
-            require_http(403, "forbidden", "Потрібні права адміністратора.")
-        if not await self.store.set_section_access_override(target_id, UKRAINIAN_LANGUAGE_SECTION_KEY, enabled):
-            require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_section_access(self, auth: AuthContext, target_id: int, section_key: str, enabled: bool) -> dict[str, Any]:
@@ -2191,17 +2193,6 @@ async def lifespan(app: FastAPI):
     await qb.load_from_db(store)
     if not qb.by_id:
         raise RuntimeError("No questions loaded from DB.")
-    ukrainian_language_path = BASE_DIR / "data" / "ukrainian_language_questions"
-    if not ukrainian_language_path.exists():
-        raise RuntimeError(f"Ukrainian language question file not found: {ukrainian_language_path}")
-    qb.load_bundled_attestation_bank(
-        str(ukrainian_language_path),
-        slug=UKRAINIAN_LANGUAGE_BANK_SLUG,
-        title="Державна мова",
-        source_id="bundled-ukrainian-language-3.8.26",
-        id_offset=20_000_000,
-        manual_grant_section_key=UKRAINIAN_LANGUAGE_SECTION_KEY,
-    )
     await qb.load_published_attestation_banks(store)
 
     runtime = RuntimeContext(
@@ -2757,11 +2748,6 @@ async def api_admin_user_access(user_id: int, payload: AdminAccessUpdateRequest,
 @app.post("/api/admin/users/{user_id}/protected-materials")
 async def api_admin_user_protected_materials(user_id: int, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_set_protected_materials(auth, user_id, payload.enabled)
-
-
-@app.post("/api/admin/users/{user_id}/ukrainian-language")
-async def api_admin_user_ukrainian_language(user_id: int, payload: AdminProtectedMaterialsUpdateRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_set_ukrainian_language_access(auth, user_id, payload.enabled)
 
 
 @app.post("/api/admin/users/{user_id}/sections/{section_key}")
