@@ -10,7 +10,6 @@ import asyncpg
 
 from utils import normalize_postgres_dsn, now, case_bank_sort_key
 from sections import PROTECTED_SECTION_KEYS
-from commerce import CommerceStore, PACKAGE_TITLES, FULL_ENTITLEMENT_SQL, MISSING_MATERIAL_SQL, entitlement_source
 
 
 class Storage:
@@ -18,7 +17,6 @@ class Storage:
         self.dsn = dsn
         self.pool: asyncpg.Pool | None = None
         self._rev_changed_by_is_int: bool | None = None
-        self._commerce_initialized = False
 
     async def init(self):
         dsn, ssl_param = normalize_postgres_dsn(self.dsn)
@@ -78,10 +76,32 @@ class Storage:
                     value TEXT NOT NULL
                 );
             """)
-            # Retire the old materialization migration: legacy package expiry is
-            # captured by commerce instead of manufacturing permanent section rights.
-            await con.execute("""INSERT INTO settings(key,value)
-                VALUES('protected_materials_access_v1','done') ON CONFLICT(key) DO NOTHING""")
+            await con.execute(
+                """
+                WITH migration_guard AS (
+                    INSERT INTO settings(key, value)
+                    VALUES('protected_materials_access_v1', 'done')
+                    ON CONFLICT(key) DO NOTHING
+                    RETURNING key
+                ), grants AS (
+                    SELECT unnest($1::text[]) AS section_key
+                )
+                INSERT INTO user_section_access(user_id, section_key, purchased_at)
+                SELECT users.user_id, grants.section_key, now()
+                FROM users
+                CROSS JOIN grants
+                CROSS JOIN migration_guard
+                WHERE
+                    (users.sub_infinite = 1 OR users.sub_end >= now())
+                    AND (
+                        users.sub_tier = 'full'
+                        OR (users.sub_infinite = 1 AND users.sub_tier IS NULL)
+                        OR (users.sub_tier = 'cases' AND grants.section_key = 'cases')
+                    )
+                ON CONFLICT(user_id, section_key) DO NOTHING
+                """,
+                sorted(PROTECTED_SECTION_KEYS),
+            )
             await con.execute(
                 """
                 WITH migration_guard AS (
@@ -99,8 +119,16 @@ class Storage:
                         visible=EXCLUDED.visible,
                         updated_at=EXCLUDED.updated_at
                     RETURNING user_id
+                ), cleared_access_overrides AS (
+                    DELETE FROM user_section_access_overrides AS overrides
+                    USING migration_guard
+                    WHERE overrides.section_key = ANY($1::text[])
+                    RETURNING overrides.user_id
                 )
-                SELECT count(*) FROM copied_visibility
+                DELETE FROM user_section_access AS access
+                USING migration_guard
+                WHERE access.section_key = ANY($1::text[])
+                  AND access.telegram_charge_id IS NULL
                 """,
                 sorted(PROTECTED_SECTION_KEYS),
             )
@@ -194,8 +222,6 @@ class Storage:
                 );
             """)
             await con.execute("CREATE INDEX IF NOT EXISTS idx_published_attestation_questions_bank ON published_attestation_questions(bank_id);")
-            await con.execute("ALTER TABLE attestation_banks ADD COLUMN IF NOT EXISTS ever_published BOOLEAN NOT NULL DEFAULT FALSE;")
-            await self._migrate_attestation_publication_history(con)
             await con.execute("ALTER TABLE published_attestation_questions ADD COLUMN IF NOT EXISTS managed_manually BOOLEAN NOT NULL DEFAULT FALSE;")
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS question_revisions (
@@ -255,17 +281,6 @@ class Storage:
             """)
             await con.execute("CREATE INDEX IF NOT EXISTS idx_test_exam_questions_source ON test_exam_questions(source);")
             await self._maybe_migrate_question_revisions_changed_by(con)
-            await CommerceStore(self).initialize(con)
-
-    async def _migrate_attestation_publication_history(self, con) -> None:
-        """Before this migration, imports published every bank and only withdrawal
-        wrote 'hidden'. Capture those existing rows once; future drafts stay private.
-        """
-        async with con.transaction():
-            guard = await con.fetchval("""INSERT INTO settings(key,value)
-                VALUES('attestation_publication_history_v1','done') ON CONFLICT(key) DO NOTHING RETURNING key""")
-            if guard:
-                await con.execute("UPDATE attestation_banks SET ever_published=TRUE WHERE status IN ('published','hidden')")
 
     async def _fetchrow(self, sql: str, *params):
         assert self.pool
@@ -399,19 +414,34 @@ class Storage:
                 user_id,
             )
         }
-        if self._commerce_initialized:
-            await CommerceStore(self).hydrate(d)
         return d
 
-    async def grant_section_access(self, user_id: int, section_key: str, *, telegram_charge_id: str | None = None) -> None:
-        ledger = CommerceStore(self)
-        await ledger.ready()
-        if telegram_charge_id:
-            await ledger.record_payment(user_id=user_id, product_key=f"section:{section_key}",
-                product_title=section_key, amount=None, currency="XTR", reference=telegram_charge_id,
-                source="legacy_telegram")
-        else:
-            await ledger.set_manual_grant(user_id, f"section:{section_key}", section_key, True, None, "Ручне надання доступу")
+    async def grant_section_access(
+        self,
+        user_id: int,
+        section_key: str,
+        *,
+        telegram_charge_id: str | None = None,
+    ) -> None:
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                await con.execute(
+                    """
+                    INSERT INTO user_section_access(user_id, section_key, telegram_charge_id)
+                    VALUES($1, $2, $3)
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        telegram_charge_id=COALESCE(EXCLUDED.telegram_charge_id, user_section_access.telegram_charge_id)
+                    """,
+                    user_id,
+                    section_key,
+                    telegram_charge_id,
+                )
+                await con.execute(
+                    "DELETE FROM user_section_access_overrides WHERE user_id=$1 AND section_key=$2",
+                    user_id,
+                    section_key,
+                )
 
     async def clear_section_access_overrides(self, user_id: int, section_keys: list[str]) -> None:
         if not section_keys:
@@ -423,24 +453,98 @@ class Storage:
         )
 
     async def set_section_access(self, user_id: int, section_key: str, enabled: bool) -> bool:
-        ledger = CommerceStore(self)
-        await ledger.ready()
-        return await ledger.set_manual_grant(user_id, f"section:{section_key}", section_key, enabled, None, "Ручна зміна доступу")
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                if enabled:
+                    await con.execute(
+                        """
+                        INSERT INTO user_section_access(user_id, section_key)
+                        VALUES($1, $2)
+                        ON CONFLICT(user_id, section_key) DO NOTHING
+                        """,
+                        user_id,
+                        section_key,
+                    )
+                else:
+                    await con.execute(
+                        "DELETE FROM user_section_access WHERE user_id=$1 AND section_key=$2",
+                        user_id,
+                        section_key,
+                    )
+        return True
 
     async def set_section_access_override(self, user_id: int, section_key: str, enabled: bool) -> bool:
-        """Compatibility API: change only a manual grant, preserving purchases and legacy rights."""
-        return await self.set_section_access(user_id, section_key, enabled)
+        """Persist an administrator decision that takes priority over subscriptions."""
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                await con.execute(
+                    """
+                    INSERT INTO user_section_access_overrides(user_id, section_key, enabled, updated_at)
+                    VALUES($1, $2, $3, now())
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        enabled=EXCLUDED.enabled,
+                        updated_at=EXCLUDED.updated_at
+                    """,
+                    user_id,
+                    section_key,
+                    bool(enabled),
+                )
+        return True
 
     async def set_section_visibility(self, user_id: int, section_key: str, visible: bool) -> bool:
-        ledger = CommerceStore(self)
-        await ledger.ready()
-        return await ledger.set_visibility(user_id, [section_key], visible, None, "Ручна зміна видимості")
+        """Control whether a purchasable section is shown to one user."""
+        assert self.pool
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                await con.execute(
+                    """
+                    INSERT INTO user_section_visibility_overrides(user_id, section_key, visible, updated_at)
+                    VALUES($1, $2, $3, now())
+                    ON CONFLICT(user_id, section_key) DO UPDATE SET
+                        visible=EXCLUDED.visible,
+                        updated_at=EXCLUDED.updated_at
+                    """,
+                    user_id,
+                    section_key,
+                    bool(visible),
+                )
+        return True
 
     async def set_protected_materials_access(self, user_id: int, enabled: bool) -> bool:
-        ledger = CommerceStore(self)
-        await ledger.ready()
-        return await ledger.set_manual_grants(user_id,
-            [(f"section:{key}",key,enabled) for key in sorted(PROTECTED_SECTION_KEYS)], None, "Ручна зміна доступу")
+        assert self.pool
+        keys = sorted(PROTECTED_SECTION_KEYS)
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
+                if not exists:
+                    return False
+                if enabled:
+                    await con.executemany(
+                        """
+                        INSERT INTO user_section_access(user_id, section_key)
+                        VALUES($1, $2)
+                        ON CONFLICT(user_id, section_key) DO NOTHING
+                        """,
+                        [(user_id, key) for key in keys],
+                    )
+                else:
+                    await con.execute(
+                        "DELETE FROM user_section_access WHERE user_id=$1 AND section_key=ANY($2::text[])",
+                        user_id,
+                        keys,
+                    )
+        return True
 
     async def set_ok_modules(self, user_id: int, modules: list[str]):
         await self._exec("""
@@ -456,37 +560,36 @@ class Storage:
         """, json.dumps(mp, ensure_ascii=False), user_id)
 
     async def set_subscription(self, user_id: int, sub_end: datetime | None, infinite: bool, tier: str = "full"):
-        """Legacy writer; successful payments now go exclusively through the ledger."""
         await self._exec("""
-            UPDATE users SET sub_end=$1, sub_infinite=$2,
-                sub_tier=CASE WHEN sub_tier='full' THEN 'full' ELSE $3 END WHERE user_id=$4
+            UPDATE users SET sub_end=$1, sub_infinite=$2, sub_tier=$3 WHERE user_id=$4
         """, sub_end, 1 if infinite else 0, tier, user_id)
 
     async def set_admin_access(self, user_id: int, access: str):
-        if access not in {"none","cases","full"}:
-            raise ValueError("Невідомий рівень доступу.")
-        ledger = CommerceStore(self)
-        await ledger.ready()
-        return await ledger.set_manual_grants(user_id,
-            [(key,title,key==access) for key,title in PACKAGE_TITLES.items()], None, "Ручна зміна пакета доступу")
+        if access in ("cases", "full"):
+            await self._exec("""
+                UPDATE users
+                SET sub_end=NULL, sub_infinite=1, sub_tier=$1
+                WHERE user_id=$2
+            """, access, user_id)
+            return
+        if access == "none":
+            await self._exec("""
+                UPDATE users SET sub_end=NULL, sub_infinite=0, sub_tier=NULL WHERE user_id=$1
+            """, user_id)
+            return
+        raise ValueError(f"Unknown access type: {access}")
 
-    async def delete_user(self, user_id: int, *, actor_id=None) -> bool:
-        """Protect payment history and unknown legacy rights before deleting progress."""
+    async def delete_user(self, user_id: int) -> bool:
+        """Delete a user and all user-owned progress in one transaction."""
         assert self.pool
         async with self.pool.acquire() as con:
             async with con.transaction():
-                await con.execute("SELECT pg_advisory_xact_lock(hashtext($1))",f"user:{user_id}")
-                exists = await con.fetchval("SELECT user_id FROM users WHERE user_id=$1 FOR UPDATE", user_id)
+                exists = await con.fetchval("SELECT 1 FROM users WHERE user_id=$1", user_id)
                 if not exists:
                     return False
-                protected = await con.fetchval("""SELECT 1 WHERE EXISTS(SELECT 1 FROM payments WHERE user_id=$1)
-                    OR EXISTS(SELECT 1 FROM legacy_access WHERE user_id=$1)""",user_id)
-                if protected:
-                    raise ValueError("Не можна видалити користувача з покупками або доступом невідомого походження.")
                 await con.execute("DELETE FROM ui_state WHERE user_id=$1", user_id)
                 await con.execute("DELETE FROM errors WHERE user_id=$1", user_id)
                 await con.execute("DELETE FROM tests WHERE user_id=$1", user_id)
-                await CommerceStore(self).audit(con,actor_id,user_id,"user_deleted",None,"Видалення облікового запису без покупок")
                 await con.execute("DELETE FROM users WHERE user_id=$1", user_id)
         return True
 
@@ -567,20 +670,11 @@ class Storage:
                 f"OR CONCAT_WS(' ', first_name, last_name) ILIKE {placeholder})"
             )
 
-        paid_sql = "EXISTS(SELECT 1 FROM payments p WHERE p.user_id=users.user_id AND p.status='confirmed')"
-        manual_sql = "EXISTS(SELECT 1 FROM manual_access_grants m WHERE m.user_id=users.user_id)"
-        attention_sql = f"(EXISTS(SELECT 1 FROM legacy_access l WHERE l.user_id=users.user_id) OR EXISTS(SELECT 1 FROM payments p WHERE p.user_id=users.user_id AND p.status='confirmed' AND (p.amount IS NULL OR {MISSING_MATERIAL_SQL})))"
-        active_sql = FULL_ENTITLEMENT_SQL
+        active_sql = "((COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW())) AND COALESCE(sub_tier, 'full')='full')"
         if access_filter == "active":
             conditions.append(active_sql)
         elif access_filter == "inactive":
             conditions.append(f"NOT {active_sql}")
-        elif access_filter == "paid":
-            conditions.append(paid_sql)
-        elif access_filter == "manual":
-            conditions.append(manual_sql)
-        elif access_filter == "attention":
-            conditions.append(attention_sql)
 
         where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         args.extend([limit, offset])
@@ -597,17 +691,25 @@ class Storage:
             """,
             *args,
         )
-        return [await self.get_user(int(row["user_id"])) for row in rows]
+        return [dict(r) for r in rows]
 
     async def list_user_ids(self) -> list[int]:
         rows = await self._fetch("SELECT user_id FROM users ORDER BY user_id")
         return [int(row["user_id"]) for row in rows]
 
     async def users_access_counts(self) -> dict[str, int]:
-        row = await self._fetchrow(f"""
+        row = await self._fetchrow("""
             SELECT
-                COUNT(*) FILTER (WHERE {FULL_ENTITLEMENT_SQL}) AS active,
-                COUNT(*) FILTER (WHERE NOT {FULL_ENTITLEMENT_SQL}) AS expired
+                COUNT(*) FILTER (
+                    WHERE (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                      AND COALESCE(sub_tier, 'full')='full'
+                ) AS active,
+                COUNT(*) FILTER (
+                    WHERE NOT (
+                        (COALESCE(sub_infinite, 0)=1 OR (sub_end IS NOT NULL AND sub_end >= NOW()))
+                        AND COALESCE(sub_tier, 'full')='full'
+                    )
+                ) AS expired
             FROM users
         """)
         return {
@@ -972,28 +1074,12 @@ class Storage:
             rows = await con.fetch(
                 """
                 SELECT id, slug, title, source_id, status, display_order, questions_count,
-                       created_at, updated_at, ever_published
+                       created_at, updated_at
                 FROM attestation_banks
                 ORDER BY display_order, id
                 """
             )
             return [dict(row) for row in rows]
-
-    async def list_retained_attestation_banks(self,user: dict) -> list[dict]:
-        """Read removed material only for a holder of an existing entitlement."""
-        result = []
-        async with self.pool.acquire() as con:
-            for raw in await con.fetch("SELECT id,slug,title,source_id,status,ever_published FROM attestation_banks WHERE status<>'published'"):
-                row = dict(raw)
-                key = f"attestation:{row['id']}"
-                source = entitlement_source(user,key)
-                explicit = any(f"section:{key}" in user.get(field,[]) for field in ("paid_products","manual_products","legacy_products"))
-                if source == "none" or not (explicit or row.get("ever_published")):
-                    continue
-                row["questions"] = [dict(question) for question in await con.fetch("""SELECT id,source_key,qnum,topic,question,choices,
-                    correct,correct_texts,shuffle_choices FROM published_attestation_questions WHERE bank_id=$1 ORDER BY topic,qnum NULLS LAST,id""",row["id"])]
-                result.append(row)
-        return result
 
     async def set_attestation_bank_visibility(self, bank_id: int, *, visible: bool) -> dict | None:
         assert self.pool
@@ -1001,11 +1087,11 @@ class Storage:
             row = await con.fetchrow(
                 """
                 UPDATE attestation_banks
-                SET status=$2, ever_published=(ever_published OR status='published' OR $3), updated_at=now()
+                SET status=$2, updated_at=now()
                 WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
                 RETURNING id, slug, title, source_id, status, display_order, questions_count
                 """,
-                int(bank_id), "published" if visible else "hidden",bool(visible),
+                int(bank_id), "published" if visible else "hidden",
             )
             return dict(row) if row else None
 
@@ -1037,29 +1123,18 @@ class Storage:
                 )
                 return True
 
-    async def delete_attestation_bank(self, bank_id: int) -> dict | None:
+    async def delete_attestation_bank(self, bank_id: int) -> bool:
         assert self.pool
         async with self.pool.acquire() as con:
-            async with con.transaction():
-                key = f"section:attestation:{int(bank_id)}"
-                for product in sorted(("full","cases",key)):
-                    await con.execute("SELECT pg_advisory_xact_lock(hashtext($1))",f"product:{product}")
-                protected = await con.fetchval("""SELECT 1 WHERE
-                    EXISTS(SELECT 1 FROM attestation_banks WHERE id=$2 AND (ever_published=TRUE OR status='published'))
-                    OR EXISTS(
-                    SELECT 1 FROM payments p WHERE p.status='confirmed' AND
-                        (p.product_key=$1 OR (p.product_key IN ('full','cases') AND EXISTS(SELECT 1 FROM attestation_banks WHERE id=$2 AND ever_published=TRUE))))
-                    OR EXISTS(SELECT 1 FROM legacy_access l WHERE l.product_key=$1 OR
-                        (l.product_key IN ('full','cases') AND EXISTS(SELECT 1 FROM attestation_banks WHERE id=$2 AND ever_published=TRUE)))
-                    OR EXISTS(SELECT 1 FROM manual_access_grants m WHERE m.product_key=$1)""",key,int(bank_id))
-                statement = """UPDATE attestation_banks SET status='hidden',ever_published=(ever_published OR status='published'),updated_at=now()
-                    WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1' RETURNING id""" if protected else """DELETE FROM attestation_banks
-                    WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1' RETURNING id"""
-                row = await con.fetchrow(statement,int(bank_id))
-                if row is None:
-                    return None
-                return {"id":int(bank_id),"status":"archived" if protected else "deleted","retained":bool(protected),
-                    "message":"Розділ прибрано з продажу. Матеріали та надані права збережено." if protected else "Чернетку розділу видалено."}
+            row = await con.fetchrow(
+                """
+                DELETE FROM attestation_banks
+                WHERE id=$1 AND slug <> 'stage-1' AND source_id <> 'bundled-stage-1'
+                RETURNING id
+                """,
+                int(bank_id),
+            )
+            return row is not None
 
     async def get_attestation_bank_for_admin(self, bank_id: int) -> dict | None:
         assert self.pool
@@ -1345,7 +1420,7 @@ class Storage:
                         """
                         UPDATE attestation_banks
                         SET title=$2, source_hash=$3, source_version=$4,
-                            status='published', ever_published=TRUE, questions_count=$5, updated_at=now()
+                            status='published', questions_count=$5, updated_at=now()
                         WHERE id=$1
                         """,
                         bank_id, title, bank.source_hash, bank.source_version, len(bank.questions),
@@ -1355,10 +1430,10 @@ class Storage:
                         """
                         INSERT INTO attestation_banks(
                             slug, title, source_id, source_hash, source_version,
-                            status, display_order, questions_count, ever_published
+                            status, display_order, questions_count
                         )
                         VALUES($1,$2,$3,$4,$5,'published',
-                               COALESCE((SELECT MAX(display_order) + 1 FROM attestation_banks), 0),$6,TRUE)
+                               COALESCE((SELECT MAX(display_order) + 1 FROM attestation_banks), 0),$6)
                         RETURNING id, slug
                         """,
                         slug, title, source_id, bank.source_hash, bank.source_version, len(bank.questions),

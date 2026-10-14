@@ -1,7 +1,7 @@
 import json
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
 
@@ -55,7 +55,7 @@ class AdminDeleteUserTests(unittest.IsolatedAsyncioTestCase):
         result = await service.admin_delete_user(admin_auth(), 42)
 
         self.assertEqual({"ok": True, "user_id": 42}, result)
-        store.delete_user.assert_awaited_once_with(42, actor_id=1)
+        store.delete_user.assert_awaited_once_with(42)
 
     async def test_admin_cannot_delete_self(self):
         store = SimpleNamespace(
@@ -75,7 +75,6 @@ class AdminDeleteUserTests(unittest.IsolatedAsyncioTestCase):
 class AdminSectionAccessTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_controls_protected_section_visibility_without_granting_access(self):
         store = SimpleNamespace(
-            get_user=AsyncMock(return_value={"user_id": 42}),
             set_section_visibility=AsyncMock(return_value=True),
             get_setting=AsyncMock(return_value="{}"),
             list_attestation_banks_for_admin=AsyncMock(return_value=[]),
@@ -83,10 +82,9 @@ class AdminSectionAccessTests(unittest.IsolatedAsyncioTestCase):
         service = MiniAppService(SimpleNamespace(store=store))
         service.admin_user_detail = AsyncMock(return_value={"section_controls": []})
 
-        with patch("app.CommerceStore") as ledger:
-            ledger.return_value.set_visibility = AsyncMock(return_value=True)
-            await service.admin_set_section_access(admin_auth(), 42, "cases", True)
-            ledger.return_value.set_visibility.assert_awaited_once_with(42, ["cases"], True, 1, "Ручна зміна видимості розділу")
+        await service.admin_set_section_access(admin_auth(), 42, "cases", True)
+
+        store.set_section_visibility.assert_awaited_once_with(42, "cases", True)
         self.assertFalse(hasattr(store, "set_section_access_override"))
 
 
@@ -111,11 +109,7 @@ class _DeleteConnection:
 
     async def fetchval(self, sql, *params):
         self.statements.append((sql, params))
-        return 1 if self.exists and ("FROM users" in sql or "FROM attestation_banks WHERE id" in sql) else None
-
-    async def fetchrow(self, sql, *params):
-        self.statements.append((sql, params))
-        return None
+        return 1 if self.exists else None
 
     async def execute(self, sql, *params):
         self.statements.append((sql, params))
@@ -126,7 +120,6 @@ class StorageDeleteUserTests(unittest.IsolatedAsyncioTestCase):
         connection = _DeleteConnection()
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
-        storage._commerce_initialized = True
 
         deleted = await storage.delete_user(42)
 
@@ -137,61 +130,89 @@ class StorageDeleteUserTests(unittest.IsolatedAsyncioTestCase):
             if sql.startswith("DELETE FROM ")
         ]
         self.assertEqual(["ui_state", "errors", "tests", "users"], delete_tables)
-        self.assertTrue(all(params == (42,) for sql, params in connection.statements if sql.startswith("DELETE FROM ")))
+        self.assertTrue(all(params == (42,) for _, params in connection.statements))
 
     async def test_delete_user_does_nothing_when_profile_is_missing(self):
         connection = _DeleteConnection(exists=False)
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
-        storage._commerce_initialized = True
 
         deleted = await storage.delete_user(42)
 
         self.assertFalse(deleted)
-        self.assertEqual(2, len(connection.statements))
+        self.assertEqual(1, len(connection.statements))
 
     async def test_set_section_access_grants_and_revokes_exact_section(self):
         connection = _DeleteConnection()
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
-        storage._commerce_initialized = True
 
         self.assertTrue(await storage.set_section_access(42, "attestation:7", True))
         self.assertTrue(await storage.set_section_access(42, "attestation:7", False))
 
         statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
-        self.assertTrue(any("INSERT INTO manual_access_grants" in sql and params[:2] == (42,"section:attestation:7") for sql,params in statements))
-        self.assertIn(("DELETE FROM manual_access_grants WHERE user_id=$1 AND product_key=$2",(42,"section:attestation:7")),statements)
-        self.assertFalse(any("DELETE FROM user_section_access" in sql for sql,_ in statements))
+        self.assertIn(
+            (
+                "INSERT INTO user_section_access(user_id, section_key) VALUES($1, $2) ON CONFLICT(user_id, section_key) DO NOTHING",
+                (42, "attestation:7"),
+            ),
+            statements,
+        )
+        self.assertIn(
+            (
+                "DELETE FROM user_section_access WHERE user_id=$1 AND section_key=$2",
+                (42, "attestation:7"),
+            ),
+            statements,
+        )
 
-    async def test_set_section_access_override_changes_only_a_manual_grant(self):
+    async def test_set_section_access_override_upserts_admin_decision(self):
         connection = _DeleteConnection()
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
-        storage._commerce_initialized = True
-        self.assertTrue(await storage.set_section_access_override(42,"customs",False))
-        statements = [(" ".join(sql.split()),params) for sql,params in connection.statements]
-        self.assertIn(("DELETE FROM manual_access_grants WHERE user_id=$1 AND product_key=$2",(42,"section:customs")),statements)
-        self.assertTrue(any("INSERT INTO access_events" in sql for sql,_ in statements))
-        self.assertFalse(any("DELETE FROM payments" in sql or "DELETE FROM legacy_access" in sql for sql,_ in statements))
+
+        self.assertTrue(await storage.set_section_access_override(42, "customs", False))
+
+        statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
+        self.assertIn(
+            (
+                "INSERT INTO user_section_access_overrides(user_id, section_key, enabled, updated_at) VALUES($1, $2, $3, now()) ON CONFLICT(user_id, section_key) DO UPDATE SET enabled=EXCLUDED.enabled, updated_at=EXCLUDED.updated_at",
+                (42, "customs", False),
+            ),
+            statements,
+        )
 
     async def test_set_section_visibility_upserts_independent_display_decision(self):
         connection = _DeleteConnection()
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
-        storage._commerce_initialized = True
-        self.assertTrue(await storage.set_section_visibility(42,"cases",True))
-        self.assertTrue(any("INSERT INTO user_section_visibility_overrides" in sql and params == (42,"cases",True) for sql,params in connection.statements))
-        self.assertTrue(any("INSERT INTO access_events" in sql for sql,_ in connection.statements))
 
-    async def test_paid_section_grant_uses_durable_ledger(self):
+        self.assertTrue(await storage.set_section_visibility(42, "cases", True))
+
+        statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
+        self.assertIn(
+            (
+                "INSERT INTO user_section_visibility_overrides(user_id, section_key, visible, updated_at) VALUES($1, $2, $3, now()) ON CONFLICT(user_id, section_key) DO UPDATE SET visible=EXCLUDED.visible, updated_at=EXCLUDED.updated_at",
+                (42, "cases", True),
+            ),
+            statements,
+        )
+
+    async def test_paid_section_grant_clears_old_admin_access_override(self):
         connection = _DeleteConnection()
         storage = Storage("postgresql://unused")
         storage.pool = SimpleNamespace(acquire=lambda: _AsyncContext(connection))
-        storage._commerce_initialized = True
-        await storage.grant_section_access(42,"customs",telegram_charge_id="charge-1")
-        self.assertTrue(any("INSERT INTO payments" in sql and "charge-1" in params for sql,params in connection.statements))
-        self.assertFalse(any("DELETE FROM payments" in sql for sql,_ in connection.statements))
+
+        await storage.grant_section_access(42, "customs", telegram_charge_id="charge-1")
+
+        statements = [(" ".join(sql.split()), params) for sql, params in connection.statements]
+        self.assertIn(
+            (
+                "DELETE FROM user_section_access_overrides WHERE user_id=$1 AND section_key=$2",
+                (42, "customs"),
+            ),
+            statements,
+        )
 
     async def test_admin_cannot_delete_another_admin(self):
         store = SimpleNamespace(

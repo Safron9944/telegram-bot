@@ -3,10 +3,6 @@ import { state } from "./core/state.js?v=20260923-testing-labels-14";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-browse-03";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
-import { mountAdminNavigation } from "./admin_navigation.js?v=20261014-admin-compact-01";
-import { renderAdminTariffs, renderAdminSettings } from "./admin_settings.js?v=20261014-admin-compact-01";
-import { renderAdminWorkspace, renderAdminActivity } from "./admin_workspace.js?v=20261014-admin-compact-01";
-import { renderAdminContentWorkspace } from "./admin_content_workspace.js?v=20261014-admin-compact-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -68,7 +64,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20261014-admin-compact-01";
+} from "./screens/admin.js?v=20260923-testing-labels-14";
 import { renderCurrentView } from "./screens/session.js?v=20261009-remove-language-01";
 import {
   cleanupAdminApkImport,
@@ -87,7 +83,7 @@ import {
   renderAdminSectionSettings,
   renderAdminSectionTopics,
   renderAdminSectionTopicEdit,
-} from "./admin_sections.js?v=20261014-admin-compact-01";
+} from "./admin_sections.js?v=20260923-testing-labels-14";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",
@@ -110,10 +106,6 @@ const PROTOTYPE_SCREENS = new Set([
   "purchase-options",
   "help",
   "admin",
-  "admin-tariffs",
-  "admin-settings",
-  "admin-payments",
-  "admin-activity",
   "admin-global-search",
   "admin-apk-import",
   "admin-users",
@@ -304,9 +296,13 @@ async function goBack() {
 
 function ensureScreenData(screen = state.currentScreen) {
   if (state.currentView) return;
+  if (screen === "admin-users") void loadAdminUsers(createContext(), state.adminUsersOffset);
   if (screen === "admin-messages") void loadAdminMessages(createContext(), state.adminUsersOffset);
+  if (screen === "admin-user-detail") void loadAdminUserDetail(createContext(), state.selectedAdminUserId);
+  if (screen === "admin-user-access") void loadAdminUserDetail(createContext(), state.selectedAdminUserId);
   if (screen === "admin-questions") void loadAdminQuestions(createContext(), state.adminQuestionsPage);
   if (screen === "admin-cases") void loadAdminCases(createContext());
+  if (screen === "admin-attestation-banks") void loadAdminAttestationBanks(createContext());
   if (screen === "admin-attestation-question") void loadAdminAttestationQuestion(createContext());
   if (screen === "admin-section-topics") void loadAdminSectionTopics(createContext());
   if (screen === "admin-section-questions") void loadAdminAttestationBank(createContext(), state.attestationAdminOffset || 0);
@@ -322,11 +318,9 @@ function ensureScreenData(screen = state.currentScreen) {
 function decoratePrototypeScreen() {
   const enabled = Boolean(state.currentView) || PROTOTYPE_SCREENS.has(state.currentScreen);
   document.body.classList.toggle("ui-prototype", enabled);
-  document.body.classList.toggle("admin-mode", state.currentScreen.startsWith("admin"));
   refs.mainPanel.dataset.screen = state.currentView ? `session-${state.currentView.screen || state.currentView.mode || "active"}` : state.currentScreen;
 
   if (!enabled) return;
-  if (state.currentScreen.startsWith("admin")) return;
   // Test sessions start directly with progress and the question. Telegram already
   // provides the native top bar, so an additional in-app hero is unnecessary.
   if (state.currentView) return;
@@ -400,22 +394,18 @@ function render() {
     case "stats":                 renderStats(ctx); break;
     case "help":                  renderHelp(ctx); break;
     case "purchase-options":      renderPurchaseOptions(ctx); break;
-    case "admin":                  renderAdminWorkspace(ctx); break;
-    case "admin-tariffs":          renderAdminContentWorkspace(ctx); break;
-    case "admin-settings":         renderAdminSettings(ctx); break;
+    case "admin":                  renderAdminHub(ctx); break;
     case "admin-global-search":    renderAdminGlobalSearch(ctx); break;
     case "admin-apk-import":       renderAdminApkImport(ctx); break;
-    case "admin-users":            renderAdminWorkspace(ctx); break;
-    case "admin-payments":         renderAdminWorkspace(ctx); break;
-    case "admin-activity":         renderAdminActivity(ctx); break;
+    case "admin-users":            renderAdminUsers(ctx); break;
     case "admin-messages":         renderAdminMessages(ctx); break;
-    case "admin-user-detail":      renderAdminWorkspace(ctx); break;
-    case "admin-user-access":      renderAdminWorkspace(ctx); break;
+    case "admin-user-detail":      renderAdminUserDetail(ctx); break;
+    case "admin-user-access":      renderAdminUserAccess(ctx); break;
     case "admin-questions":        renderAdminQuestions(ctx); break;
     case "admin-question-detail":  renderAdminQuestionDetail(ctx); break;
     case "admin-question-view":    renderAdminQuestionView(ctx); break;
     case "admin-cases":            renderAdminCases(ctx); break;
-    case "admin-attestation-banks": renderAdminContentWorkspace(ctx); break;
+    case "admin-attestation-banks": renderAdminAttestationBanks(ctx); break;
     case "admin-attestation-question": renderAdminAttestationQuestion(ctx); break;
     case "admin-section": renderAdminSection(ctx); break;
     case "admin-section-settings": renderAdminSectionSettings(ctx); break;
@@ -429,7 +419,6 @@ function render() {
       renderHome(ctx);
   }
 
-  if (state.currentScreen.startsWith("admin")) mountAdminNavigation(ctx);
   decoratePrototypeScreen();
   syncClosingConfirmation(state.currentView);
 }

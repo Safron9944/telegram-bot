@@ -7,7 +7,6 @@ import io
 import json
 import os
 import zipfile
-import copy
 import urllib.parse
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -29,7 +28,7 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -39,8 +38,6 @@ from customs_code import repository as customs_code_repository
 
 from questions import QuestionBank, open_practice_title
 from storage import Storage
-from admin_commerce import CommerceAdminMixin
-from commerce import CommerceStore, commerce_summary, serialize_rows, entitlement_source
 from access import CUSTOMS_COMPETENCIES_SECTION_KEY, access_status, access_tier, create_stars_invoice_link, create_section_invoice_link, has_attestation_access, section_access_override
 from sections import ALWAYS_FREE_SECTION_KEYS, PROTECTED_SECTION_KEYS, build_sections, free_section_keys, get_section, move_section, reorder_section_group, section_config, save_section_config, update_section
 from utils import (
@@ -175,8 +172,7 @@ async def get_home_visibility(store: "Storage") -> dict[str, bool]:
 def access_payload(user: dict[str, Any]) -> dict[str, Any]:
     has_access, state = access_status(user)
     tier = access_tier(user)
-    effective_end = user.get("_effective_sub_end",user.get("sub_end"))
-    sub_end = format_dt(effective_end)
+    sub_end = format_dt(user.get("sub_end"))
 
     if state == "sub_infinite":
         label = "Підписка активна безстроково"
@@ -194,8 +190,8 @@ def access_payload(user: dict[str, Any]) -> dict[str, Any]:
         "tier": tier,          # 'none' | 'cases' | 'full'
         "state": state,
         "label": label,
-        "sub_end": dt_to_iso(effective_end),
-        "sub_infinite": bool(user.get("_effective_infinite",user.get("sub_infinite"))),
+        "sub_end": dt_to_iso(user.get("sub_end")),
+        "sub_infinite": bool(user.get("sub_infinite")),
     }
 
 
@@ -396,30 +392,6 @@ class AdminProtectedMaterialsUpdateRequest(BaseModel):
     enabled: bool
 
 
-class AdminGrantRequest(BaseModel):
-    product_key: Any = ""
-    enabled: bool
-    reason: Any = ""
-
-
-class AdminCommerceReasonRequest(BaseModel):
-    reason: Any = ""
-
-
-class AdminPaymentRequest(BaseModel):
-    product_key: Any = ""
-    amount: Any = None
-    currency: Any = ""
-    reference: str = ""
-    reason: Any = ""
-    request_id: str = ""
-
-
-class AdminPaymentSyncRequest(BaseModel):
-    offset: int = 0
-    limit: int = 100
-
-
 class MiniAppNoticeRequest(BaseModel):
     audience: Literal["all", "selected"] = "all"
     user_ids: list[int] = Field(default_factory=list, max_length=100_000)
@@ -523,11 +495,9 @@ async def get_auth_context(
     )
 
 
-class MiniAppService(CommerceAdminMixin):
+class MiniAppService:
     def __init__(self, runtime: RuntimeContext):
         self.runtime = runtime
-        self._request_qb = None
-        self._attestation_catalog_prepared = False
 
     @property
     def store(self) -> Storage:
@@ -535,25 +505,7 @@ class MiniAppService(CommerceAdminMixin):
 
     @property
     def qb(self) -> QuestionBank:
-        return self._request_qb or self.runtime.qb
-
-    async def prepare_attestation_catalog(self,auth: AuthContext) -> None:
-        if self._attestation_catalog_prepared or not any(auth.user.get(field) for field in ("paid_products","manual_products","legacy_products")):
-            return
-        retained = await self.store.list_retained_attestation_banks(auth.user)
-        if not retained:
-            self._attestation_catalog_prepared = True
-            return
-        published = await self.store.list_published_attestation_banks()
-        request_qb = copy.copy(self.runtime.qb)
-        request_qb.by_id = dict(self.runtime.qb.by_id)
-        request_qb.attestation_banks = dict(self.runtime.qb.attestation_banks)
-        class RetainedStore:
-            async def list_published_attestation_banks(self):
-                return published + retained
-        await request_qb.load_published_attestation_banks(RetainedStore())
-        self._request_qb = request_qb
-        self._attestation_catalog_prepared = True
+        return self.runtime.qb
 
     async def get_state(self, user_id: int) -> dict[str, Any]:
         ui = await self.store.get_ui(user_id)
@@ -569,8 +521,6 @@ class MiniAppService(CommerceAdminMixin):
         """Paid access to the complete competencies section."""
         if auth.is_admin:
             return
-        if entitlement_source(auth.user,CUSTOMS_COMPETENCIES_SECTION_KEY) != "none":
-            return
         override = section_access_override(auth.user, CUSTOMS_COMPETENCIES_SECTION_KEY)
         if override is not None:
             if override:
@@ -584,8 +534,6 @@ class MiniAppService(CommerceAdminMixin):
 
     def ensure_section_access(self, auth: AuthContext, section_key: str) -> None:
         if auth.is_admin:
-            return
-        if entitlement_source(auth.user,section_key) != "none":
             return
         override = section_access_override(auth.user, section_key) if section_key not in PROTECTED_SECTION_KEYS else None
         if override is not None:
@@ -616,8 +564,6 @@ class MiniAppService(CommerceAdminMixin):
         if bank_slug:
             bank = self.qb.attestation_banks.get(bank_slug)
             if bank and bank.manual_grant_section_key:
-                if entitlement_source(auth.user,bank.manual_grant_section_key,manual_grant_only=True) != "none":
-                    return
                 override = section_access_override(auth.user, bank.manual_grant_section_key)
                 if override is True or (override is None and bank.manual_grant_section_key in set(auth.user.get("section_access", []) or [])):
                     return
@@ -625,8 +571,6 @@ class MiniAppService(CommerceAdminMixin):
             if bank and getattr(bank, "db_id", None):
                 dynamic_key = f"attestation:{bank.db_id}"
         if dynamic_key:
-            if entitlement_source(auth.user,dynamic_key) != "none":
-                return
             override = section_access_override(auth.user, dynamic_key)
             if override is not None:
                 if override:
@@ -761,7 +705,6 @@ class MiniAppService(CommerceAdminMixin):
         }
 
     async def bootstrap(self, auth: AuthContext) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         stats = await self.store.stats(auth.user_id)
         try:
             saved_view = await self.saved_view(auth)
@@ -802,7 +745,6 @@ class MiniAppService(CommerceAdminMixin):
         }
 
     async def saved_view(self, auth: AuthContext) -> dict[str, Any] | None:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         mode = str(state.get("mode") or "")
         if not mode:
@@ -905,7 +847,6 @@ class MiniAppService(CommerceAdminMixin):
         )
 
     async def build_session_view(self, auth: AuthContext, state: dict[str, Any] | None = None) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = state or await self.get_state(auth.user_id)
         mode = str(state.get("mode") or "")
         if mode not in {"learn", "test", "mistakes"}:
@@ -1293,7 +1234,6 @@ class MiniAppService(CommerceAdminMixin):
         bank_slug: str,
         question_id: int,
     ) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         clean_bank_slug = (bank_slug or "").strip()
         bank = self.qb.attestation_banks.get(clean_bank_slug)
         if not bank or not bank.published:
@@ -1327,7 +1267,6 @@ class MiniAppService(CommerceAdminMixin):
         bank_slug: str,
         payload: StartAttestationRequest,
     ) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         clean_bank_slug = (bank_slug or "").strip()
         bank = self.qb.attestation_banks.get(clean_bank_slug)
         if not bank or not bank.published:
@@ -1416,7 +1355,6 @@ class MiniAppService(CommerceAdminMixin):
         return await self.build_session_view(auth)
 
     async def start_mistakes(self, auth: AuthContext) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         self.ensure_access(auth)
         qids = await self.store.list_mistakes(auth.user_id)
         if not qids:
@@ -1466,7 +1404,6 @@ class MiniAppService(CommerceAdminMixin):
         return await self.build_session_view(auth)
 
     async def answer(self, auth: AuthContext, payload: AnswerRequest) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         self.ensure_session_access(auth, state)
         mode = str(state.get("mode") or "")
@@ -1525,7 +1462,6 @@ class MiniAppService(CommerceAdminMixin):
         return await self.build_session_view(auth, state)
 
     async def skip(self, auth: AuthContext) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         self.ensure_session_access(auth, state)
         if state.get("mode") != "learn":
@@ -1547,7 +1483,6 @@ class MiniAppService(CommerceAdminMixin):
         return await self.build_session_view(auth, state)
 
     async def feedback_next(self, auth: AuthContext) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         self.ensure_session_access(auth, state)
         if state.get("mode") != "learn":
@@ -1561,7 +1496,6 @@ class MiniAppService(CommerceAdminMixin):
         return {"mode": "idle", "screen": "empty"}
 
     async def open_test_review(self, auth: AuthContext) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         wrong_qids = list(state.get("wrong_qids", []) or [])
         if not wrong_qids:
@@ -1572,7 +1506,6 @@ class MiniAppService(CommerceAdminMixin):
         return await self.build_test_review_view(auth.user_id, state)
 
     async def set_review_index(self, auth: AuthContext, payload: ReviewIndexRequest) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         if str(state.get("mode") or "") not in {"test_review", "test_result"}:
             require_http(409, "no_review", "Немає активного перегляду помилок.")
@@ -1585,7 +1518,6 @@ class MiniAppService(CommerceAdminMixin):
         return await self.build_test_review_view(auth.user_id, state)
 
     async def back_to_test_result(self, auth: AuthContext) -> dict[str, Any]:
-        await self.prepare_attestation_catalog(auth)
         state = await self.get_state(auth.user_id)
         if not state.get("summary"):
             require_http(409, "no_test_result", "Немає результату тесту.")
@@ -1831,7 +1763,7 @@ class MiniAppService(CommerceAdminMixin):
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
 
-        access_filter = access_filter if access_filter in {"all", "active", "inactive", "paid", "manual", "attention"} else "all"
+        access_filter = access_filter if access_filter in {"all", "active", "inactive"} else "all"
         items = await self.store.list_users(offset, limit + 1, query[:100], access_filter)
         has_next = len(items) > limit
         page_items = items[:limit]
@@ -1852,7 +1784,6 @@ class MiniAppService(CommerceAdminMixin):
                     or "—",
                     "access": access,
                     "created_at": dt_to_iso(user.get("created_at")),
-                    "commerce_summary": user.get("commerce_summary") or commerce_summary({}),
                 }
             )
 
@@ -1872,7 +1803,6 @@ class MiniAppService(CommerceAdminMixin):
         if not user:
             require_http(404, "user_not_found", "Користувача не знайдено.")
         stats = await self.store.stats(target_id)
-        ledger_detail = await CommerceStore(self.store).user_commerce(target_id) if getattr(self.store,"_commerce_initialized",False) else {"purchases":[],"manual_grants":[],"legacy_access":[],"access_events":[]}
         section_access = set(user.get("section_access", []) or [])
         overrides = dict(user.get("section_access_overrides", {}) or {})
         visibility_overrides = dict(user.get("section_visibility_overrides", {}) or {})
@@ -1899,8 +1829,6 @@ class MiniAppService(CommerceAdminMixin):
                     "visible": bool(section.get("visible", True)),
                     "control_mode": "visibility" if key in PROTECTED_SECTION_KEYS else "access",
                     "visibility_decision": visibility_overrides.get(key),
-                    "access_source": section["access_source"],
-                    "purchased": section["purchased"],
                 }
             )
         return {
@@ -1916,37 +1844,37 @@ class MiniAppService(CommerceAdminMixin):
             "protected_materials_access": PROTECTED_SECTION_KEYS.issubset(section_access),
             "protected_materials_sections": sorted(PROTECTED_SECTION_KEYS & section_access),
             "section_controls": section_controls,
-            **{key:serialize_rows(value) for key,value in ledger_detail.items()},
-            "commerce_summary": commerce_summary(ledger_detail),
-            "grant_products": await self.grant_products(),
         }
 
     async def admin_set_access(self, auth: AuthContext, target_id: int, access: str) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        await self.commerce_user(target_id)
-        if access not in {"full","none"}:
-            require_http(400,"invalid_access","Оберіть повний доступ або скасування подарунка.")
-        await CommerceStore(self.store).set_manual_grants(target_id,[("full","Повний доступ",access=="full"),("cases","Атестація",False)],auth.user_id,"Ручна зміна пакета через попередній API")
+        await self.store.set_admin_access(target_id, access)
+        decisions = {
+            "full": True,
+            "none": False,
+        }
+        await self.store.set_section_access_override(target_id, CUSTOMS_COMPETENCIES_SECTION_KEY, decisions[access])
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_protected_materials(self, auth: AuthContext, target_id: int, enabled: bool) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        await self.commerce_user(target_id)
-        await CommerceStore(self.store).set_visibility(target_id,sorted(PROTECTED_SECTION_KEYS),enabled,auth.user_id,"Ручна зміна видимості матеріалів")
+        for section_key in PROTECTED_SECTION_KEYS:
+            if not await self.store.set_section_visibility(target_id, section_key, enabled):
+                require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_set_section_access(self, auth: AuthContext, target_id: int, section_key: str, enabled: bool) -> dict[str, Any]:
         if not auth.is_admin:
             require_http(403, "forbidden", "Потрібні права адміністратора.")
-        await self.commerce_user(target_id)
         clean_key = (section_key or "").strip()
         section = await get_section(self.store, clean_key, is_admin=True)
         if not section:
             require_http(404, "section_not_found", "Розділ не знайдено.")
         if clean_key in PROTECTED_SECTION_KEYS:
-            await CommerceStore(self.store).set_visibility(target_id,[clean_key],enabled,auth.user_id,"Ручна зміна видимості розділу")
+            if not await self.store.set_section_visibility(target_id, clean_key, enabled):
+                require_http(404, "user_not_found", "Користувача не знайдено.")
             return await self.admin_user_detail(auth, target_id)
         if clean_key in ALWAYS_FREE_SECTION_KEYS or not (
             int(section.get("price") or 0) > 0
@@ -1954,7 +1882,8 @@ class MiniAppService(CommerceAdminMixin):
             or clean_key in PROTECTED_SECTION_KEYS
         ):
             require_http(400, "section_is_free", "Цей розділ не потребує керування доступом.")
-        await CommerceStore(self.store).set_manual_grant(target_id,f"section:{clean_key}",section["title"],enabled,auth.user_id,"Ручна зміна доступу через попередній API")
+        if not await self.store.set_section_access_override(target_id, clean_key, enabled):
+            require_http(404, "user_not_found", "Користувача не знайдено.")
         return await self.admin_user_detail(auth, target_id)
 
     async def admin_delete_user(self, auth: AuthContext, target_id: int) -> dict[str, Any]:
@@ -1967,14 +1896,7 @@ class MiniAppService(CommerceAdminMixin):
             require_http(400, "cannot_delete_self", "Не можна видалити власний обліковий запис адміністратора.")
         if bool(user.get("is_admin")) or target_id in self.runtime.admin_ids:
             require_http(400, "cannot_delete_admin", "Не можна видалити обліковий запис адміністратора.")
-        summary = user.get("commerce_summary",{})
-        if summary.get("paid_count") or summary.get("legacy_count"):
-            require_http(409,"user_has_protected_access","Не можна видалити користувача з покупками або доступом невідомого походження.")
-        try:
-            deleted = await self.store.delete_user(target_id,actor_id=auth.user_id)
-        except ValueError as error:
-            require_http(409,"user_has_protected_access",str(error))
-        if not deleted:
+        if not await self.store.delete_user(target_id):
             require_http(404, "user_not_found", "Користувача не знайдено.")
         return {"ok": True, "user_id": target_id}
 
@@ -2176,29 +2098,26 @@ def build_bot_router(runtime: RuntimeContext) -> Router:
 
     @router.message(F.successful_payment)
     async def successful_payment(message: Message) -> None:
-        payment = message.successful_payment
-        tier = payment.invoice_payload
-        material_available = True
+        tier = message.successful_payment.invoice_payload  # 'cases' or 'full'
         if tier.startswith("section:"):
             section_key = tier.removeprefix("section:")
+            await runtime.store.grant_section_access(
+                message.from_user.id,
+                section_key,
+                telegram_charge_id=message.successful_payment.telegram_payment_charge_id,
+            )
             section = await get_section(runtime.store, section_key, is_admin=True)
-            material_available = section is not None
-            label = section["title"] if section else f"Назва розділу невідома ({section_key})"
-        elif tier in ("cases","full"):
-            label = "Атестація" if tier == "cases" else "Повний доступ"
-        else:
-            return
-        await CommerceStore(runtime.store).record_payment(user_id=message.from_user.id,product_key=tier,product_title=label,
-            amount=payment.total_amount,currency=payment.currency,reference=payment.telegram_payment_charge_id,source="telegram",
-            paid_at=message.date,first_name=message.from_user.first_name,last_name=message.from_user.last_name)
-        if material_available:
+            label = section["title"] if section else "розділу"
             await message.answer(f"✅ Оплата успішна! Безлімітний доступ до «{label}» активовано.")
-        else:
-            await message.answer("✅ Оплату збережено. Матеріали цього розділу зараз недоступні. Зверніться до підтримки для відновлення доступу або повернення оплати.")
-
-    @router.message(F.refunded_payment)
-    async def refunded_payment(message: Message) -> None:
-        await CommerceStore(runtime.store).record_refund(message.refunded_payment.telegram_payment_charge_id)
+            return
+        if tier not in ("cases", "full"):
+            return
+        user_id = message.from_user.id
+        await runtime.store.set_subscription(user_id, None, infinite=True, tier=tier)
+        if tier == "full":
+            await runtime.store.clear_section_access_overrides(user_id, [CUSTOMS_COMPETENCIES_SECTION_KEY])
+        label = "атестації" if tier == "cases" else "повного доступу"
+        await message.answer(f"✅ Оплата успішна! Безлімітний доступ до {label} активовано.")
 
     @router.callback_query()
     async def redirect_legacy_callback(query: CallbackQuery) -> None:
@@ -2640,7 +2559,7 @@ async def api_admin_reorder_sections(request: Request, auth: AuthContext = Depen
     return {"ok": True, "items": await build_sections(runtime.store, auth.user, is_admin=True)}
 
 
-@app.delete("/api/admin/sections/{section_key}")
+@app.delete("/api/admin/sections/{section_key}", status_code=204)
 async def api_admin_delete_section(section_key: str, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     if not auth.is_admin:
         require_http(403, "forbidden", "Потрібні права адміністратора.")
@@ -2649,18 +2568,13 @@ async def api_admin_delete_section(section_key: str, auth: AuthContext = Depends
         require_http(404, "section_not_found", "Розділ не знайдено.")
     if not section["deletable"]:
         require_http(409, "system_section", "Системний розділ можна приховати, але не видалити.")
-    result = await runtime.store.delete_attestation_bank(int(section["bank_id"]))
-    if not result:
+    if not await runtime.store.delete_attestation_bank(int(section["bank_id"])):
         require_http(404, "section_not_found", "Розділ не знайдено.")
     config = await section_config(runtime.store)
-    if isinstance(result,dict) and result.get("retained"):
-        saved = config.get(section_key,{})
-        config[section_key] = {**(saved if isinstance(saved,dict) else {}),"visible":False}
-    else:
-        config.pop(section_key, None)
+    config.pop(section_key, None)
     await save_section_config(runtime.store, config)
     await runtime.qb.load_published_attestation_banks(runtime.store)
-    return {"ok":True,**result} if isinstance(result,dict) else Response(status_code=204)
+    return None
 
 
 @app.patch("/api/admin/sections/{section_key}/topics")
@@ -2824,36 +2738,6 @@ async def api_admin_start_mini_app_notice(payload: MiniAppNoticeRequest | None =
 @app.get("/api/admin/users/{user_id}")
 async def api_admin_user_detail(user_id: int, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
     return await MiniAppService(runtime).admin_user_detail(auth, user_id)
-
-
-@app.get("/api/admin/payments")
-async def api_admin_payments(q: str = "", offset: int = 0, limit: int = 25, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_payments(auth,q,offset,limit)
-
-
-@app.get("/api/admin/activity")
-async def api_admin_activity(offset: int = 0, limit: int = 25, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_activity(auth,offset,limit)
-
-
-@app.post("/api/admin/payments/sync")
-async def api_admin_payments_sync(payload: AdminPaymentSyncRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_sync_payments(auth,payload.offset,payload.limit)
-
-
-@app.post("/api/admin/users/{user_id}/grants")
-async def api_admin_user_grant(user_id: int, payload: AdminGrantRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_set_grant(auth,user_id,payload.product_key,payload.enabled,payload.reason)
-
-
-@app.post("/api/admin/users/{user_id}/restore-purchases")
-async def api_admin_user_restore_purchases(user_id: int, payload: AdminCommerceReasonRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_restore_purchases(auth,user_id,payload.reason)
-
-
-@app.post("/api/admin/users/{user_id}/payments")
-async def api_admin_user_payment(user_id: int, payload: AdminPaymentRequest, auth: AuthContext = Depends(get_auth_context), runtime: RuntimeContext = Depends(get_runtime)):
-    return await MiniAppService(runtime).admin_record_payment(auth,user_id,payload)
 
 
 @app.post("/api/admin/users/{user_id}/access")
