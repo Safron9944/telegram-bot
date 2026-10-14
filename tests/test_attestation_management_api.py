@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import unittest
+from unittest.mock import AsyncMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -106,6 +107,14 @@ def make_app(*, is_admin=True):
 
 
 class AttestationManagementApiTests(unittest.TestCase):
+    def test_archive_response_explains_that_owned_material_is_preserved(self):
+        app,store,_ = make_app()
+        store.delete_attestation_bank = AsyncMock(return_value={"id":7,"status":"archived","retained":True,"message":"Матеріали збережено."})
+        response = TestClient(app).delete("/api/admin/attestation-banks/7")
+        self.assertEqual(200,response.status_code)
+        self.assertEqual("archived",response.json()["status"])
+        self.assertTrue(response.json()["retained"])
+
     def test_admin_lists_and_manages_dynamic_banks(self):
         app, store, qb = make_app()
         client = TestClient(app)

@@ -1,0 +1,140 @@
+body.admin-mode {
+  --aw-bg:#ffffff; --aw-surface:#f3f6f5; --aw-ink:#172b2a; --aw-muted:#52676b;
+  --aw-line:#d8e2df; --aw-accent:#215e53; --aw-selected:#e7f0ec;
+  --aw-button-text:#ffffff; --aw-warning:#795113; --aw-warning-bg:#fff5e4;
+  --aw-danger:#a33430; background:#edf2f0;
+}
+html[data-theme="dark"] body.admin-mode {
+  --aw-bg:#152320; --aw-surface:#20302b; --aw-ink:#e3eee7; --aw-muted:#b5c9c0;
+  --aw-line:#42594e; --aw-accent:#acd8c7; --aw-selected:#284a3d;
+  --aw-button-text:#152a21; --aw-warning:#efcd91; --aw-warning-bg:#3c3220;
+  --aw-danger:#f3aba5; background:#101c17;
+}
+.ui-prototype.admin-mode .app,
+.ui-prototype.admin-mode:has(.screen[data-screen^="admin"]) .app {width:100%;max-width:1360px;min-height:100dvh;padding:24px;background:var(--aw-bg);color:var(--aw-ink);border:0;border-radius:0;box-shadow:none;}
+.ui-prototype.admin-mode .screen {padding:0;background:transparent;}
+.ui-prototype.admin-mode .screen-content {max-width:none;padding:0;background:transparent;}
+.ui-prototype.admin-mode .screen[data-screen^="admin"] .screen-content > * {animation:none;}
+.admin-mode .aw-shell {display:grid;grid-template-columns:176px minmax(0,1fr);gap:28px;align-items:start;}
+.admin-mode .aw-main {min-width:0;}
+.admin-mode .aw-navigation {position:sticky;top:24px;color:var(--aw-ink);}
+.admin-mode .aw-brand {padding:0 8px 22px;}
+.admin-mode .aw-brand strong {display:block;font-size:18px;letter-spacing:-.02em;}
+.admin-mode .aw-brand span {display:block;margin-top:4px;color:var(--aw-muted);font-size:12px;line-height:1.5;}
+.admin-mode .aw-destinations {display:grid;gap:4px;}
+.admin-mode .aw-destinations button {display:flex;align-items:center;gap:10px;padding:12px;border:0;border-radius:5px;background:transparent;color:var(--aw-muted);font:inherit;min-height:48px;text-align:left;}
+.admin-mode .aw-destinations button[aria-current="page"] {background:var(--aw-selected);color:var(--aw-accent);font-weight:600;}
+.admin-mode .aw-destinations svg {width:20px;height:20px;flex-shrink:0;}
+.admin-mode .aw-exit {padding:10px 8px;margin-top:24px;border:0;background:transparent;color:var(--aw-muted);min-height:44px;font:inherit;text-align:left;}
+.admin-mode .aw-workspace {color:var(--aw-ink);}
+.admin-mode .aw-page-heading {display:flex;justify-content:space-between;gap:16px;align-items:start;margin-bottom:24px;flex-wrap:wrap;}
+.admin-mode .aw-page-heading h1 {margin:0;font-size:28px;line-height:1.2;font-weight:650;letter-spacing:-.025em;}
+.admin-mode .aw-page-heading p {margin:6px 0 0;color:var(--aw-muted);font-size:14px;line-height:1.6;}
+.admin-mode .aw-client-layout,.admin-mode .aw-content-layout {display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,1fr);gap:24px;align-items:start;}
+.admin-mode .aw-directory {min-width:0;}
+.admin-mode .aw-inspector {min-width:0;padding:20px;background:var(--aw-surface);border:1px solid var(--aw-line);border-radius:6px;overflow-wrap:anywhere;}
+.admin-mode .aw-inspector h2 {margin:0;font-size:22px;line-height:1.35;font-weight:650;letter-spacing:-.02em;}
+.admin-mode .aw-customer-head {margin-bottom:24px;}
+.admin-mode .aw-customer-head p {margin:5px 0 0;}
+.admin-mode .aw-workspace h3 {margin:0 0 10px;font-size:16px;font-weight:650;line-height:1.4;}
+.admin-mode .aw-workspace p {font-size:14px;line-height:1.6;}
+.admin-mode .aw-workspace strong {font-weight:600;}
+.admin-mode .aw-muted {color:var(--aw-muted);font-size:13px;line-height:1.6;}
+.admin-mode .aw-view-switch {display:flex;gap:4px;border-bottom:1px solid var(--aw-line);}
+.admin-mode .aw-view-switch button {background:transparent;border:0;border-bottom:2px solid transparent;color:var(--aw-muted);padding:10px 14px;min-height:44px;font:inherit;}
+.admin-mode .aw-view-switch button[aria-pressed="true"] {border-bottom-color:var(--aw-accent);color:var(--aw-accent);font-weight:600;}
+.admin-mode .aw-search {display:flex;gap:8px;margin-bottom:14px;}
+.admin-mode .aw-search label {flex:1;min-width:0;}
+.admin-mode .aw-input {width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--aw-line);border-radius:5px;background:var(--aw-bg);color:var(--aw-ink);font:inherit;font-size:16px;caret-color:var(--aw-accent);}
+.admin-mode .aw-input::placeholder {color:var(--aw-muted);opacity:1;}
+.admin-mode .aw-button {display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 12px;min-height:44px;border:1px solid var(--aw-line);border-radius:5px;background:var(--aw-bg);color:var(--aw-ink);font:inherit;font-size:14px;line-height:1.4;text-align:center;cursor:pointer;}
+.admin-mode .aw-primary {background:var(--aw-accent);border-color:var(--aw-accent);color:var(--aw-button-text);}
+.admin-mode .aw-text-button {min-height:44px;padding:8px 0;border:0;background:transparent;color:var(--aw-accent);font:inherit;font-size:14px;text-align:left;cursor:pointer;}
+.admin-mode .aw-button:hover:not(:disabled),.admin-mode .aw-destinations button:hover {filter:brightness(.96);}
+.admin-mode .aw-text-button:hover {text-decoration:underline;text-underline-offset:3px;}
+.admin-mode :is(button,input,select,textarea):disabled {opacity:.65;cursor:default;}
+.admin-mode .aw-filters {display:flex;flex-wrap:wrap;gap:4px;margin:0 0 16px;}
+.admin-mode .aw-filters button {padding:9px 10px;min-height:44px;border:0;border-radius:4px;background:transparent;color:var(--aw-muted);font:inherit;font-size:13px;}
+.admin-mode .aw-filters button[aria-pressed="true"] {background:var(--aw-selected);color:var(--aw-accent);}
+.admin-mode .aw-client-table-head,.admin-mode .aw-client-row {display:grid;grid-template-columns:1fr 1.1fr .7fr;gap:12px;align-items:start;}
+.admin-mode .aw-client-table-head {padding:10px;background:var(--aw-surface);color:var(--aw-muted);font-size:12px;}
+.admin-mode .aw-client-row {width:100%;padding:16px 10px;border:0;border-bottom:1px solid var(--aw-line);background:var(--aw-bg);color:var(--aw-ink);font:inherit;font-size:14px;text-align:left;line-height:1.5;overflow-wrap:anywhere;}
+.admin-mode .aw-client-row[aria-pressed="true"] {background:var(--aw-selected);}
+.admin-mode .aw-client-row small,.admin-mode .aw-payment-row small,.admin-mode .aw-material-row small {display:block;margin-top:4px;color:var(--aw-muted);font-size:12px;line-height:1.6;}
+.admin-mode .aw-payment-row,.admin-mode .aw-material-row {display:flex;justify-content:space-between;gap:16px;width:100%;padding:16px 10px;border:0;border-bottom:1px solid var(--aw-line);background:var(--aw-bg);color:var(--aw-ink);font:inherit;font-size:14px;text-align:left;line-height:1.5;overflow-wrap:anywhere;}
+.admin-mode .aw-material-row[aria-pressed="true"] {background:var(--aw-selected);}
+.admin-mode .aw-material-row > span:last-child,.admin-mode .aw-payment-row > strong {white-space:nowrap;font-variant-numeric:tabular-nums;}
+.admin-mode .aw-section {margin-top:24px;}
+.admin-mode .aw-section:first-child {margin-top:0;}
+.admin-mode .aw-purchase {padding:12px 0;border-top:1px solid var(--aw-line);}
+.admin-mode .aw-purchase p {margin:5px 0;}
+.admin-mode .aw-purchase small {display:block;color:var(--aw-muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
+.admin-mode .aw-row-head {display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:8px;}
+.admin-mode .aw-status {font-size:12px;}
+.admin-mode .aw-positive {color:var(--aw-accent);}
+.admin-mode .aw-error,.admin-mode .aw-danger {color:var(--aw-danger);}
+.admin-mode .aw-error {padding:10px 0;}
+.admin-mode .aw-attention {color:var(--aw-warning);}
+.admin-mode .aw-warning {background:var(--aw-warning-bg);padding:14px;color:var(--aw-warning);margin-top:14px;border-radius:4px;}
+.admin-mode .aw-warning .aw-button {margin-top:8px;}
+.admin-mode .aw-warning .aw-muted {color:var(--aw-warning);}
+.admin-mode .aw-grant {display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--aw-line);}
+.admin-mode .aw-grant small {display:block;color:var(--aw-muted);font-size:12px;line-height:1.5;}
+.admin-mode .aw-editor,.admin-mode .aw-review {padding-top:18px;margin-top:18px;border-top:1px solid var(--aw-line);}
+.admin-mode .aw-editor label {display:block;margin-bottom:14px;font-size:14px;line-height:1.5;}
+.admin-mode .aw-editor label .aw-input {display:block;margin-top:6px;}
+.admin-mode .aw-editor textarea {resize:vertical;}
+.admin-mode .aw-fields {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.admin-mode .aw-actions,.admin-mode .aw-material-tools {display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+.admin-mode .aw-material-tools {align-items:start;}
+.admin-mode .aw-access-fact {display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--aw-line);padding:10px 0;font-size:13px;}
+.admin-mode .aw-access-fact > span:last-child {text-align:right;}
+.admin-mode .aw-access-fact small {display:block;color:var(--aw-muted);font-size:12px;}
+.admin-mode details.aw-section summary {min-height:44px;padding:10px 0;color:var(--aw-accent);font-size:14px;cursor:pointer;}
+.admin-mode .aw-event {border-bottom:1px solid var(--aw-line);padding:12px 0;font-size:14px;}
+.admin-mode .aw-event p {margin:3px 0;}
+.admin-mode .aw-event small {color:var(--aw-muted);font-size:12px;line-height:1.6;}
+.admin-mode .aw-pagination {display:flex;gap:8px;justify-content:center;margin-top:18px;}
+.admin-mode .aw-loading,.admin-mode .aw-empty {padding:24px 0;color:var(--aw-muted);}
+.admin-mode .aw-empty h2 {font-size:18px;color:var(--aw-ink);}
+.admin-mode .aw-sync {margin-bottom:18px;}
+.admin-mode .aw-sync p {margin:8px 0 0;}
+.admin-mode .aw-mobile-only {display:none;}
+.admin-mode .aw-system-tools {display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px;}
+.admin-mode .aw-sr-only {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+.ui-prototype.admin-mode .screen[data-screen^="admin"] :is(button,input,select,summary,textarea):focus-visible {outline:3px solid var(--aw-accent);outline-offset:3px;}
+.admin-mode ::selection {background:var(--aw-selected);color:var(--aw-ink);}
+.admin-mode .aw-main .admin-profile-block,.admin-mode .aw-main .admin-compose-card,.admin-mode .aw-main .group__list {background:var(--aw-surface);border-radius:6px;box-shadow:none;}
+.admin-mode .aw-main .admin-management-screen .admin-prototype-body {padding:0;max-width:680px;}
+.admin-mode .aw-main .admin-mobile-header {padding:0 0 20px;background:transparent;border:0;}
+.admin-mode .aw-main .admin-mobile-header h1 {color:var(--aw-ink);font-size:28px;letter-spacing:-.025em;}
+.admin-mode .aw-main .input,.admin-mode .aw-main .textarea {border-radius:5px;background:var(--aw-bg);color:var(--aw-ink);border-color:var(--aw-line);}
+.admin-mode .aw-main .admin-profile-block {background:transparent;padding:0;border:0;}
+.admin-mode .aw-main .admin-section-form {margin:0;max-width:700px;}
+.admin-mode .aw-main .btn--primary {background:var(--aw-accent);color:var(--aw-button-text);box-shadow:none;border-radius:5px;}
+@media(max-width:960px){
+  .ui-prototype.admin-mode .app,.ui-prototype.admin-mode:has(.screen[data-screen^="admin"]) .app {padding:0;}
+  .admin-mode .aw-shell {display:block;}
+  .admin-mode .aw-navigation {position:relative;top:auto;padding:16px 16px 0;border-bottom:1px solid var(--aw-line);background:var(--aw-bg);}
+  .admin-mode .aw-brand {padding:0 0 12px;}
+  .admin-mode .aw-brand strong {font-size:17px;}
+  .admin-mode .aw-brand span {font-size:12px;}
+  .admin-mode .aw-destinations {display:flex;gap:8px;}
+  .admin-mode .aw-destinations button {flex:1;justify-content:center;padding:10px 6px;border-radius:4px 4px 0 0;min-height:48px;font-size:14px;gap:7px;}
+  .admin-mode .aw-destinations svg {width:18px;height:18px;}
+  .admin-mode .aw-exit {position:absolute;right:16px;top:14px;margin:0;font-size:12px;padding:4px;}
+  .admin-mode .aw-main {padding:20px 16px 32px;}
+  .admin-mode .aw-page-heading h1 {font-size:25px;}
+  .admin-mode .aw-client-layout,.admin-mode .aw-content-layout {grid-template-columns:1fr;}
+  .admin-mode .aw-client-layout:not(.aw-has-selection) .aw-inspector,.admin-mode .aw-content-layout:not(.aw-has-selection) .aw-inspector {display:none;}
+  .admin-mode .aw-client-layout.aw-has-selection .aw-directory,.admin-mode .aw-content-layout.aw-has-selection .aw-directory {display:none;}
+  .admin-mode .aw-inspector {padding:0;background:transparent;border:0;}
+  .admin-mode .aw-mobile-only {display:inline-flex;margin-bottom:16px;}
+  .admin-mode .aw-client-table-head {display:none;}
+  .admin-mode .aw-client-row {grid-template-columns:1fr 1fr;gap:8px 14px;padding:16px 8px;}
+  .admin-mode .aw-client-row > span:last-child {grid-column:1/-1;font-size:13px;}
+  .admin-mode .aw-material-tools {display:grid;grid-template-columns:1fr;}
+  .admin-mode .aw-main .admin-profile-block {padding:0;}
+  .admin-mode .aw-main .admin-mobile-header h1 {font-size:25px;}
+}
+@media(max-width:360px){.admin-mode .aw-main {padding:18px 12px 28px;}.admin-mode .aw-destinations button {font-size:13px;}.admin-mode .aw-destinations svg {display:none;}.admin-mode .aw-fields {grid-template-columns:1fr;}.admin-mode .aw-brand span {max-width:160px;}}

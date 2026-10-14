@@ -24,6 +24,9 @@ def access_tier(user: Dict[str, Any]) -> str:
     """Return the effective paid access tier: 'none' | 'cases' | 'full'."""
     if not user:
         return "none"
+    if user.get("_commerce_ready"):
+        products = {key for field in ("paid_products", "manual_products", "legacy_products") for key in user.get(field, []) or []}
+        return "full" if "full" in products else "cases" if "cases" in products else "none"
     inf: bool = bool(user.get("sub_infinite"))
     tier: Optional[str] = user.get("sub_tier")
     s_end: Optional[datetime] = user.get("sub_end")
@@ -38,7 +41,7 @@ def access_tier(user: Dict[str, Any]) -> str:
 def access_status(user: Dict[str, Any]) -> Tuple[bool, str]:
     tier = access_tier(user)
     if tier == "full":
-        if bool(user.get("sub_infinite")):
+        if bool(user.get("_effective_infinite",user.get("sub_infinite"))):
             return True, "sub_infinite"
         return True, "sub_full"
     if tier == "cases":

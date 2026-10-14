@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-14T16:16:29.529344Z",
+  "title": "Design System: Test_Customs administration",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Deep teal"
+      },
+      "dark-accent": {
+        "role": "primary",
+        "displayName": "Pale mint"
+      },
+      "exterior": {
+        "role": "neutral",
+        "displayName": "Light exterior frame"
+      },
+      "dark-exterior": {
+        "role": "neutral",
+        "displayName": "Dark exterior frame"
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Operational page heading",
+        "purpose": "Compact admin heading; 25px at the mobile breakpoint."
+      }
+    },
+    "shadows": [
+      {
+        "name": "workspace-flat",
+        "value": "none",
+        "purpose": "App, directory rows, inspector, and restyled primary buttons."
+      }
+    ],
+    "motion": [
+      {
+        "name": "admin-content-entrance",
+        "value": "none",
+        "purpose": "Direct admin screen-content children; shared route transitions remain inherited."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile-workspace",
+        "value": "960px"
+      },
+      {
+        "name": "narrow-mobile",
+        "value": "360px"
+      }
+    ],
+    "focus": {
+      "outline": "3px solid var(--aw-accent)",
+      "outlineOffset": "3px",
+      "scope": "Admin buttons, inputs, selects, summaries, and textareas with focus-visible."
+    }
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "description": "Confirmation and form-save action.",
+      "html": "<div class=\"ds-example\"><button class=\"ds-button ds-primary\" type=\"button\">Підтвердити</button></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 12px;border:1px solid var(--ds-line);border-radius:5px;background:var(--ds-bg);color:var(--ds-ink);font:inherit;font-size:14px;line-height:1.4;text-align:center;cursor:pointer}.ds-button:hover:not(:disabled){filter:brightness(.96)}.ds-primary{background:var(--ds-accent);border-color:var(--ds-accent);color:var(--ds-button-text)}",
+      "refersTo": "button-primary"
+    },
+    {
+      "name": "Primary action in dark theme",
+      "kind": "button",
+      "description": "Same action using the shipped dark palette.",
+      "html": "<div class=\"ds-example\"><button class=\"ds-button ds-primary\" type=\"button\">Підтвердити</button></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#152320);--ds-surface:var(--aw-surface,#20302b);--ds-ink:var(--aw-ink,#e3eee7);--ds-muted:var(--aw-muted,#b5c9c0);--ds-line:var(--aw-line,#42594e);--ds-accent:var(--aw-accent,#acd8c7);--ds-selected:var(--aw-selected,#284a3d);--ds-button-text:var(--aw-button-text,#152a21);--ds-warning:var(--aw-warning,#efcd91);--ds-warning-bg:var(--aw-warning-bg,#3c3220);--ds-danger:var(--aw-danger,#f3aba5);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 12px;border:1px solid var(--ds-line);border-radius:5px;background:var(--ds-bg);color:var(--ds-ink);font:inherit;font-size:14px;line-height:1.4;text-align:center;cursor:pointer}.ds-button:hover:not(:disabled){filter:brightness(.96)}.ds-primary{background:var(--ds-accent);border-color:var(--ds-accent);color:var(--ds-button-text)}",
+      "refersTo": "button-primary-dark"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "description": "Bordered search, navigation, and cancel action.",
+      "html": "<div class=\"ds-example\"><button class=\"ds-button\" type=\"button\">Скасувати</button></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:10px 12px;border:1px solid var(--ds-line);border-radius:5px;background:var(--ds-bg);color:var(--ds-ink);font:inherit;font-size:14px;line-height:1.4;text-align:center;cursor:pointer}.ds-button:hover:not(:disabled){filter:brightness(.96)}",
+      "refersTo": "button-secondary"
+    },
+    {
+      "name": "Search field",
+      "kind": "input",
+      "description": "Labelled search with a sixteen-pixel input.",
+      "html": "<div class=\"ds-example\"><label class=\"ds-label\">Ім’я або Telegram ID<input class=\"ds-input\" type=\"search\" placeholder=\"Ім’я або Telegram ID\"></label></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-label{display:block;font-size:14px;line-height:1.5}.ds-input{display:block;width:100%;min-height:44px;margin-top:6px;padding:10px 12px;border:1px solid var(--ds-line);border-radius:5px;background:var(--ds-bg);color:var(--ds-ink);font:inherit;font-size:16px;caret-color:var(--ds-accent)}.ds-input::placeholder{color:var(--ds-muted);opacity:1}",
+      "refersTo": "input"
+    },
+    {
+      "name": "Workspace destinations",
+      "kind": "nav",
+      "description": "Three task spaces with an explicit current destination.",
+      "html": "<div class=\"ds-example\"><nav class=\"ds-destinations\" aria-label=\"Адміністративна навігація\"><button type=\"button\" aria-current=\"page\">Клієнти</button><button type=\"button\">Контент</button><button type=\"button\">Система</button></nav></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-destinations{display:grid;gap:4px}.ds-destinations button{display:flex;align-items:center;gap:10px;min-height:48px;padding:12px;border:0;border-radius:5px;background:transparent;color:var(--ds-muted);font:inherit;text-align:left;cursor:pointer}.ds-destinations button[aria-current=\"page\"]{background:var(--ds-selected);color:var(--ds-accent);font-weight:600}.ds-destinations button:hover{filter:brightness(.96)}",
+      "refersTo": "navigation-selected"
+    },
+    {
+      "name": "Client filters",
+      "kind": "chip",
+      "description": "Text filters with a tonal selected state.",
+      "html": "<div class=\"ds-example\"><div class=\"ds-filters\" aria-label=\"Стан клієнтів\"><button type=\"button\" aria-pressed=\"true\">Усі</button><button type=\"button\" aria-pressed=\"false\">З покупками</button><button type=\"button\" aria-pressed=\"false\">Ручний доступ</button><button type=\"button\" aria-pressed=\"false\">Потребують уваги</button></div></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-filters{display:flex;flex-wrap:wrap;gap:4px}.ds-filters button{min-height:44px;padding:9px 10px;border:0;border-radius:4px;background:transparent;color:var(--ds-muted);font:inherit;font-size:13px;cursor:pointer}.ds-filters button[aria-pressed=\"true\"]{background:var(--ds-selected);color:var(--ds-accent)}",
+      "refersTo": "filter-selected"
+    },
+    {
+      "name": "Client directory row",
+      "kind": "custom",
+      "description": "Flat selectable row; synthetic metadata demonstrates the shape.",
+      "html": "<div class=\"ds-example\"><button class=\"ds-row\" type=\"button\" aria-pressed=\"true\"><span><strong>Клієнт</strong><small>Telegram ID</small></span><span>Повний пакет<small>Сума оплати невідома</small></span><span>Потребує уваги</span></button></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-row{display:grid;grid-template-columns:1fr 1.1fr .7fr;gap:12px;align-items:start;width:100%;padding:16px 10px;border:0;border-bottom:1px solid var(--ds-line);background:var(--ds-bg);color:var(--ds-ink);font:inherit;font-size:14px;line-height:1.5;text-align:left;overflow-wrap:anywhere;cursor:pointer}.ds-row[aria-pressed=\"true\"]{background:var(--ds-selected)}.ds-row strong{font-weight:600}.ds-row small{display:block;margin-top:4px;color:var(--ds-muted);font-size:12px;line-height:1.6}.ds-row>span:last-child{color:var(--ds-warning)}"
+    },
+    {
+      "name": "Customer inspector",
+      "kind": "card",
+      "description": "Separate evidence sections, without decorative elevation.",
+      "html": "<div class=\"ds-example\"><aside class=\"ds-inspector\" aria-label=\"Картка клієнта\"><h2>Картка клієнта</h2><section class=\"ds-section\"><h3>Покупки</h3><p>Підтверджених покупок немає.</p></section><section class=\"ds-section\"><h3>Ручні дозволи</h3><p>Ручних дозволів немає.</p></section></aside></div>",
+      "css": ".ds-example{--ds-bg:var(--aw-bg,#ffffff);--ds-surface:var(--aw-surface,#f3f6f5);--ds-ink:var(--aw-ink,#172b2a);--ds-muted:var(--aw-muted,#52676b);--ds-line:var(--aw-line,#d8e2df);--ds-accent:var(--aw-accent,#215e53);--ds-selected:var(--aw-selected,#e7f0ec);--ds-button-text:var(--aw-button-text,#ffffff);--ds-warning:var(--aw-warning,#795113);--ds-warning-bg:var(--aw-warning-bg,#fff5e4);--ds-danger:var(--aw-danger,#a33430);font-family:-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;color:var(--ds-ink)} .ds-example :is(button,input,summary):focus-visible{outline:3px solid var(--ds-accent);outline-offset:3px} .ds-example :disabled{opacity:.65;cursor:default}.ds-inspector{padding:20px;border:1px solid var(--ds-line);border-radius:6px;background:var(--ds-surface);overflow-wrap:anywhere}.ds-inspector h2{margin:0;font-size:22px;font-weight:650;line-height:1.35;letter-spacing:-.02em}.ds-section{margin-top:24px}.ds-section h3{margin:0 0 10px;font-size:16px;font-weight:650;line-height:1.4}.ds-section p{color:var(--ds-muted);font-size:14px;line-height:1.6}",
+      "refersTo": "inspector"
+    }
+  ],
+  "narrative": {
+    "northStar": "Картотека клієнтів",
+    "overview": "The administration is a compact working directory: find a client, inspect the evidence, review a change, and confirm it. White and pale green surfaces, teal actions, system typography, and flat rows support that work. The final workspace replaces the earlier navy, rounded admin hub.\n\nThese rules apply only to administration. The user-facing home and learning screens retain their existing design. The built authority is `static/styles/admin_workspace.css` and `static/js/admin_navigation.js`, `admin_workspace.js`, `admin_customer_view.js`, `admin_content_workspace.js`, and `admin_settings.js`; the inherited font comes from `static/styles/tokens.css` and `base.css`. Product facts live in `PRODUCT.md`.",
+    "keyCharacteristics": [
+      "Three task spaces: «Клієнти», «Контент», and «Система».",
+      "Flat directories with a separate inspector on desktop and a separate detail view on mobile.",
+      "Payment evidence, manual permissions, and unverified legacy access have distinct labels and sections.",
+      "Both themes use the same hierarchy, spacing, and restrained corner language."
+    ],
+    "rules": [
+      {
+        "name": "The Flat Rows Rule",
+        "body": "Directory records stay flat with separators; selection uses a tonal fill.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Evidence Rule",
+        "body": "A permission or visible section never serves as proof of payment; purchase evidence, manual permission, and unverified legacy access remain distinct.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "**Do** preserve both themes, compact system typography, flat rows, and restrained corners.",
+      "**Do** keep purchases, manual permissions, and legacy access visibly distinct, with literal status and action labels.",
+      "**Do** preserve list context, per-record drafts, pending locks, review boundaries, and server-confirmed results."
+    ],
+    "donts": [
+      "**Don't** reintroduce the discarded five-destination navy hub or large rounded cards into this admin workspace.",
+      "**Don't** turn unknown amounts into current prices, manual access into payment proof, or publication into a promise of paid access.",
+      "**Don't** apply these admin rules to the user-facing home and learning screens."
+    ]
+  }
+}

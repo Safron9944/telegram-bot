@@ -76,4 +76,4 @@ window.fetch = async (path, options={}) => {
   else data={items:[],counts:{active:0,expired:1},offset:0,limit:10,status:'idle',total:0};
   return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
 };
-await import('/static/app.js?v=20261014-admin-clarity-01');
+await import('/static/app.js?v=20261014-admin-workspace-01');

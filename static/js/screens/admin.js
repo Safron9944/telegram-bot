@@ -1,6 +1,6 @@
 
-import { adminAccessSummary } from "../admin_access.js?v=20261014-admin-clarity-01";
-import { ADMIN_DESTINATIONS, mountAdminNavigation } from "../admin_navigation.js?v=20261014-admin-clarity-01";
+import { adminAccessSummary } from "../admin_access.js?v=20261014-admin-workspace-01";
+import { ADMIN_DESTINATIONS, mountAdminNavigation } from "../admin_navigation.js?v=20261014-admin-workspace-01";
 
 function adminMobileHeader(title, { actionId = "", actionLabel = "", actionAria = "" } = {}) {
   return `<header class="admin-mobile-header"><div class="admin-heading-row"><h1>${title}</h1>

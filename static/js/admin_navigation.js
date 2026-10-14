@@ -1,30 +1,36 @@
 export const ADMIN_DESTINATIONS = [
-  { title: 'Користувачі', subtitle: 'Знайти людину й керувати її доступом', iconName: 'users', screen: 'admin-users' },
-  { title: 'Доступ і тарифи', subtitle: 'Повний пакет і ціни окремих розділів', iconName: 'scale', screen: 'admin-tariffs' },
-  { title: 'Матеріали', subtitle: 'Розділи, питання, кейси та імпорт', iconName: 'folder', screen: 'admin-attestation-banks' },
-  { title: 'Повідомлення', subtitle: 'Текст, одержувачі й результат надсилання', iconName: 'message', screen: 'admin-messages' },
-  { title: 'Налаштування', subtitle: 'Контакт підтримки й налаштування показу', iconName: 'settings', screen: 'admin-settings' },
+  { title: 'Клієнти', iconName: 'users', screen: 'admin-users', key: 'clients' },
+  { title: 'Контент', iconName: 'folder', screen: 'admin-attestation-banks', key: 'content' },
+  { title: 'Система', iconName: 'settings', screen: 'admin-settings', key: 'system' },
 ];
 
 /** Telegram owns BackButton; browsers receive one explicit fallback. */
 export function mountAdminNavigation(ctx) {
   const content = ctx.refs.mainPanel.querySelector('.screen-content');
-  if (!content || content.querySelector('.admin-navigation')) return;
-  const root = ctx.state.currentScreen === 'admin';
-  const nativeBack = Boolean(window.Telegram?.WebApp?.initData && window.Telegram.WebApp.BackButton);
+  if (!content || content.closest('.aw-shell')) return;
+  const screen = ctx.state.currentScreen;
+  const active = ['admin','admin-users','admin-user-detail','admin-user-access','admin-payments'].includes(screen) ? 'clients' : ['admin-settings','admin-messages','admin-activity'].includes(screen) ? 'system' : 'content';
+  const shell = document.createElement('div');
+  shell.className = 'aw-shell';
   const nav = document.createElement('nav');
-  nav.className = 'admin-navigation';
+  nav.className = 'aw-navigation';
   nav.setAttribute('aria-label', 'Адміністративна навігація');
   nav.innerHTML = `
-    ${nativeBack ? '<span class="admin-navigation__context">Адміністрування</span>' : '<button type="button" data-admin-back>← Назад</button>'}
-    ${root ? '<span class="admin-navigation__context">Test_Customs</span>' : '<button type="button" data-admin-home>До меню адміністратора</button>'}
+    <div class="aw-brand"><strong>Test_Customs</strong><span>Адміністративний простір</span></div>
+    <div class="aw-destinations">${ADMIN_DESTINATIONS.map(item => `<button type="button" data-aw-destination="${item.key}" aria-current="${active === item.key ? 'page' : 'false'}">${ctx.lineIcon(item.iconName)}<span>${item.title}</span></button>`).join('')}</div>
+    <button class="aw-exit" type="button" data-aw-exit>До застосунку</button>
   `;
-  nav.querySelector('[data-admin-back]')?.addEventListener('click', () => void ctx.goBack());
-  nav.querySelector('[data-admin-home]')?.addEventListener('click', async () => {
-    // Leaving an APK import must release its temporary session, as Back does.
+  nav.querySelectorAll('[data-aw-destination]').forEach(button => button.addEventListener('click', async () => {
     if (ctx.state.currentScreen === 'admin-apk-import') await ctx.goBack();
     ctx.state.screenHistory = ['home'];
-    ctx.navigate('admin', { replace: true });
+    ctx.navigate(ADMIN_DESTINATIONS.find(item => item.key === button.dataset.awDestination).screen, { replace: true });
+  }));
+  nav.querySelector('[data-aw-exit]').addEventListener('click', async () => {
+    if (ctx.state.currentScreen === 'admin-apk-import') await ctx.goBack();
+    ctx.state.screenHistory = [];
+    ctx.navigate('home', { replace: true });
   });
-  content.prepend(nav);
+  const main = document.createElement('div'); main.className = 'aw-main';
+  content.replaceWith(shell); main.append(content); shell.append(nav,main);
+  document.body.classList.add('admin-mode');
 }

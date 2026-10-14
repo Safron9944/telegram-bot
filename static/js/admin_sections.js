@@ -32,7 +32,7 @@ export function renderAdminSection(ctx) {
           <div class="group__label">Небезпечна дія</div>
           <div class="group__list">
             <button class="cell" type="button" id="admin-section-delete">
-              <span class="cell__body"><span class="cell__title">Видалити розділ</span><span class="cell__subtitle">Разом з усіма його питаннями</span></span>
+              <span class="cell__body"><span class="cell__title">Видалити розділ</span><span class="cell__subtitle">Прибрати з каталогу; оплачені матеріали зберігаються</span></span>
               <span class="cell__chevron" aria-hidden="true"></span>
             </button>
           </div>
@@ -40,13 +40,13 @@ export function renderAdminSection(ctx) {
     </section>`;
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
   ctx.refs.mainPanel.querySelector("#admin-section-delete")?.addEventListener("click", async () => {
-    if (!window.confirm(`Видалити «${section.title}» разом із усіма питаннями?`)) return;
+    if (!window.confirm(`Прибрати «${section.title}» з каталогу? Оплачені матеріали зберігаються для покупців.`)) return;
     try {
-      await ctx.api(sectionUrl(ctx), { method: "DELETE" });
+      const result = await ctx.api(sectionUrl(ctx), { method: "DELETE" });
       ctx.state.selectedAdminSection = null;
       ctx.state.selectedAttestationAdminBankId = null;
       await ctx.goBack();
-      ctx.setMessage("success", "Розділ видалено.");
+      ctx.setMessage("success", result?.message || "Розділ прибрано з каталогу.");
     } catch (error) { ctx.setMessage("error", error.message); }
   });
 }
