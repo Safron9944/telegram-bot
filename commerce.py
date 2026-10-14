@@ -50,6 +50,10 @@ def commerce_summary(detail: dict) -> dict:
     unavailable = {row["id"] for row in detail.get("unavailable_purchases", [])}
     return {"paid_count": len(paid), "payment_totals": totals,
             "purchase_titles": list(dict.fromkeys(row["product_title"] for row in paid)),
+            "purchase_sources": list(dict.fromkeys(row.get("source", "") for row in paid)),
+            "unknown_amount_count": sum(row.get("amount") is None for row in paid),
+            "manual_titles": list(dict.fromkeys(row["product_title"] for row in detail.get("manual_grants", []))),
+            "legacy_titles": list(dict.fromkeys(row["product_title"] for row in legacy)),
             "manual_count": len(detail.get("manual_grants", [])), "legacy_count": len(legacy),
             "attention_count": len(legacy) + sum(row.get("amount") is None or row.get("id") in unavailable for row in paid)}
 

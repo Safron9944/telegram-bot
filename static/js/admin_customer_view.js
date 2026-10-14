@@ -8,6 +8,21 @@ export function paymentSource(source) {
   return ({ telegram: 'Telegram Stars', telegram_sync: 'Telegram Stars · звірено', legacy_telegram: 'Перенесена оплата Telegram', admin_external: 'Підтверджено адміністратором', admin: 'Підтверджено адміністратором', imported: 'Перенесена оплата Telegram' })[source] || 'Джерело потребує перевірки';
 }
 
+export function clientListSummary(user = {}) {
+  const s=user.commerce_summary;
+  if(!s)return {product:'Дані ще не отримано',evidence:'',amount:'',attention:false};
+  const names=items=>(items||[]).filter(Boolean).join(', ');
+  const manualProducts=(s.manual_titles||[]).filter(Boolean);
+  const known=Object.entries(s.payment_totals||{}).filter(([,amount])=>amount>0).map(([currency,amount])=>paymentAmount({currency,amount})).join(' + ');
+  if(s.paid_count){
+    const sources=[...new Set((s.purchase_sources||[]).map(source=>({telegram:'Telegram Stars',telegram_sync:'Telegram Stars',legacy_telegram:'Telegram · старий запис',admin_external:'Переказ · підтвердив адміністратор'})[source]||'Джерело не перевірене'))].join(', ');
+    return {product:names(s.purchase_titles)||'Підтверджена покупка',evidence:['Оплачено',sources,!manualProducts.length&&s.manual_count?`Ручних дозволів: ${s.manual_count}`:null].filter(Boolean).join(' · '),amount:known?(s.unknown_amount_count?`${known} + невідома сума`:known):'Сума невідома',attention:!!s.attention_count,manualProducts};
+  }
+  if(s.legacy_count)return {product:names(s.legacy_titles)||'Старий доступ',evidence:'Старий доступ · перевірити оплату',amount:'',attention:true,manualProducts};
+  if(s.manual_count)return {product:names(s.manual_titles)||'Ручний доступ',evidence:'Доступ вручну · оплата не зафіксована',amount:'',attention:false};
+  return {product:'Оплата не зафіксована',evidence:'',amount:'',attention:false};
+}
+
 export function adminDate(value) {
   if (!value) return 'Дата невідома';
   const date = new Date(value);

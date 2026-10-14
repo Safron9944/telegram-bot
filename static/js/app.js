@@ -3,10 +3,10 @@ import { state } from "./core/state.js?v=20260923-testing-labels-14";
 import { api } from "./core/api.js?v=20260617-question-search-04";
 import { tg, initializeTelegram, impact, syncClosingConfirmation } from "./core/telegram.js?v=20260815-language-browse-03";
 import { initializeTheme } from "./core/theme.js?v=20260809-prototype-01";
-import { mountAdminNavigation } from "./admin_navigation.js?v=20261014-admin-workspace-01";
-import { renderAdminTariffs, renderAdminSettings } from "./admin_settings.js?v=20261014-admin-workspace-01";
-import { renderAdminWorkspace, renderAdminActivity } from "./admin_workspace.js?v=20261014-admin-workspace-01";
-import { renderAdminContentWorkspace } from "./admin_content_workspace.js?v=20261014-admin-workspace-01";
+import { mountAdminNavigation } from "./admin_navigation.js?v=20261014-admin-compact-01";
+import { renderAdminTariffs, renderAdminSettings } from "./admin_settings.js?v=20261014-admin-compact-01";
+import { renderAdminWorkspace, renderAdminActivity } from "./admin_workspace.js?v=20261014-admin-compact-01";
+import { renderAdminContentWorkspace } from "./admin_content_workspace.js?v=20261014-admin-compact-01";
 import {
   actionButton,
   bindInlineTargets,
@@ -68,7 +68,7 @@ import {
   renderAdminUserDetail,
   renderAdminUsers,
   runQuestionSearch,
-} from "./screens/admin.js?v=20261014-admin-workspace-01";
+} from "./screens/admin.js?v=20261014-admin-compact-01";
 import { renderCurrentView } from "./screens/session.js?v=20261009-remove-language-01";
 import {
   cleanupAdminApkImport,
@@ -87,7 +87,7 @@ import {
   renderAdminSectionSettings,
   renderAdminSectionTopics,
   renderAdminSectionTopicEdit,
-} from "./admin_sections.js?v=20261014-admin-workspace-01";
+} from "./admin_sections.js?v=20261014-admin-compact-01";
 
 const PROTOTYPE_SCREENS = new Set([
   "home",

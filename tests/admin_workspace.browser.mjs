@@ -104,6 +104,7 @@ export async function runAdminFollowupChecks(browser,{baseUrl}) {
       await closeCustomer();await page.locator('[data-aw-user="42"]').click();await page.locator('[data-aw-customer="42"]').waitFor();
       await page.evaluate(()=>{const p=window.adminPreview;p.holdDelete=false;p.releaseDelete()});await page.waitForFunction(()=>!window.adminPreview.details.has(43));
       await page.locator('[data-aw-user="44"]').waitFor({state:'attached'});assert.equal(await page.locator('[data-aw-customer="42"]').count(),1,'delete completion must retain a different selected customer');
+      if(width<960)await closeCustomer();
       await page.locator('[data-aw-view="payments"]').click();await page.locator('.aw-payment-row').first().waitFor();
       if(width>=960)await page.locator('.aw-payment-row').first().click();
       await page.locator('[data-aw-sync]').click();await page.getByText(/Звірку завершено/).waitFor();

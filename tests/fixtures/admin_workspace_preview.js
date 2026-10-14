@@ -12,10 +12,15 @@ const purchase={id:1,product_key:'full',product_title:'Повний пакет',
 const products=[{product_key:'full',product_title:'Повний пакет'},{product_key:'cases',product_title:'Пакет атестації'},...sections.filter(s=>s.price>0).map(s=>({product_key:`section:${s.key}`,product_title:s.title}))];
 const makeDetail=(id,name,purchases=[],legacy=[])=>({user_id:id,first_name:name,last_name:'Користувачка',is_admin:false,created_at:'2026-01-21T12:58:00Z',access:{tier:purchases.length||legacy.length?'full':'none',sub_infinite:!!(purchases.length||legacy.length),sub_end:null},stats:{count:4,avg:95,last:{correct:113,total:130,finished_at:'2026-10-12T13:01:00Z'}},purchases,manual_grants:[],legacy_access:legacy,access_events:[],grant_products:clone(products),section_controls:sections.filter(s=>s.price>0).map(s=>({key:s.key,title:s.title,group:s.group,has_access:!!(purchases.length||legacy.length),visible:!!(purchases.length||legacy.length),control_mode:'access',access_source:purchases.length?'paid':legacy.length?'legacy':'none',purchased:!!purchases.length}))});
 const details=new Map([[42,makeDetail(42,'Тестова',[clone(purchase)])],[43,makeDetail(43,'Друга')],[44,makeDetail(44,'Старий',[],[{product_key:'full',product_title:'Повний пакет'}])]]);
+const manualDetail=makeDetail(45,'Приклад');manualDetail.manual_grants=[{product_key:'section:cases',product_title:'Кейси',reason:'Тестовий ручний дозвіл',actor_id:1}];details.set(45,manualDetail);
+details.set(46,makeDetail(46,'Інша'));
+details.set(47,makeDetail(47,'Приклад переказу',[{...clone(purchase),id:7,product_key:'section:customs',product_title:'Митні компетенції',source:'admin_external',amount:50000,currency:'UAH'}]));
+const paidManual=makeDetail(48,'Покупка і дозвіл',[{...clone(purchase),id:8}]);paidManual.manual_grants=[{product_key:'section:cases',product_title:'Кейси',actor_id:1,reason:'Тестовий дозвіл'}];details.set(48,paidManual);
+const legacyManual=makeDetail(49,'Старий запис і дозвіл',[],[{product_key:'full',product_title:'Повний пакет'}]);legacyManual.manual_grants=[{product_key:'section:customs',product_title:'Митні компетенції',actor_id:1,reason:'Тестовий дозвіл'}];details.set(49,legacyManual);
 const settings={price_full:250,price_cases:100,admin_contact_url:'https://t.me/test_support'};
 const nativeFetch=window.fetch.bind(window);
 window.adminPreview={requests:[],failNext:false,delayMs:20,details,detail:details.get(42),settings,sections};
-const summary=d=>({paid_count:d.purchases.filter(p=>p.status==='confirmed').length,payment_totals:{XTR:d.purchases.filter(p=>p.status==='confirmed'&&p.currency==='XTR').reduce((v,p)=>v+(p.amount||0),0),UAH:d.purchases.filter(p=>p.status==='confirmed'&&p.currency==='UAH').reduce((v,p)=>v+(p.amount||0),0)},purchase_titles:d.purchases.filter(p=>p.status==='confirmed').map(p=>p.product_title),manual_count:d.manual_grants.length,legacy_count:d.legacy_access.length,attention_count:d.legacy_access.length});
+const summary=d=>({paid_count:d.purchases.filter(p=>p.status==='confirmed').length,payment_totals:{XTR:d.purchases.filter(p=>p.status==='confirmed'&&p.currency==='XTR').reduce((v,p)=>v+(p.amount||0),0),UAH:d.purchases.filter(p=>p.status==='confirmed'&&p.currency==='UAH').reduce((v,p)=>v+(p.amount||0),0)},purchase_titles:d.purchases.filter(p=>p.status==='confirmed').map(p=>p.product_title),purchase_sources:[...new Set(d.purchases.filter(p=>p.status==='confirmed').map(p=>p.source))],unknown_amount_count:d.purchases.filter(p=>p.status==='confirmed'&&p.amount==null).length,manual_titles:d.manual_grants.map(g=>g.product_title),legacy_titles:d.legacy_access.map(l=>l.product_title),manual_count:d.manual_grants.length,legacy_count:d.legacy_access.length,attention_count:d.legacy_access.length});
 window.fetch=async(path,options={})=>{
  if(!String(path).startsWith('/api/'))return nativeFetch(path,options);
  const url=new URL(path,window.location.origin),body=options.body?JSON.parse(options.body):{},preview=window.adminPreview;
@@ -56,4 +61,4 @@ window.fetch=async(path,options={})=>{
  else data={items:[],counts:{active:1,expired:2},offset:0,limit:20,total:0};
  return new Response(JSON.stringify(data),{headers:{'Content-Type':'application/json'}});
 };
-await import('/static/app.js?v=20261014-admin-workspace-01');
+await import('/static/app.js?v=20261014-admin-compact-01');
