@@ -96,7 +96,8 @@ export function renderAdminTariffs(ctx) {
 }
 
 export function renderAdminSettings(ctx) {
-  page(ctx, 'Налаштування', 'Загальні налаштування застосунку.', `
+  page(ctx, 'Система', 'Підтримка, повідомлення та журнал змін.', `
+    <nav class="aw-system-tools" aria-label="Системні інструменти"><button class="aw-button" type="button" data-aw-system="messages">Повідомлення клієнтам</button><button class="aw-button" type="button" data-aw-system="activity">Журнал адміністративних дій</button></nav>
     <section class="admin-profile-block admin-form-block">
       <h2>Підтримка</h2>
       <p class="admin-help">Куди звертаються користувачі з кнопки підтримки.</p>
@@ -108,7 +109,8 @@ export function renderAdminSettings(ctx) {
       </form>
       <div id="admin-settings-status" role="status" aria-live="polite">Завантажуємо налаштування…</div>
     </section>
-    ${ctx.group({header:'Показ розділів', footer:'Назва, ціна й показ кожного розділу налаштовуються в його картці.', children:ctx.cell({title:'Налаштування розділів',subtitle:'Відкрити список матеріалів',iconName:'folder',screen:'admin-attestation-banks',tint:'gray'})})}`);
+    `);
+  ctx.refs.mainPanel.querySelectorAll('[data-aw-system]').forEach(button=>button.addEventListener('click',()=>ctx.navigate(button.dataset.awSystem==='activity'?'admin-activity':'admin-messages')));
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
   const form = ctx.refs.mainPanel.querySelector('#admin-contact-form');
   const input = form.querySelector('input');

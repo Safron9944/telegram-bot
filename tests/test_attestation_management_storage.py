@@ -23,6 +23,12 @@ class FakeConnection:
     def transaction(self):
         return FakeTransaction()
 
+    async def execute(self, query, *args):
+        return None
+
+    async def fetchval(self, query, *args):
+        return None
+
     async def fetch(self, query, *args):
         if "FOR UPDATE" in query:
             return list(self.rows)

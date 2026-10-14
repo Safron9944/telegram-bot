@@ -16,7 +16,7 @@ class AttestationCmsAssetsTests(unittest.TestCase):
         self.assertIn('"admin-attestation-question"', app)
         self.assertIn("renderAdminAttestationQuestion", app)
         navigation = (ROOT / "static/js/admin_navigation.js").read_text(encoding="utf-8")
-        self.assertIn("title: 'Матеріали'", navigation)
+        self.assertIn("title: 'Контент'", navigation)
         self.assertIn("screen: 'admin-attestation-banks'", navigation)
         self.assertIn("Оберіть, що саме потрібно змінити.", (ROOT / "static" / "js" / "admin_sections.js").read_text(encoding="utf-8"))
         self.assertIn('"admin-section-questions"', app)

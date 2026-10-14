@@ -2,4 +2,5 @@
 .claude/worktrees/quirky-jackson-a4ace2/
 __pycache__/
 *.pyc
+.pytest_cache/
 *.pyo
