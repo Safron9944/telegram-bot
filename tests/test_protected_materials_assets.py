@@ -12,8 +12,7 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
 
     def test_admin_user_has_individual_materials_controls(self):
         admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
-        self.assertIn("Показ матеріалів у меню", admin)
-        self.assertIn("Показ у меню не відкриває платний доступ", admin)
+        self.assertIn("Додаткові матеріали", admin)
         self.assertIn("section_controls", admin)
         self.assertIn("/sections/", admin)
         self.assertIn('section.control_mode === "visibility"', admin)
@@ -32,10 +31,10 @@ class ProtectedMaterialsAssetsTests(unittest.TestCase):
         self.assertIn('ctx.navigate("purchase-options")', user)
 
     def test_admin_can_edit_full_access_price(self):
-        admin = (ROOT / "static/js/admin_settings.js").read_text(encoding="utf-8")
-        self.assertIn("Повний пакет", admin)
+        admin = (ROOT / "static/js/screens/admin.js").read_text(encoding="utf-8")
+        self.assertIn("Ціна повного доступу", admin)
         self.assertIn("Вартість, ⭐", admin)
-        self.assertIn("price_full: price", admin)
+        self.assertIn("price_full: priceFull", admin)
 
     def test_server_routes_require_explicit_protected_access(self):
         app = (ROOT / "app.py").read_text(encoding="utf-8")

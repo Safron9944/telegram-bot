@@ -4,7 +4,6 @@ import json
 from typing import Any
 
 from access import access_tier, section_access_override
-from commerce import entitlement_source
 
 
 PROTECTED_SECTION_KEYS = frozenset({"cases", "test_questions", "question_search"})
@@ -62,9 +61,6 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
     key = str(section["key"])
     if key in ALWAYS_FREE_SECTION_KEYS:
         return True
-    source = entitlement_source(user,key,manual_grant_only=bool(section.get("manual_grant_only")))
-    if source != "none":
-        return True
     if key not in PROTECTED_SECTION_KEYS:
         override = section_access_override(user, key)
         if override is not None:
@@ -85,17 +81,9 @@ def _has_access(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -
 
 
 def _is_visible(user: dict[str, Any], section: dict[str, Any], is_admin: bool) -> bool:
-    key = str(section["key"])
-    source = entitlement_source(user,key,manual_grant_only=bool(section.get("manual_grant_only")))
-    if not is_admin and source in {"paid","legacy"}:
-        if section.get("kind") != "attestation" or section.get("bank_status") == "published" or section.get("ever_published") or f"section:{key}" in user.get("paid_products",[]):
-            return True
-    if not is_admin and key in PROTECTED_SECTION_KEYS and source == "manual" and bool(section.get("visible",True)):
-        return True
-    if not is_admin and section.get("kind") == "attestation" and f"section:{key}" in user.get("manual_products",[]):
-        return True
     if not bool(section.get("visible", True)):
         return False
+    key = str(section["key"])
     if is_admin or key not in PROTECTED_SECTION_KEYS:
         return True
     overrides = user.get("section_visibility_overrides", {}) if user else {}
@@ -120,8 +108,6 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
             "kind": "attestation",
             "bank_id": int(bank["id"]),
             "bank_slug": bank["slug"],
-            "bank_status": bank.get("status"),
-            "ever_published": bool(bank.get("ever_published")),
             "title": bank["title"],
             "screen": "attestation-bank",
             "icon": "document",
@@ -145,8 +131,6 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
                     item[field] = override[field]
         item.setdefault("visible", True)
         if item.get("kind") == "attestation":
-            if item.get("bank_status") != "published" and not is_admin:
-                item["visible"] = False
             item["combined_test_enabled"] = bool(item.get("combined_test_enabled", True))
             try:
                 combined_count = int(item.get("combined_test_question_count", 100))
@@ -158,9 +142,6 @@ async def build_sections(store, user: dict[str, Any] | None = None, *, is_admin:
         if item["key"] in ALWAYS_FREE_SECTION_KEYS:
             item["price"] = 0
         item["has_access"] = _has_access(user or {}, item, is_admin)
-        source = entitlement_source(user or {},item["key"],manual_grant_only=bool(item.get("manual_grant_only")))
-        item["access_source"] = source if source != "none" else "free" if item["key"] in ALWAYS_FREE_SECTION_KEYS or (int(item["price"])==0 and item["key"] not in PROTECTED_SECTION_KEYS) else "none"
-        item["purchased"] = source == "paid"
         item["visible"] = _is_visible(user or {}, item, is_admin)
         result.append(item)
     return sorted(result, key=lambda row: (row["order"], row["key"]))

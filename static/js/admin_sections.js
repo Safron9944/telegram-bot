@@ -12,7 +12,7 @@ export function renderAdminSection(ctx) {
   const section = selected(ctx);
   if (!section) return void ctx.goBack();
   const actions = [
-    ctx.cell({ title: "Налаштування розділу", subtitle: "Назва, показ у меню й ціна доступу", iconName: "settings", tint: "blue", screen: "admin-section-settings" }),
+    ctx.cell({ title: "Основне", subtitle: "Назва, показ і ціна доступу", iconName: "settings", tint: "blue", screen: "admin-section-settings" }),
   ];
   if (section.kind === "attestation" && section.bank_id) {
     actions.push(ctx.cell({ title: "Підрозділи", subtitle: "Перегляд і зміна назв", iconName: "folder", tint: "green", screen: "admin-section-topics" }));
@@ -32,7 +32,7 @@ export function renderAdminSection(ctx) {
           <div class="group__label">Небезпечна дія</div>
           <div class="group__list">
             <button class="cell" type="button" id="admin-section-delete">
-              <span class="cell__body"><span class="cell__title">Видалити розділ</span><span class="cell__subtitle">Прибрати з каталогу; оплачені матеріали зберігаються</span></span>
+              <span class="cell__body"><span class="cell__title">Видалити розділ</span><span class="cell__subtitle">Разом з усіма його питаннями</span></span>
               <span class="cell__chevron" aria-hidden="true"></span>
             </button>
           </div>
@@ -40,13 +40,13 @@ export function renderAdminSection(ctx) {
     </section>`;
   ctx.bindInlineTargets(ctx.refs.mainPanel, { navigate: ctx.navigate });
   ctx.refs.mainPanel.querySelector("#admin-section-delete")?.addEventListener("click", async () => {
-    if (!window.confirm(`Прибрати «${section.title}» з каталогу? Оплачені матеріали зберігаються для покупців.`)) return;
+    if (!window.confirm(`Видалити «${section.title}» разом із усіма питаннями?`)) return;
     try {
-      const result = await ctx.api(sectionUrl(ctx), { method: "DELETE" });
+      await ctx.api(sectionUrl(ctx), { method: "DELETE" });
       ctx.state.selectedAdminSection = null;
       ctx.state.selectedAttestationAdminBankId = null;
       await ctx.goBack();
-      ctx.setMessage("success", result?.message || "Розділ прибрано з каталогу.");
+      ctx.setMessage("success", "Розділ видалено.");
     } catch (error) { ctx.setMessage("error", error.message); }
   });
 }
@@ -58,7 +58,7 @@ export function renderAdminSectionSettings(ctx) {
   const isAttestation = section.kind === "attestation";
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
-      <h1 class="page-title">Налаштування розділу</h1>
+      <h1 class="page-title">Основне</h1>
       <p class="page-subtitle">${ctx.escapeHtml(section.title)}</p>
       <form class="admin-section-form" id="admin-section-settings-form">
         <label class="field"><span class="field__label">Назва розділу</span><input class="input" id="admin-section-title" maxlength="160" value="${ctx.escapeHtml(section.title)}"></label>

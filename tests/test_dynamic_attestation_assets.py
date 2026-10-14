@@ -32,8 +32,7 @@ class DynamicAttestationAssetTests(unittest.TestCase):
         detail = (ROOT / "static" / "js" / "admin_attestation_banks.js").read_text(encoding="utf-8")
         html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 
-        navigation = (ROOT / "static/js/admin_navigation.js").read_text(encoding="utf-8")
-        self.assertIn("screen: 'admin-attestation-banks'", navigation)
+        self.assertIn('screen: "admin-attestation-banks"', admin)
         self.assertIn('screen: "admin-apk-import"', admin)
         self.assertIn('case "admin-attestation-banks"', app)
         self.assertIn('/api/admin/sections', admin)

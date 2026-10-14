@@ -272,18 +272,17 @@ def register_apk_import_routes(
         await reload_catalog(runtime)
         return {"ok": True}
 
-    @app.delete("/api/admin/attestation-banks/{bank_key}")
+    @app.delete("/api/admin/attestation-banks/{bank_key}", status_code=204)
     async def delete_attestation_bank(bank_key: str, request: Request, auth=Depends(get_auth_context)):
         require_admin(auth)
         runtime = runtime_for(request)
         if not bank_key.isdigit():
             _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
         bank_id = int(bank_key)
-        result = await runtime.store.delete_attestation_bank(bank_id)
-        if not result:
+        if not await runtime.store.delete_attestation_bank(bank_id):
             _error(404, "attestation_bank_not_found", "Розділ атестації не знайдено.")
         await reload_catalog(runtime)
-        return {"ok":True,**result} if isinstance(result,dict) else Response(status_code=204)
+        return Response(status_code=204)
 
     @app.post("/api/admin/apk-import/sessions")
     async def upload_apk(file: UploadFile = File(...), auth=Depends(get_auth_context)):
