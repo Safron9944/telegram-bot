@@ -1,4 +1,4 @@
-import "/static/js/app.js?v=20261009-remove-language-01";
+import "/static/js/app.js?v=20261014-admin-clarity-01";
 
 const confirmedFinishButtons = new WeakSet();
 const pendingFinishButtons = new WeakSet();
