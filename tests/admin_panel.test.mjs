@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { adminAccessSummary } from '../static/js/admin_access.js';
 import { ADMIN_DESTINATIONS } from '../static/js/admin_navigation.js';
-import { paymentAmount, paymentSource, eventLabel, renderEvents, renderCustomer } from '../static/js/admin_customer_view.js';
+import { paymentAmount, paymentSource, eventLabel, renderEvents, renderCustomer, clientListSummary } from '../static/js/admin_customer_view.js';
 
 const section = (has_access, visible, control_mode = 'access') => ({ has_access, visible, control_mode });
 
@@ -49,7 +49,7 @@ test('legacy attestation package is distinguished from a full package', () => {
 });
 
 test('customer, content and system workspaces have distinct destinations', () => {
-  assert.deepEqual(ADMIN_DESTINATIONS.map(item => item.title), ['Клієнти', 'Контент', 'Система']);
+  assert.deepEqual(ADMIN_DESTINATIONS.map(item => item.title), ['Клієнти', 'Матеріали', 'Система']);
   assert.equal(new Set(ADMIN_DESTINATIONS.map(item => item.screen)).size, 3);
   assert.ok(ADMIN_DESTINATIONS.every(item => item.screen.startsWith('admin-')));
 });
@@ -84,4 +84,28 @@ test('missing paid material is shown honestly and an orphan gift remains revocab
   assert.doesNotMatch(html,/Куплений доступ захищений/);
   assert.match(html,/value="section:attestation:9" selected/);
   assert.match(html,/data-aw-delete disabled/);
+});
+
+test('client rows show payment proof once, including product and source', () => {
+  const result=clientListSummary({commerce_summary:{paid_count:1,payment_totals:{XTR:250},purchase_titles:['Повний пакет'],purchase_sources:['telegram'],manual_count:0,legacy_count:0,attention_count:0}});
+  assert.equal(result.product,'Повний пакет');assert.equal(result.evidence,'Оплачено · Telegram Stars');assert.equal(result.amount,'250 ⭐');
+});
+test('a manual permission names its product without pretending it is paid', () => {
+  const result=clientListSummary({commerce_summary:{paid_count:0,payment_totals:{},purchase_titles:[],manual_count:1,manual_titles:['Кейси'],legacy_count:0}});
+  assert.equal(result.product,'Кейси');assert.equal(result.evidence,'Доступ вручну · оплата не зафіксована');assert.equal(result.amount,'');
+});
+test('missing historic records and missing summary never claim a client did not pay', () => {
+  assert.equal(clientListSummary({commerce_summary:{paid_count:0,manual_count:0,legacy_count:0}}).product,'Оплата не зафіксована');
+  assert.equal(clientListSummary({}).product,'Дані ще не отримано');
+});
+test('mixed currencies and unknown recorded amounts remain explicit', () => {
+  const result=clientListSummary({commerce_summary:{paid_count:2,payment_totals:{UAH:125},purchase_titles:['Кейси'],purchase_sources:['admin_external','legacy_telegram'],unknown_amount_count:1}});
+  assert.match(result.amount,/1,25 ₴/);assert.match(result.amount,/невідома/);assert.match(result.evidence,/адміністратор/);
+});
+
+test('paid and legacy clients retain the names and source of manual products', () => {
+  for(const s of [{paid_count:1,purchase_titles:['Повний пакет'],payment_totals:{XTR:250}},{paid_count:0,legacy_count:1,legacy_titles:['Старий пакет']}]){
+    const result=clientListSummary({commerce_summary:{...s,manual_count:1,manual_titles:['Кейси']}});
+    assert.deepEqual(result.manualProducts,['Кейси']);assert.notEqual(result.product,'Кейси');
+  }
 });

@@ -82,12 +82,12 @@ class AdminUsersUiTests(unittest.TestCase):
         entry = (ROOT / "static/app.js").read_text(encoding="utf-8")
         styles = (ROOT / "static/styles.css").read_text(encoding="utf-8")
         module = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
-        self.assertIn("static/app.js?v=20261014-admin-workspace-01", index)
-        self.assertIn("static/styles.css?v=20261014-admin-workspace-01", index)
-        self.assertIn("static/js/app.js?v=20261014-admin-workspace-01", entry)
+        self.assertIn("static/app.js?v=20261014-admin-compact-01", index)
+        self.assertIn("static/styles.css?v=20261014-admin-compact-01", index)
+        self.assertIn("static/js/app.js?v=20261014-admin-compact-01", entry)
         self.assertIn("styles/components.css?v=20261009-remove-language-01", styles)
-        self.assertIn("screens/admin.js?v=20261014-admin-workspace-01", module)
-        self.assertIn("styles/admin.css?v=20261014-admin-workspace-01", styles)
+        self.assertIn("screens/admin.js?v=20261014-admin-compact-01", module)
+        self.assertIn("styles/admin.css?v=20261014-admin-compact-01", styles)
         self.assertIn("screens/user.js?v=20261009-remove-language-01", module)
 
 
