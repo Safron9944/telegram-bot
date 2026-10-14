@@ -12,7 +12,7 @@ export function renderAdminSection(ctx) {
   const section = selected(ctx);
   if (!section) return void ctx.goBack();
   const actions = [
-    ctx.cell({ title: "Основне", subtitle: "Назва, показ і ціна доступу", iconName: "settings", tint: "blue", screen: "admin-section-settings" }),
+    ctx.cell({ title: "Налаштування розділу", subtitle: "Назва, показ у меню й ціна доступу", iconName: "settings", tint: "blue", screen: "admin-section-settings" }),
   ];
   if (section.kind === "attestation" && section.bank_id) {
     actions.push(ctx.cell({ title: "Підрозділи", subtitle: "Перегляд і зміна назв", iconName: "folder", tint: "green", screen: "admin-section-topics" }));
@@ -58,7 +58,7 @@ export function renderAdminSectionSettings(ctx) {
   const isAttestation = section.kind === "attestation";
   ctx.refs.mainPanel.innerHTML = `
     <section class="screen-content">
-      <h1 class="page-title">Основне</h1>
+      <h1 class="page-title">Налаштування розділу</h1>
       <p class="page-subtitle">${ctx.escapeHtml(section.title)}</p>
       <form class="admin-section-form" id="admin-section-settings-form">
         <label class="field"><span class="field__label">Назва розділу</span><input class="input" id="admin-section-title" maxlength="160" value="${ctx.escapeHtml(section.title)}"></label>
